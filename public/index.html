@@ -2537,7 +2537,7 @@ function AdvisorPortal({currentUser,users,staffing,feedbackRecords,raw,historico
   return h(Fragment,null,
     h("div",{style:{marginBottom:34}},
       h("div",{style:{fontSize:11,color:THEME.accent,textTransform:"uppercase",letterSpacing:"0.28em",fontWeight:800,marginBottom:12,fontFamily:THEME.displayFont}},"ADVISOR QUALITY PORTAL"),
-      h("h1",{style:{fontSize:44,fontWeight:700,color:THEME.text,letterSpacing:"0.03em",lineHeight:1.05,fontFamily:THEME.displayFont,textTransform:"uppercase",marginBottom:10}},"Mi perfil de asesor"),
+      h("h1",{style:{fontSize:44,fontWeight:700,color:THEME.text,letterSpacing:"0.03em",lineHeight:1.05,fontFamily:THEME.displayFont,textTransform:"uppercase",marginBottom:10}},"Hola ",profile.advisorName || currentUser?.nombre || "Asesor"),
       h("div",{style:{fontSize:13,color:"#9aa4ba",maxWidth:760,lineHeight:1.7}},"Aqui puedes revisar las evaluaciones y feedbacks que te asigno el equipo de calidad, responder en el hilo y aceptar cada registro con trazabilidad completa.")
     ),
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:20,marginBottom:26}},
@@ -4188,7 +4188,7 @@ function AdvisorPortal({currentUser,users,staffing,feedbackRecords,evaluationRec
   return h(Fragment,null,
     h("div",{style:{marginBottom:34}},
       h("div",{style:{fontSize:11,color:THEME.accent,textTransform:"uppercase",letterSpacing:"0.28em",fontWeight:800,marginBottom:12,fontFamily:THEME.displayFont}},"ADVISOR QUALITY PORTAL"),
-      h("h1",{style:{fontSize:44,fontWeight:700,color:THEME.text,letterSpacing:"0.03em",lineHeight:1.05,fontFamily:THEME.displayFont,textTransform:"uppercase",marginBottom:10}},"Mi perfil de asesor"),
+      h("h1",{style:{fontSize:44,fontWeight:700,color:THEME.text,letterSpacing:"0.03em",lineHeight:1.05,fontFamily:THEME.displayFont,textTransform:"uppercase",marginBottom:10}},"Hola ",profile.advisorName || currentUser?.nombre || "Asesor"),
       h("div",{style:{fontSize:13,color:"#9aa4ba",maxWidth:760,lineHeight:1.7}},"Visualiza tus feedbacks, entiende los conceptos clave y da seguimiento a tus compromisos de mejora.")
     ),
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:20,marginBottom:26}},
@@ -5010,6 +5010,7 @@ function buildAdvisorTableRows(feedbackRows, sectionRows){
 
 function buildTeamInsight(feedbackRows, sectionRows, noTipificationRows){
   if (!feedbackRows.length) return null;
+  const evaluationRows = (feedbackRows || []).filter(row => row.sourceType === "evaluation");
   const advisorTable = buildAdvisorTableRows(feedbackRows, sectionRows, noTipificationRows);
   const criticalIndicators = buildIndicatorOutcomeCounts(sectionRows);
   const paretoErrors = buildParetoByAttribute(sectionRows);
@@ -5037,7 +5038,7 @@ function buildTeamInsight(feedbackRows, sectionRows, noTipificationRows){
     supervisor: feedbackRows[0]?.supervisor || "",
     campaign: feedbackRows[0]?.campaign || "",
     totalAdvisors,
-    totalEvaluations: feedbackRows.length,
+    totalEvaluations: evaluationRows.length,
     totalFeedbacks: feedbackRows.length,
     totalReinforcements: getManagementCounter(feedbackRows, "Refuerzo"),
     totalClinics: getManagementCounter(feedbackRows, "Clinica de calidad"),
@@ -6094,12 +6095,16 @@ function canViewEvaluationRecord(currentUser, staffing, evaluation){
   return false;
 }
 
+function getVisibleEvaluationRecords(currentUser, staffing, evaluationRecords){
+  return (evaluationRecords || [])
+    .filter(Boolean)
+    .filter(item => canViewEvaluationRecord(currentUser, staffing, item));
+}
+
 function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluation,onDeleteEvaluation}){
   const [search,setSearch] = useState("");
   const [modeFilter,setModeFilter] = useState(() => String(currentUser?.rol || "").trim().toLowerCase() === "formador" ? "ojt" : "all");
-  const rows = useMemo(() => (evaluationRecords || [])
-    .filter(Boolean)
-    .filter(item => canViewEvaluationRecord(currentUser, staffing, item))
+  const rows = useMemo(() => getVisibleEvaluationRecords(currentUser, staffing, evaluationRecords)
     .filter(item => modeFilter === "all" || (modeFilter === "ojt" ? isOjtEvaluationRecord(item) : !isOjtEvaluationRecord(item)))
     .filter(item => {
       const needle = search.trim().toLowerCase();
@@ -6398,10 +6403,11 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
     };
   };
 
-  const evaluationFeedbackRows = (evaluationRecords || [])
+  const visibleEvaluationRecords = getVisibleEvaluationRecords(currentUser, staffing, evaluationRecords);
+  const evaluationFeedbackRows = visibleEvaluationRecords
     .filter(evaluation => canSeeAdvisor(evaluation?.asesorNombre))
     .map(buildBaseRow);
-  const evaluationFeedbackIds = new Set((evaluationRecords || []).map(item => String(item?.feedbackId || "")).filter(Boolean));
+  const evaluationFeedbackIds = new Set(visibleEvaluationRecords.map(item => String(item?.feedbackId || "")).filter(Boolean));
   const feedbackOnlyRows = (feedbackRecords || [])
     .filter(record => !evaluationFeedbackIds.has(String(record?.id || "")))
     .filter(record => canSeeAdvisor(record?.asesorNombre || record?.assessor))
