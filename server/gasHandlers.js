@@ -1020,6 +1020,20 @@ export const gasHandlers = {
     });
   },
 
+  async deleteEvaluationRecord(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    requireRoles(currentUser, ["admin"], "Solo administradores pueden borrar evaluaciones.");
+    const id = normalizeId(payload.idEvaluacion || payload.id);
+    if (!id) throw new Error("No se puede borrar una evaluacion sin id.");
+    const compact = await readSharedJson(EVALUATIONS_KEY, []);
+    const nextCompact = Array.isArray(compact)
+      ? compact.filter(item => normalizeId(item?.id || item?.idEvaluacion) !== id)
+      : [];
+    await deleteSharedRecord(getEvaluationRecordKey(id));
+    await writeSharedRecord(EVALUATIONS_KEY, nextCompact);
+    return { ok: true, id };
+  },
+
   async uploadEvaluationAttachment(payload = {}) {
     const currentUser = ensureCurrentUser(payload.currentUser);
     requireRoles(currentUser, ["admin", "analista", "formador"], "No tienes permisos para subir adjuntos de evaluaciones.");

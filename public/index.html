@@ -491,6 +491,15 @@ async function updateEvaluationEntry(payload){
   }
 }
 
+async function deleteEvaluationEntry(payload){
+  try{
+    return await runGoogleScript("deleteEvaluationRecord", payload);
+  }catch(err){
+    console.error("Error eliminando evaluacion:", err);
+    throw err;
+  }
+}
+
 async function loadNoTipificationRecords(){
   try{
     const data = await runGoogleScript("listNoTipificationRecords");
@@ -5734,6 +5743,26 @@ function App(){
     return saved;
   };
 
+  const eliminarEvaluacion = async(record) => {
+    const id = String(record?.id || record?.idEvaluacion || "").trim();
+    if (!id) {
+      notify("e","No se encontro el id de la evaluacion.");
+      return false;
+    }
+    if (!confirm("Borrar esta evaluacion? Esta accion no se puede deshacer.")) return false;
+    const deleted = await deleteEvaluationEntry({id,currentUser});
+    if (!deleted?.ok) {
+      notify("e","No se pudo borrar la evaluacion.");
+      return false;
+    }
+    setEvaluationRecords(prev => (prev || []).filter(item => String(item?.id || item?.idEvaluacion || "") !== id));
+    if (String(selectedEvaluationRecord?.id || selectedEvaluationRecord?.idEvaluacion || "") === id) {
+      closeEvaluationModal();
+    }
+    notify("s","Evaluacion borrada correctamente.");
+    return true;
+  };
+
   const guardarNoTipificacion = async(payload) => {
     const saved = await saveNoTipificationEntry(payload);
     await reloadNoTipificationRecords();
@@ -5904,7 +5933,7 @@ function App(){
           view==="communications" && h(CommunicationsCenter,{records:communicationRecords,currentUser,onSave:guardarComunicado,onDelete:eliminarComunicado,onAddComment:comentarComunicado,onDeleteComment:eliminarComentarioComunicado,onMarkRead:marcarComunicadoLeido,onRefresh:reloadCommunications,notify,users,focusedCommunicationId}),
           view==="notifications" && h(NotificationCenter,{currentUser,notifications,onRefresh:reloadNotifications,onOpenNotificationTarget:openNotificationTarget}),
           view==="legend" && h(LegendCenter,{concepts:legendConcepts,onRefresh:reloadLegend}),
-          view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords,staffing,onOpenEvaluation:openEvaluationModal}),
+          view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords,staffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
           view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords,evaluationRecords,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing}),
           view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing,setStaffing,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords,feedbackRecords,currentUser}),
           view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,notify,staffing})
@@ -5916,7 +5945,7 @@ function App(){
     h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,defaultAssessor:feedbackModalAssessor || "",notify}),
     h(NoTipificationModal,{isOpen:!!selectedNoTipificationEntry,onClose:closeNoTipificationModal,entryContext:selectedNoTipificationEntry,currentUser,onSave:guardarNoTipificacion,notify}),
     h(EvaluationModal,{isOpen:!!selectedEvaluationFeedback,onClose:closeEvaluationModal,feedbackRecord:selectedEvaluationFeedback,evaluationRecord:editingEvaluation,currentUser,onSave:guardarEvaluacion,onUpdate:actualizarEvaluacion,notify}),
-    h(EvaluationHistoryModal,{advisorName:selectedEvaluationHistoryAdvisor,evaluations:evaluationRecords,evaluationsLoading,feedbackRecords,noTipificationRecords,currentUser,onClose:closeEvaluationHistory,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal}),
+    h(EvaluationHistoryModal,{advisorName:selectedEvaluationHistoryAdvisor,evaluations:evaluationRecords,evaluationsLoading,feedbackRecords,noTipificationRecords,currentUser,onClose:closeEvaluationHistory,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,onDeleteEvaluation:eliminarEvaluacion}),
     h(FeedbackPreviewModal,{record:selectedPreviewFeedback,evaluation:previewEvaluation,currentUser,onClose:closePreviewModal,onMarkViewed:()=>runPreviewAction("mark_viewed",selectedPreviewFeedback),onAccept:()=>runPreviewAction("accept_feedback",selectedPreviewFeedback),onSetFollowUp:()=>runPreviewAction("set_follow_up",selectedPreviewFeedback),onCloseFeedback:()=>runPreviewAction("close_feedback",selectedPreviewFeedback)})
   );
 }
@@ -6053,7 +6082,7 @@ function canViewEvaluationRecord(currentUser, staffing, evaluation){
   return false;
 }
 
-function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluation}){
+function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluation,onDeleteEvaluation}){
   const [search,setSearch] = useState("");
   const [modeFilter,setModeFilter] = useState(() => String(currentUser?.rol || "").trim().toLowerCase() === "formador" ? "ojt" : "all");
   const rows = useMemo(() => (evaluationRecords || [])
@@ -6078,6 +6107,7 @@ function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluat
   );
 
   const openDetail = row => onOpenEvaluation(buildEvaluationEntryContext(row), row);
+  const canDeleteEvaluations = String(currentUser?.rol || "").trim().toLowerCase() === "admin";
   const openOjtEvaluation = () => onOpenEvaluation(buildEvaluationEntryContext({
     evaluationMode: "ojt",
     isOjt: true,
@@ -6125,7 +6155,10 @@ function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluat
           {key:"estadoEvaluacion",label:"Estado",render:row=>h("span",{style:{background:row.estadoEvaluacion==="closed" ? "rgba(25,195,125,0.12)" : "rgba(29,43,255,0.12)",border:row.estadoEvaluacion==="closed" ? "1px solid rgba(25,195,125,0.28)" : "1px solid rgba(29,43,255,0.28)",color:row.estadoEvaluacion==="closed" ? "#19C37D" : THEME.primary,padding:"6px 10px",borderRadius:999,fontSize:10,fontWeight:800,letterSpacing:"0.1em",fontFamily:THEME.displayFont}},row.estadoEvaluacion==="closed" ? "CERRADA" : "GUARDADA")},
           {key:"auditorNombre",label:"Auditor"},
           {key:"campaign",label:"Tipo gestion"},
-          {key:"action",label:"Detalle",render:row=>h("button",{style:{...BTN("s"),padding:"8px 12px"},onClick:()=>openDetail(row)},I("file",12,"#fff"),"ABRIR")}
+          {key:"action",label:"Accion",render:row=>h("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
+            h("button",{style:{...BTN("s"),padding:"8px 12px"},onClick:()=>openDetail(row)},I("file",12,"#fff"),"ABRIR"),
+            canDeleteEvaluations && h("button",{style:{...BTN("out"),padding:"8px 12px",color:THEME.accent,border:"1px solid rgba(230,0,168,0.35)"},onClick:()=>onDeleteEvaluation(row)},I("trash",12,THEME.accent),"BORRAR")
+          )}
         ],
         rows,
         emptyMessage:"No hay evaluaciones registradas para tu perfil o filtros actuales."
@@ -6578,11 +6611,12 @@ function getAdvisorNoTipificationHistory(noTipificationRecords, advisorName){
     .sort((a,b)=>getDateMs(b?.callDateTime || b?.createdAt) - getDateMs(a?.callDateTime || a?.createdAt));
 }
 
-function EvaluationHistoryModal({advisorName,evaluations,evaluationsLoading,feedbackRecords,noTipificationRecords,currentUser,onClose,onOpenEvaluation,onOpenPreview}){
+function EvaluationHistoryModal({advisorName,evaluations,evaluationsLoading,feedbackRecords,noTipificationRecords,currentUser,onClose,onOpenEvaluation,onOpenPreview,onDeleteEvaluation}){
   if (!advisorName) return null;
   const evaluationRows = getAdvisorEvaluationHistory(evaluations, advisorName);
   const feedbackRows = getAdvisorFeedbackHistory(feedbackRecords, advisorName);
   const noTipificationRows = getAdvisorNoTipificationHistory(noTipificationRecords, advisorName);
+  const canDeleteEvaluations = String(currentUser?.rol || "").trim().toLowerCase() === "admin";
   if (typeof console !== "undefined" && evaluationsLoading) {
     console.info("[HISTORIAL_EMPTY_STATE]", {
       motivo: "Historial individual en carga; no se muestra estado vacio definitivo.",
@@ -6667,7 +6701,10 @@ function EvaluationHistoryModal({advisorName,evaluations,evaluationsLoading,feed
                 ))
               );
             }},
-            {key:"action",label:"Accion",render:row=>h("button",{style:{...BTN("s"),padding:"8px 12px"},onClick:()=>onOpenEvaluation(buildEvaluationEntryContext(row),row)},"ABRIR")}
+            {key:"action",label:"Accion",render:row=>h("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
+              h("button",{style:{...BTN("s"),padding:"8px 12px"},onClick:()=>onOpenEvaluation(buildEvaluationEntryContext(row),row)},"ABRIR"),
+              canDeleteEvaluations && h("button",{style:{...BTN("out"),padding:"8px 12px",color:THEME.accent,border:"1px solid rgba(230,0,168,0.35)"},onClick:()=>onDeleteEvaluation(row)},I("trash",12,THEME.accent),"BORRAR")
+            )}
           ],
           rows:evaluationRows,
           emptyMessage:"Este asesor aun no tiene evaluaciones registradas."
