@@ -16,6 +16,21 @@ function getBlobKey(blobId) {
   return `file_blob_${String(blobId || "").trim()}`;
 }
 
+function normalizeBlobMimeType(file) {
+  const rawMime = String(file?.mimeType || "").trim();
+  const mime = rawMime.toLowerCase();
+  const name = String(file?.name || "").toLowerCase();
+  const type = String(file?.kind || file?.type || "").toLowerCase();
+  const isAudio = type.includes("audio") || /\.(mp3|mpeg|mpga|m4a|wav|ogg|webm)(?:$|\?)/i.test(name);
+  if (!isAudio) return rawMime || "application/octet-stream";
+  if (name.endsWith(".m4a")) return "audio/mp4";
+  if (name.endsWith(".wav")) return "audio/wav";
+  if (name.endsWith(".ogg")) return "audio/ogg";
+  if (name.endsWith(".webm")) return "audio/webm";
+  if (mime === "video/mpeg" || mime === "application/octet-stream" || mime === "") return "audio/mpeg";
+  return mime.startsWith("audio/") ? rawMime : "audio/mpeg";
+}
+
 function makeBlobMetadata(blobId, file, size) {
   const url = `/api/firebase-files/${encodeURIComponent(blobId)}/content`;
   return {
@@ -24,7 +39,7 @@ function makeBlobMetadata(blobId, file, size) {
     fileId: "",
     storageProvider: "firebase_realtime_database",
     name: String(file?.name || "adjunto").trim(),
-    mimeType: String(file?.mimeType || "application/octet-stream").trim(),
+    mimeType: normalizeBlobMimeType(file),
     url,
     publicUrl: url,
     downloadUrl: url,
@@ -73,7 +88,7 @@ export async function uploadAttachmentsToRealtimeDatabase(owner, attachments = [
         ownerId: String(owner?.idEvaluacion || owner?.id || ""),
         advisorName: String(owner?.asesorNombre || owner?.assessor || ""),
         name: String(file.name || "adjunto").trim(),
-        mimeType: String(file.mimeType || "application/octet-stream").trim(),
+        mimeType: normalizeBlobMimeType(file),
         type: file.kind || file.type || "evaluation_attachment",
         size: Number(file.size || bufferSize || 0) || 0,
         base64,
@@ -110,7 +125,7 @@ export async function getRealtimeDatabaseFileBlob(blobId) {
     metadata: {
       id: cleanId,
       name: blob.name || "adjunto",
-      mimeType: blob.mimeType || "application/octet-stream",
+      mimeType: normalizeBlobMimeType(blob),
       size: Number(blob.size || buffer.length || 0) || buffer.length
     }
   };

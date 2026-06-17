@@ -91,6 +91,21 @@ function getAttachmentFileName(file, ownerId, index) {
   return sanitizeName(`adjunto_${ownerId}${suffix}_${originalName || "archivo"}`);
 }
 
+function normalizeStorageMimeType(file) {
+  const rawMime = String(file?.mimeType || "").trim();
+  const mimeType = rawMime.toLowerCase();
+  const originalName = String(file?.name || "").toLowerCase();
+  const kind = String(file?.kind || file?.type || "").toLowerCase();
+  const isAudio = kind.includes("audio") || mimeType.startsWith("audio/") || AUDIO_EXTENSIONS.test(originalName);
+  if (!isAudio) return rawMime || "application/octet-stream";
+  if (originalName.endsWith(".m4a")) return "audio/mp4";
+  if (originalName.endsWith(".wav")) return "audio/wav";
+  if (originalName.endsWith(".ogg")) return "audio/ogg";
+  if (originalName.endsWith(".webm")) return "audio/webm";
+  if (mimeType === "video/mpeg" || mimeType === "application/octet-stream" || mimeType === "") return "audio/mpeg";
+  return mimeType.startsWith("audio/") ? rawMime : "audio/mpeg";
+}
+
 function getOwnerFolder(evaluation) {
   const advisor = sanitizeName(evaluation?.asesorNombre || evaluation?.assessor || "asesor_sin_nombre").toUpperCase();
   const id = sanitizeName(evaluation?.idEvaluacion || evaluation?.id || Date.now());
@@ -158,7 +173,7 @@ export async function uploadAttachmentsToFirebaseStorage(evaluation, attachments
           throw error;
         }
         const buffer = Buffer.from(base64, "base64");
-        const mimeType = file.mimeType || "application/octet-stream";
+        const mimeType = normalizeStorageMimeType(file);
         const fileName = getAttachmentFileName(file, evaluation?.idEvaluacion || evaluation?.id || Date.now(), index);
         const storagePath = `${result.storageFolder}/${fileName}`;
         await bucket.file(storagePath).save(buffer, {

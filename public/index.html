@@ -1289,7 +1289,7 @@ function EvaluationAudioPlayer({file}){
     setError("");
     const playbackUrl = getAttachmentPlaybackUrl(file);
     setSrc(playbackUrl);
-    if (playbackUrl && playbackUrl.indexOf("/api/drive/files/") === 0) {
+    if (playbackUrl && (playbackUrl.indexOf("/api/drive/files/") === 0 || playbackUrl.indexOf("/api/firebase-files/") === 0 || playbackUrl.indexOf("/api/storage/files/") === 0)) {
       setLoading(false);
       return () => { active = false; };
     }
