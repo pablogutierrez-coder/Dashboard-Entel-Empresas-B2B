@@ -1112,8 +1112,16 @@ function extractDriveFileIdFromUrl(url){
   return pathMatch && pathMatch[1] ? decodeURIComponent(pathMatch[1]) : "";
 }
 
+function extractFirebaseBlobIdFromUrl(url){
+  const text = String(url || "").trim();
+  if (!text) return "";
+  const match = text.match(/\/api\/firebase-files\/([^/]+)\/content/);
+  return match && match[1] ? decodeURIComponent(match[1]) : "";
+}
+
 function getAttachmentDriveFileId(file){
   if (file?.storagePath || file?.blobId || String(file?.storageProvider || "").toLowerCase().includes("firebase")) return "";
+  if (extractFirebaseBlobIdFromUrl(file?.publicUrl || file?.downloadUrl || file?.url || file?.audioLlamadaUrl)) return "";
   return String(file?.fileId || file?.id || extractDriveFileIdFromUrl(file?.publicUrl || file?.downloadUrl || file?.url || file?.audioLlamadaUrl) || "").trim();
 }
 
@@ -1126,6 +1134,8 @@ function getAttachmentPlaybackUrl(file){
   if (file.blobId || String(file.storageProvider || "").toLowerCase() === "firebase_realtime_database") {
     return "/api/firebase-files/" + encodeURIComponent(String(file.blobId || file.id || "")) + "/content";
   }
+  const firebaseBlobId = extractFirebaseBlobIdFromUrl(file.publicUrl || file.downloadUrl || file.url || file.audioLlamadaUrl);
+  if (firebaseBlobId) return "/api/firebase-files/" + encodeURIComponent(firebaseBlobId) + "/content";
   const driveFileId = getAttachmentDriveFileId(file);
   if (driveFileId) return "/api/drive/files/" + encodeURIComponent(driveFileId) + "/content";
   if (file.publicUrl) return file.publicUrl;
@@ -1171,11 +1181,17 @@ function makeHistoryFileFromUrl(url, kind, sourceKey, source){
   const cleanUrl = String(url || "").trim();
   if (!cleanUrl) return null;
   const nameFromUrl = decodeURIComponent(cleanUrl.split("?")[0].split("/").pop() || "").trim();
+  const firebaseBlobId = extractFirebaseBlobIdFromUrl(cleanUrl);
   const idMatch = cleanUrl.match(/[?&]id=([^&]+)/) || cleanUrl.match(/\/d\/([^/]+)/);
+  const inferredName = kind === "audio"
+    ? (source?.nombreArchivoAudio || source?.audioName || source?.archivoAudioNombre)
+    : (source?.nombreArchivoImagen || source?.imageName || source?.archivoImagenNombre);
   return {
-    id: source?.fileId || (idMatch ? idMatch[1] : "") || source?.id || "",
-    fileId: source?.fileId || (idMatch ? idMatch[1] : "") || source?.id || "",
-    name: source?.name || source?.nombre || nameFromUrl || (kind === "audio" ? "Audio de evaluacion" : "Evidencia de evaluacion"),
+    id: firebaseBlobId || source?.fileId || (idMatch ? idMatch[1] : "") || source?.id || "",
+    fileId: firebaseBlobId ? "" : (source?.fileId || (idMatch ? idMatch[1] : "") || source?.id || ""),
+    blobId: firebaseBlobId || source?.blobId || "",
+    storageProvider: firebaseBlobId ? "firebase_realtime_database" : (source?.storageProvider || ""),
+    name: source?.name || source?.nombre || inferredName || (nameFromUrl && nameFromUrl !== "content" ? nameFromUrl : "") || (kind === "audio" ? "Audio de evaluacion" : "Evidencia de evaluacion"),
     mimeType: source?.mimeType || (kind === "audio" ? "audio/mpeg" : "image/png"),
     publicUrl: cleanUrl,
     url: cleanUrl,
@@ -1213,7 +1229,8 @@ function collectHistoryAttachments(source){
 function dedupeHistoryFiles(files){
   const seen = new Set();
   return (files || []).filter(file => {
-    const key = String(file?.id || file?.fileId || file?.publicUrl || file?.url || file?.downloadUrl || file?.name || "").trim();
+    const playbackUrl = getAttachmentPlaybackUrl(file);
+    const key = String(file?.blobId || file?.storagePath || playbackUrl || file?.publicUrl || file?.url || file?.downloadUrl || file?.id || file?.fileId || file?.name || "").trim();
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
