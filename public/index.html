@@ -7342,6 +7342,13 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
   const statusTheme = getFeedbackStatusTheme(preview.estado);
   const isAdvisor = String(currentUser?.rol||"").trim().toLowerCase() === "asesor";
   const canManage = ["admin","analista","formador","supervisor"].includes(String(currentUser?.rol||"").trim().toLowerCase());
+  const feedbackFiles = dedupeHistoryFiles(collectHistoryAttachments(record));
+  const feedbackAudioFiles = feedbackFiles.filter(isAudioAttachment);
+  const feedbackEvidenceFiles = feedbackFiles.filter(file => !isAudioAttachment(file));
+  const skippedFeedbackAttachments = Array.isArray(record?.skippedAttachments) ? record.skippedAttachments : [];
+  const evaluationFiles = dedupeHistoryFiles(collectHistoryAttachments(evaluation));
+  const evaluationAudioFiles = evaluationFiles.filter(isAudioAttachment);
+  const evaluationEvidenceFiles = evaluationFiles.filter(file => !isAudioAttachment(file));
 
   return h("div",{style:{position:"fixed",inset:0,background:"rgba(11,17,33,0.94)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1450,padding:20}},
     h("div",{style:{background:"linear-gradient(180deg, rgba(18,19,29,0.98) 0%, rgba(22,12,40,0.98) 100%)",border: `1px solid ${THEME.border}`,borderRadius:20,padding:28,width:"100%",maxWidth:980,maxHeight:"92vh",overflowY:"auto",boxShadow:THEME.glowViolet}},
@@ -7356,6 +7363,28 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
         h("span",{style:{background:statusTheme.bg,border: `1px solid ${statusTheme.border}`,color:statusTheme.color,padding:"8px 12px",borderRadius:999,fontSize:11,fontWeight:800,letterSpacing:"0.1em",fontFamily:THEME.displayFont}},statusTheme.label),
         preview.clasificacion && h("span",{style:{background:"rgba(29,43,255,0.12)",border:"1px solid rgba(29,43,255,0.28)",color:THEME.primary,padding:"8px 12px",borderRadius:999,fontSize:11,fontWeight:800,letterSpacing:"0.1em",fontFamily:THEME.displayFont}},preview.clasificacion),
         preview.tipoRefuerzo && h("span",{style:{background:"rgba(245,158,11,0.12)",border:"1px solid rgba(245,158,11,0.28)",color:"#F59E0B",padding:"8px 12px",borderRadius:999,fontSize:11,fontWeight:800,letterSpacing:"0.1em",fontFamily:THEME.displayFont}},preview.tipoRefuerzo)
+      ),
+      feedbackFiles.length>0 && h("div",{style:{...CARD,marginBottom:18}},
+        h("div",{style:{fontSize:12,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:14}},"Adjuntos del feedback"),
+        feedbackAudioFiles.length>0 && h("div",{style:{marginBottom:12,display:"flex",flexDirection:"column",gap:10}},
+          feedbackAudioFiles.map(file=>h("div",{key:file.id || file.fileId || file.name,style:{background:"rgba(9,9,17,0.72)",border: `1px solid ${THEME.border}`,borderRadius:12,padding:"10px 12px"}},
+            h("div",{style:{fontSize:11,color:"#dbe4f3",fontWeight:700,marginBottom:8,wordBreak:"break-word"}},"Audio: ",file.name || "Audio del feedback"),
+            h(EvaluationAudioPlayer,{file})
+          ))
+        ),
+        feedbackEvidenceFiles.length>0 && h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10}},
+          feedbackEvidenceFiles.map(file=>h(EvaluationEvidencePreview,{key:file.id || file.fileId || file.name,file}))
+        )
+      ),
+      skippedFeedbackAttachments.length>0 && h("div",{style:{...CARD,marginBottom:18,border:"1px solid rgba(245,158,11,0.35)",background:"rgba(245,158,11,0.06)"}},
+        h("div",{style:{fontSize:12,fontWeight:800,color:"#F59E0B",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:12}},"Adjuntos pendientes de Drive"),
+        h("div",{style:{fontSize:12,color:"#f8d79b",lineHeight:1.7,marginBottom:12}},record.driveWarning || "Algunos adjuntos no pudieron subirse a Drive."),
+        h("div",{style:{display:"flex",flexDirection:"column",gap:8}},
+          skippedFeedbackAttachments.map((file,index)=>h("div",{key:`skipped-${index}-${file.name || ""}`,style:{background:"rgba(9,9,17,0.54)",border:"1px solid rgba(245,158,11,0.22)",borderRadius:10,padding:"10px 12px"}},
+            h("div",{style:{fontSize:11,color:"#fff",fontWeight:800,wordBreak:"break-word",marginBottom:4}},file.name || "Adjunto pendiente"),
+            h("div",{style:{fontSize:10,color:"#f8d79b",lineHeight:1.5,wordBreak:"break-word"}},file.reason || "Drive no devolvio un archivo guardado.")
+          ))
+        )
       ),
       preview.sections.length > 0 && h("div",{style:{...CARD,marginBottom:18}},
         h("div",{style:{fontSize:12,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:18}},"Resultados por sub-item"),
