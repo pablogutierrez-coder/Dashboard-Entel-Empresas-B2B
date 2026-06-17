@@ -28,6 +28,7 @@ import {
 const EVALUATIONS_KEY = "evaluations_v1";
 const COMMUNICATIONS_KEY = "communications_v1";
 const FEEDBACK_KEY = "feedback_records_v2";
+const evaluationWriteLocks = new Map();
 
 const ROLE_LABELS = {
   admin: "Administrador",
@@ -335,6 +336,28 @@ function buildFileFieldsFromSavedFiles(record, savedFiles, driveResult = {}) {
   };
 }
 
+function mergeFilesByIdentity(...fileGroups) {
+  const merged = [];
+  const seen = new Set();
+  for (const group of fileGroups) {
+    for (const file of Array.isArray(group) ? group : []) {
+      if (!file) continue;
+      const key = String(file.blobId || file.storagePath || file.id || file.fileId || file.url || file.publicUrl || file.name || "").trim();
+      const fallbackKey = JSON.stringify({
+        name: file.name || "",
+        mimeType: file.mimeType || "",
+        size: file.size || "",
+        type: file.type || file.kind || ""
+      });
+      const identity = key || fallbackKey;
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      merged.push(file);
+    }
+  }
+  return merged;
+}
+
 function getSkippedAttachmentKey(file) {
   return [
     String(file?.name || "").trim(),
@@ -366,6 +389,26 @@ async function uploadAttachmentsWithFirebaseFallback(owner, attachments) {
     storageWarning,
     fallbackStorageProvider: "firebase_realtime_database"
   };
+}
+
+async function withEvaluationWriteLock(id, task) {
+  const key = normalizeId(id);
+  const previous = evaluationWriteLocks.get(key) || Promise.resolve();
+  let release;
+  const current = new Promise(resolve => {
+    release = resolve;
+  });
+  const chained = previous.then(() => current, () => current);
+  evaluationWriteLocks.set(key, chained);
+  try {
+    await previous.catch(() => {});
+    return await task();
+  } finally {
+    release();
+    if (evaluationWriteLocks.get(key) === chained) {
+      evaluationWriteLocks.delete(key);
+    }
+  }
 }
 
 async function readEvaluationRecordsFromFirebase(options = {}) {
@@ -872,36 +915,43 @@ export const gasHandlers = {
     requireRoles(currentUser, ["admin", "analista", "formador"], "No tienes permisos para subir adjuntos de evaluaciones.");
     const id = normalizeId(payload.idEvaluacion || payload.id);
     if (!id) throw new Error("El id de la evaluacion es obligatorio.");
-    const current = await gasHandlers.getEvaluationRecordDetail(id);
-    if (!current) throw new Error("No se encontro la evaluacion principal en Firebase.");
+    return await withEvaluationWriteLock(id, async () => {
+      const current = await gasHandlers.getEvaluationRecordDetail(id);
+      if (!current) throw new Error("No se encontro la evaluacion principal en Firebase.");
 
-    const attachment = payload.attachment || null;
-    if (!attachment || typeof attachment !== "object") {
-      throw new Error("El adjunto de la evaluacion es obligatorio.");
-    }
-    const metadata = payload.attachmentMetadata && typeof payload.attachmentMetadata === "object" ? payload.attachmentMetadata : {};
-    const normalizedAttachment = {
-      ...attachment,
-      name: attachment.name || metadata.name || "adjunto_evaluacion",
-      mimeType: attachment.mimeType || metadata.mimeType || "application/octet-stream",
-      kind: attachment.kind || metadata.kind || metadata.type || "evaluation_attachment",
-      type: attachment.type || attachment.kind || metadata.kind || metadata.type || "evaluation_attachment",
-      size: attachment.size || metadata.size || 0
-    };
+      const attachment = payload.attachment || null;
+      if (!attachment || typeof attachment !== "object") {
+        throw new Error("El adjunto de la evaluacion es obligatorio.");
+      }
+      const metadata = payload.attachmentMetadata && typeof payload.attachmentMetadata === "object" ? payload.attachmentMetadata : {};
+      const normalizedAttachment = {
+        ...attachment,
+        name: attachment.name || metadata.name || "adjunto_evaluacion",
+        mimeType: attachment.mimeType || metadata.mimeType || "application/octet-stream",
+        kind: attachment.kind || metadata.kind || metadata.type || "evaluation_attachment",
+        type: attachment.type || attachment.kind || metadata.kind || metadata.type || "evaluation_attachment",
+        size: attachment.size || metadata.size || 0
+      };
 
-    const storageResult = await uploadAttachmentsWithFirebaseFallback(current, [normalizedAttachment]);
-    const savedFiles = [...(Array.isArray(current.files) ? current.files : []), ...(storageResult.savedFiles || [])];
-    const next = {
-      ...buildFileFieldsFromSavedFiles(current, savedFiles, storageResult),
-      estadoAdjuntos: storageResult.ok ? "completo" : "pendiente",
-      reintentoPendiente: !storageResult.ok,
-      ultimoErrorAdjuntos: storageResult.ok ? "" : (storageResult.storageWarning || "No se pudo guardar el adjunto."),
-      errorAdjuntos: storageResult.ok ? "" : (storageResult.storageWarning || "No se pudo guardar el adjunto."),
-      attachmentFailures: storageResult.ok ? [] : (storageResult.skippedAttachments || []),
-      updatedAt: nowIso(),
-      updatedBy: currentUser.usuario
-    };
-    return await persistEvaluation(next);
+      const storageResult = await uploadAttachmentsWithFirebaseFallback(current, [normalizedAttachment]);
+      const latest = await gasHandlers.getEvaluationRecordDetail(id) || current;
+      const savedFiles = mergeFilesByIdentity(
+        current.files,
+        latest.files,
+        storageResult.savedFiles
+      );
+      const next = {
+        ...buildFileFieldsFromSavedFiles(latest, savedFiles, storageResult),
+        estadoAdjuntos: storageResult.ok ? "completo" : "pendiente",
+        reintentoPendiente: !storageResult.ok,
+        ultimoErrorAdjuntos: storageResult.ok ? "" : (storageResult.storageWarning || "No se pudo guardar el adjunto."),
+        errorAdjuntos: storageResult.ok ? "" : (storageResult.storageWarning || "No se pudo guardar el adjunto."),
+        attachmentFailures: storageResult.ok ? [] : (storageResult.skippedAttachments || []),
+        updatedAt: nowIso(),
+        updatedBy: currentUser.usuario
+      };
+      return await persistEvaluation(next);
+    });
   },
 
   async markEvaluationAttachmentsPending(payload = {}) {
