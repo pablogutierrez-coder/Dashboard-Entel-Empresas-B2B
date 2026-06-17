@@ -26,6 +26,7 @@ import {
 } from "./storage.js";
 
 const EVALUATIONS_KEY = "evaluations_v1";
+const DELETED_EVALUATIONS_KEY = "deleted_evaluations_v1";
 const COMMUNICATIONS_KEY = "communications_v1";
 const FEEDBACK_KEY = "feedback_records_v2";
 const evaluationWriteLocks = new Map();
@@ -505,9 +506,12 @@ async function withEvaluationWriteLock(id, task) {
 
 async function readEvaluationRecordsFromFirebase(options = {}) {
   const records = [];
+  const deletedIds = new Set((await readSharedJson(DELETED_EVALUATIONS_KEY, []) || []).map(item => normalizeId(item?.id || item?.idEvaluacion || item)).filter(Boolean));
+  const isDeleted = record => deletedIds.has(normalizeId(record?.id || record?.idEvaluacion));
   const compact = await readSharedJson(EVALUATIONS_KEY, []);
   if (Array.isArray(compact) && compact.length) {
     return compact
+      .filter(record => !isDeleted(record))
       .map(normalizeEvaluationRecordForRuntime)
       .sort((a, b) => new Date(b.fechaEvaluacion || b.createdAt || 0) - new Date(a.fechaEvaluacion || a.createdAt || 0));
   }
@@ -522,7 +526,7 @@ async function readEvaluationRecordsFromFirebase(options = {}) {
   const byId = new Map();
   for (const record of records) {
     const id = normalizeId(record?.id || record?.idEvaluacion);
-    if (!id) continue;
+    if (!id || deletedIds.has(id)) continue;
     byId.set(id, { ...(byId.get(id) || {}), ...record, id });
   }
   return [...byId.values()]
@@ -966,6 +970,8 @@ export const gasHandlers = {
   },
 
   async getEvaluationRecordDetail(id) {
+    const deletedIds = new Set((await readSharedJson(DELETED_EVALUATIONS_KEY, []) || []).map(item => normalizeId(item?.id || item?.idEvaluacion || item)).filter(Boolean));
+    if (deletedIds.has(normalizeId(id))) return null;
     const key = getEvaluationRecordKey(id);
     const detail = await readSharedJson(key, null);
     if (detail) return await enrichEvaluationWithDirectDriveFolder(normalizeEvaluationRecordForRuntime(detail));
@@ -1029,8 +1035,15 @@ export const gasHandlers = {
     const nextCompact = Array.isArray(compact)
       ? compact.filter(item => normalizeId(item?.id || item?.idEvaluacion) !== id)
       : [];
+    const deleted = await readSharedJson(DELETED_EVALUATIONS_KEY, []);
+    const deletedList = Array.isArray(deleted) ? deleted : [];
+    const deletedExists = deletedList.some(item => normalizeId(item?.id || item?.idEvaluacion || item) === id);
+    const nextDeleted = deletedExists
+      ? deletedList
+      : [{ id, deletedAt: nowIso(), deletedBy: String(currentUser.usuario || "").trim() }, ...deletedList];
     await deleteSharedRecord(getEvaluationRecordKey(id));
     await writeSharedRecord(EVALUATIONS_KEY, nextCompact);
+    await writeSharedRecord(DELETED_EVALUATIONS_KEY, nextDeleted);
     return { ok: true, id };
   },
 

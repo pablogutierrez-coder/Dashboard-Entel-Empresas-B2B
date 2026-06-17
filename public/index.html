@@ -154,6 +154,24 @@ function getEvaluationRecordStorageKey(id){
   return "evaluation_record_" + normalizedId;
 }
 
+function normalizeRecordId(value){
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const numericValue = Number(text);
+  return Number.isNaN(numericValue) ? text : String(numericValue);
+}
+
+function getDeletedEvaluationIds(values){
+  return new Set((Array.isArray(values) ? values : [])
+    .map(item => normalizeRecordId(item?.id || item?.idEvaluacion || item))
+    .filter(Boolean));
+}
+
+function filterDeletedEvaluationRecords(records, deletedIds){
+  const ids = deletedIds instanceof Set ? deletedIds : getDeletedEvaluationIds(deletedIds);
+  return (Array.isArray(records) ? records : []).filter(record => !ids.has(normalizeRecordId(record?.id || record?.idEvaluacion)));
+}
+
 function hasEvaluationDetailPayload(record){
   if (!record || typeof record !== "object") return false;
   return ["secciones","items","detalles","respuestas","atributos","zeroToleranceItems","files","archivos","adjuntos","attachments"]
@@ -430,11 +448,13 @@ async function loadEvaluationRecords(){
   };
 
   const loadFromStorage = async reason => {
-    const [records, audioIndex] = await Promise.all([
+    const [records, audioIndex, deletedEvaluations] = await Promise.all([
       directFirebaseReadShared("evaluations_v1").then(value => Array.isArray(value) && value.length ? value : stoGet("evaluations_v1", true)),
-      directFirebaseReadShared("evaluation_audio_index_v1").then(value => value && typeof value === "object" ? value : stoGet("evaluation_audio_index_v1", true))
+      directFirebaseReadShared("evaluation_audio_index_v1").then(value => value && typeof value === "object" ? value : stoGet("evaluation_audio_index_v1", true)),
+      directFirebaseReadShared("deleted_evaluations_v1")
     ]);
-    const merged = mergeAudioIndex(Array.isArray(records) ? records : [], audioIndex || {});
+    const deletedIds = getDeletedEvaluationIds(deletedEvaluations);
+    const merged = filterDeletedEvaluationRecords(mergeAudioIndex(Array.isArray(records) ? records : [], audioIndex || {}), deletedIds);
     console.info("[EVALUACIONES_STORAGE_FALLBACK]", {reason, records: merged.length, audioIndex: audioIndex && typeof audioIndex === "object" ? Object.keys(audioIndex).length : 0});
     return merged;
   };
@@ -443,7 +463,7 @@ async function loadEvaluationRecords(){
     const directFirst = await loadFromStorage("firebase_rest_direct_first");
     if (Array.isArray(directFirst) && directFirst.length) return directFirst;
     const data = await runGoogleScriptWithTimeout("listEvaluationRecords", [], 9000);
-    if (Array.isArray(data) && data.length) return data;
+    if (Array.isArray(data) && data.length) return filterDeletedEvaluationRecords(data, getDeletedEvaluationIds(await directFirebaseReadShared("deleted_evaluations_v1")));
     return await loadFromStorage("listEvaluationRecords_vacio");
   }catch(err){
     console.error("Error cargando evaluaciones:", err);
@@ -5769,6 +5789,7 @@ function App(){
       return false;
     }
     setEvaluationRecords(prev => (prev || []).filter(item => String(item?.id || item?.idEvaluacion || "") !== id));
+    await reloadEvaluationRecords();
     if (String(selectedEvaluationRecord?.id || selectedEvaluationRecord?.idEvaluacion || "") === id) {
       closeEvaluationModal();
     }
