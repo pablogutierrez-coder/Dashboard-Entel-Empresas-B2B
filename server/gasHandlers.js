@@ -11,9 +11,14 @@ import {
   enrichEvaluationWithDirectDriveFolder,
   isEvaluationAudioFile,
   isEvaluationImageFile,
-  uploadEvaluationAttachmentsToDrive,
   validateDriveConnection
 } from "./drive.js";
+import {
+  getFirebaseStoragePlaybackUrl,
+  isFirebaseStorageFile,
+  uploadAttachmentsToFirebaseStorage,
+  validateFirebaseStorageConnection
+} from "./storage.js";
 
 const EVALUATIONS_KEY = "evaluations_v1";
 const COMMUNICATIONS_KEY = "communications_v1";
@@ -144,6 +149,35 @@ async function findCommunicationFileById(fileId) {
 }
 
 function buildLocalDrivePreview(file) {
+  if (isFirebaseStorageFile(file)) {
+    const storagePath = String(file?.storagePath || file?.id || "").trim();
+    if (!storagePath) throw new Error("El storagePath es obligatorio.");
+    const localUrl = getFirebaseStoragePlaybackUrl({ storagePath });
+    const mimeType = String(file?.mimeType || "").toLowerCase();
+    const name = String(file?.name || "Adjunto").trim();
+    const isTextFile = mimeType === "text/plain" || /\.txt$/i.test(name);
+    const isAudioFile = mimeType.startsWith("audio/") || /\.(mp3|mpeg|mpga|m4a|wav|ogg|webm)$/i.test(name);
+    const isImageFile = mimeType.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp)$/i.test(name);
+    const isPdfFile = mimeType === "application/pdf" || /\.pdf$/i.test(name);
+    return {
+      id: storagePath,
+      storagePath,
+      storageProvider: "firebase_storage",
+      name,
+      mimeType: file?.mimeType || (isAudioFile ? "audio/mpeg" : isImageFile ? "image/png" : "application/octet-stream"),
+      driveUrl: "",
+      previewUrl: localUrl,
+      downloadUrl: localUrl,
+      downloadDataUrl: "",
+      dataUrl: "",
+      textContent: "",
+      isTextFile,
+      isAudioFile,
+      isImageFile,
+      isPdfFile,
+      hideDriveLink: true
+    };
+  }
   const id = String(file?.id || file?.fileId || "").trim();
   if (!id) throw new Error("El fileId es obligatorio.");
   const mimeType = String(file?.mimeType || "").toLowerCase();
@@ -237,6 +271,9 @@ function buildFileFieldsFromSavedFiles(record, savedFiles, driveResult = {}) {
   const files = Array.isArray(savedFiles) ? savedFiles : [];
   const audioFile = files.find(isEvaluationAudioFile) || {};
   const imageFile = files.find(isEvaluationImageFile) || {};
+  const storageFolder = driveResult.storageFolder || record.storageFolder || "";
+  const storageBucket = driveResult.storageBucket || record.storageBucket || "";
+  const warning = driveResult.storageWarning || driveResult.driveWarning || record.storageWarning || record.driveWarning || "";
   return {
     ...record,
     files,
@@ -255,7 +292,12 @@ function buildFileFieldsFromSavedFiles(record, savedFiles, driveResult = {}) {
     imagenEvidenciaUrl: imageFile.publicUrl || imageFile.url || record.imagenEvidenciaUrl || "",
     nombreArchivoImagen: imageFile.name || record.nombreArchivoImagen || "",
     skippedAttachments: driveResult.skippedAttachments || record.skippedAttachments || [],
-    driveWarning: driveResult.driveWarning || record.driveWarning || ""
+    driveWarning: driveResult.driveWarning || record.driveWarning || "",
+    storageWarning: driveResult.storageWarning || record.storageWarning || "",
+    storageFolder,
+    storageBucket,
+    attachmentStorageProvider: storageFolder ? "firebase_storage" : (record.attachmentStorageProvider || ""),
+    uploadWarning: warning
   };
 }
 
@@ -586,7 +628,7 @@ export const gasHandlers = {
     records.unshift(record);
     await writeFeedbackRecords(records);
 
-    const driveResult = await uploadEvaluationAttachmentsToDrive(
+    const storageResult = await uploadAttachmentsToFirebaseStorage(
       {
         id: `feedback_${id}`,
         idEvaluacion: `feedback_${id}`,
@@ -595,10 +637,10 @@ export const gasHandlers = {
       },
       attachments
     );
-    const savedFiles = [...record.files, ...(driveResult.savedFiles || [])];
+    const savedFiles = [...record.files, ...(storageResult.savedFiles || [])];
     const savedRecord = {
-      ...buildFileFieldsFromSavedFiles(record, savedFiles, driveResult),
-      estadoAdjuntos: attachments.length ? (driveResult.ok ? "completo" : "pendiente") : "sin_adjuntos",
+      ...buildFileFieldsFromSavedFiles(record, savedFiles, storageResult),
+      estadoAdjuntos: attachments.length ? (storageResult.ok ? "completo" : "pendiente") : "sin_adjuntos",
       updatedAt: nowIso()
     };
     const nextRecords = await readFeedbackRecords();
@@ -731,11 +773,11 @@ export const gasHandlers = {
     };
 
     const savedBeforeAttachments = await persistEvaluation(evaluation);
-    const driveResult = await uploadEvaluationAttachmentsToDrive(savedBeforeAttachments, attachments);
-    const savedFiles = [...(savedBeforeAttachments.files || []), ...(driveResult.savedFiles || [])];
+    const storageResult = await uploadAttachmentsToFirebaseStorage(savedBeforeAttachments, attachments);
+    const savedFiles = [...(savedBeforeAttachments.files || []), ...(storageResult.savedFiles || [])];
     const withAttachmentState = {
-      ...buildFileFieldsFromSavedFiles(savedBeforeAttachments, savedFiles, driveResult),
-      estadoAdjuntos: attachments.length ? (driveResult.ok ? "completo" : "pendiente") : "sin_adjuntos",
+      ...buildFileFieldsFromSavedFiles(savedBeforeAttachments, savedFiles, storageResult),
+      estadoAdjuntos: attachments.length ? (storageResult.ok ? "completo" : "pendiente") : "sin_adjuntos",
       updatedAt: nowIso()
     };
     return await persistEvaluation(withAttachmentState);
@@ -749,11 +791,11 @@ export const gasHandlers = {
     const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
     const updated = await persistEvaluation({ ...current, ...sanitizeRuntimePayload(payload), id, idEvaluacion: id });
     if (!attachments.length) return updated;
-    const driveResult = await uploadEvaluationAttachmentsToDrive(updated, attachments);
-    const savedFiles = [...(updated.files || []), ...(driveResult.savedFiles || [])];
+    const storageResult = await uploadAttachmentsToFirebaseStorage(updated, attachments);
+    const savedFiles = [...(updated.files || []), ...(storageResult.savedFiles || [])];
     return await persistEvaluation({
-      ...buildFileFieldsFromSavedFiles(updated, savedFiles, driveResult),
-      estadoAdjuntos: driveResult.ok ? "completo" : "pendiente",
+      ...buildFileFieldsFromSavedFiles(updated, savedFiles, storageResult),
+      estadoAdjuntos: storageResult.ok ? "completo" : "pendiente",
       updatedAt: nowIso()
     });
   },
@@ -793,6 +835,9 @@ export const gasHandlers = {
       },
       drive: {
         ...(await validateDriveConnection())
+      },
+      firebaseStorage: {
+        ...(await validateFirebaseStorageConnection())
       }
     };
   }

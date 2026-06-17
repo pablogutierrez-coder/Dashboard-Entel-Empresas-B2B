@@ -1113,12 +1113,16 @@ function extractDriveFileIdFromUrl(url){
 }
 
 function getAttachmentDriveFileId(file){
+  if (file?.storagePath || String(file?.storageProvider || "").toLowerCase() === "firebase_storage") return "";
   return String(file?.fileId || file?.id || extractDriveFileIdFromUrl(file?.publicUrl || file?.downloadUrl || file?.url || file?.audioLlamadaUrl) || "").trim();
 }
 
 function getAttachmentPlaybackUrl(file){
   if (!file) return "";
   if (file.dataUrl || file.audioDataUrl) return file.dataUrl || file.audioDataUrl;
+  if (file.storagePath || String(file.storageProvider || "").toLowerCase() === "firebase_storage") {
+    return "/api/storage/files/" + encodeURIComponent(String(file.storagePath || file.id || "")) + "/content";
+  }
   const driveFileId = getAttachmentDriveFileId(file);
   if (driveFileId) return "/api/drive/files/" + encodeURIComponent(driveFileId) + "/content";
   if (file.publicUrl) return file.publicUrl;

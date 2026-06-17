@@ -7,6 +7,7 @@ import { config } from "./config.js";
 import { listEvaluationFolderFiles, validateDriveConnection } from "./drive.js";
 import { readSharedRecord } from "./firebase.js";
 import { gasHandlers } from "./gasHandlers.js";
+import { getFirebaseStorageFileStream, validateFirebaseStorageConnection } from "./storage.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,6 +35,43 @@ app.get("/api/firebase/shared/:key.json", async (req, res, next) => {
 app.get("/api/drive/validate", async (_req, res, next) => {
   try {
     res.json(await validateDriveConnection());
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/storage/validate", async (_req, res, next) => {
+  try {
+    res.json(await validateFirebaseStorageConnection());
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/storage/files/:storagePath/content", async (req, res, next) => {
+  try {
+    const storagePath = decodeURIComponent(String(req.params.storagePath || "").trim());
+    if (!storagePath) {
+      res.status(400).json({ ok: false, error: "storagePath requerido." });
+      return;
+    }
+    const { stream, metadata, status } = await getFirebaseStorageFileStream(storagePath, String(req.headers.range || ""));
+    const size = Number(metadata.size || 0) || 0;
+    const contentType = metadata.contentType || "application/octet-stream";
+    res.status(status);
+    res.setHeader("content-type", contentType);
+    res.setHeader("accept-ranges", "bytes");
+    res.setHeader("cache-control", "private, max-age=3600");
+    if (status === 206 && req.headers.range && size) {
+      const match = String(req.headers.range).match(/bytes=(\d*)-(\d*)/);
+      const start = match && match[1] ? Number(match[1]) : 0;
+      const end = match && match[2] ? Number(match[2]) : size - 1;
+      res.setHeader("content-range", `bytes ${start}-${end}/${size}`);
+      res.setHeader("content-length", Math.max(0, end - start + 1));
+    } else if (size) {
+      res.setHeader("content-length", size);
+    }
+    stream.pipe(res);
   } catch (error) {
     next(error);
   }
