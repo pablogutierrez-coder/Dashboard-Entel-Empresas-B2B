@@ -2000,8 +2000,8 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
       )
     ),
     h("div",{style:{marginTop:30,fontSize:12,color:THEME.muted,fontWeight:600,letterSpacing:"0.08em",textAlign:"center"}},
-      "Diseno corporativo de alto impacto para ",
-      h("span",{style:{color:THEME.accent}},"AN CALIDAD")
+      "Herramienta desarrollada por ",
+      h("span",{style:{color:THEME.accent}},"IA Learning Solutions")
     )
   );
 }
@@ -4150,6 +4150,18 @@ function AdvisorPortal({currentUser,users,staffing,feedbackRecords,evaluationRec
   const myLiveCalls = useMemo(() => raw.filter(item => normalizeName(getRowValue(item, FIELD_KEYS.advisor)) === advisorName), [raw,advisorName]);
   const latestSnapshot = useMemo(() => historico.length ? [...historico].sort((a,b)=>b.id-a.id)[0] : null, [historico]);
   const latestRankingRow = useMemo(() => ((latestSnapshot?.data?.quartiles || []).find(item => normalizeName(item?.asesor) === advisorName) || null), [latestSnapshot,advisorName]);
+  const advisorAverageData = useMemo(() => {
+    const scores = myEvaluations.map(evaluation => {
+      const rawScore = evaluation?.resultadoGeneral ?? evaluation?.nota ?? evaluation?.score ?? "";
+      const match = String(rawScore || "").match(/(\d+(?:\.\d+)?)\s*%/);
+      if (match) return Number(match[1]);
+      const numeric = Number(rawScore);
+      return Number.isFinite(numeric) ? numeric : null;
+    }).filter(value => typeof value === "number" && !isNaN(value));
+    return {score: averageNumeric(scores), count: scores.length};
+  }, [myEvaluations]);
+  const advisorAverageScore = advisorAverageData.score;
+  const advisorAverageColor = advisorAverageScore === null ? THEME.violet : advisorAverageScore >= 80 ? "#19C37D" : advisorAverageScore >= 60 ? THEME.primary : THEME.accent;
 
   const runFeedbackAction = async(record, action) => {
     const responseText = String(responseDrafts[record.id] || "").trim();
@@ -4183,7 +4195,7 @@ function AdvisorPortal({currentUser,users,staffing,feedbackRecords,evaluationRec
       h("div",{style:{...CARD,marginBottom:0}},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10,fontWeight:700,fontFamily:THEME.displayFont}},"Asesor vinculado"),h("div",{style:{fontSize:28,color:THEME.primary,fontWeight:800,fontFamily:THEME.displayFont,marginBottom:8}},profile.advisorName),h("div",{style:{fontSize:12,color:"#8b92a5",lineHeight:1.7}},"Usuario: ",profile.usuarioAsignado || "-",h("br",null),"Supervisor: ",profile.supervisor || "-",h("br",null),"Coordinador: ",profile.coordinador || "-")),
       h("div",{style:{...CARD,marginBottom:0}},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10,fontWeight:700,fontFamily:THEME.displayFont}},"Feedbacks asignados"),h("div",{style:{fontSize:36,color:THEME.accent,fontWeight:800,fontFamily:THEME.displayFont,marginBottom:8}},myFeedback.length),h("div",{style:{fontSize:12,color:"#8b92a5"}},"Pendientes: ",myFeedback.filter(item=>(item.estado || item.status) !== "accepted").length)),
       h("div",{style:{...CARD,marginBottom:0}},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10,fontWeight:700,fontFamily:THEME.displayFont}},"Evaluaciones realizadas"),h("div",{style:{fontSize:36,color:THEME.primary,fontWeight:800,fontFamily:THEME.displayFont,marginBottom:8}},myEvaluations.length),h("div",{style:{fontSize:12,color:"#8b92a5"}},"Antiguedad: ",profile.antiguedad || 0," meses")),
-      h("div",{style:{...CARD,marginBottom:0}},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10,fontWeight:700,fontFamily:THEME.displayFont}},"Ultimo snapshot"),h("div",{style:{fontSize:34,color:latestRankingRow?.color || THEME.violet,fontWeight:800,fontFamily:THEME.displayFont,marginBottom:8}}, latestRankingRow && Number.isFinite(Number(latestRankingRow.score)) ? `${Number(latestRankingRow.score).toFixed(1)}%` : "--"),h("div",{style:{fontSize:12,color:"#8b92a5"}},latestRankingRow ? "Calidad historica" : "Aun sin ranking historico"))
+      h("div",{style:{...CARD,marginBottom:0}},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10,fontWeight:700,fontFamily:THEME.displayFont}},"Nota promedio"),h("div",{style:{fontSize:34,color:advisorAverageColor,fontWeight:800,fontFamily:THEME.displayFont,marginBottom:8}}, advisorAverageScore === null ? "--" : `${advisorAverageScore.toFixed(1)}%`),h("div",{style:{fontSize:12,color:"#8b92a5"}},advisorAverageScore === null ? "Sin evaluaciones con nota" : `${advisorAverageData.count} evaluacion(es) promediadas`))
     ),
     h("div",{style:{marginBottom:20}},
       h("h2",{style:{fontSize:22,fontWeight:800,color:"#fff",marginBottom:8}},"Mis evaluaciones"),
