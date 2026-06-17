@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { listEvaluationFolderFiles, validateDriveConnection } from "./drive.js";
 import { readSharedRecord } from "./firebase.js";
+import { getRealtimeDatabaseFileBlob } from "./fileBlobs.js";
 import { gasHandlers } from "./gasHandlers.js";
 import { getFirebaseStorageFileStream, validateFirebaseStorageConnection } from "./storage.js";
 
@@ -72,6 +73,35 @@ app.get("/api/storage/files/:storagePath/content", async (req, res, next) => {
       res.setHeader("content-length", size);
     }
     stream.pipe(res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/firebase-files/:blobId/content", async (req, res, next) => {
+  try {
+    const { buffer, metadata } = await getRealtimeDatabaseFileBlob(req.params.blobId);
+    const size = buffer.length;
+    const range = String(req.headers.range || "");
+    res.setHeader("content-type", metadata.mimeType || "application/octet-stream");
+    res.setHeader("accept-ranges", "bytes");
+    res.setHeader("cache-control", "private, max-age=3600");
+    if (range) {
+      const match = range.match(/bytes=(\d*)-(\d*)/);
+      const start = match && match[1] ? Number(match[1]) : 0;
+      const end = match && match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+      if (start >= size || end >= size || start > end) {
+        res.status(416).setHeader("content-range", `bytes */${size}`).end();
+        return;
+      }
+      res.status(206);
+      res.setHeader("content-range", `bytes ${start}-${end}/${size}`);
+      res.setHeader("content-length", end - start + 1);
+      res.end(buffer.subarray(start, end + 1));
+      return;
+    }
+    res.setHeader("content-length", size);
+    res.end(buffer);
   } catch (error) {
     next(error);
   }

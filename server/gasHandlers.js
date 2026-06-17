@@ -8,6 +8,11 @@ import {
   writeSharedRecord
 } from "./firebase.js";
 import {
+  getFirebaseBlobPlaybackUrl,
+  isFirebaseBlobFile,
+  uploadAttachmentsToRealtimeDatabase
+} from "./fileBlobs.js";
+import {
   enrichEvaluationWithDirectDriveFolder,
   isEvaluationAudioFile,
   isEvaluationImageFile,
@@ -149,6 +154,35 @@ async function findCommunicationFileById(fileId) {
 }
 
 function buildLocalDrivePreview(file) {
+  if (isFirebaseBlobFile(file)) {
+    const blobId = String(file?.blobId || file?.id || "").trim();
+    if (!blobId) throw new Error("El blobId es obligatorio.");
+    const localUrl = getFirebaseBlobPlaybackUrl({ blobId });
+    const mimeType = String(file?.mimeType || "").toLowerCase();
+    const name = String(file?.name || "Adjunto").trim();
+    const isTextFile = mimeType === "text/plain" || /\.txt$/i.test(name);
+    const isAudioFile = mimeType.startsWith("audio/") || /\.(mp3|mpeg|mpga|m4a|wav|ogg|webm)$/i.test(name);
+    const isImageFile = mimeType.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp)$/i.test(name);
+    const isPdfFile = mimeType === "application/pdf" || /\.pdf$/i.test(name);
+    return {
+      id: blobId,
+      blobId,
+      storageProvider: "firebase_realtime_database",
+      name,
+      mimeType: file?.mimeType || (isAudioFile ? "audio/mpeg" : isImageFile ? "image/png" : "application/octet-stream"),
+      driveUrl: "",
+      previewUrl: localUrl,
+      downloadUrl: localUrl,
+      downloadDataUrl: "",
+      dataUrl: "",
+      textContent: "",
+      isTextFile,
+      isAudioFile,
+      isImageFile,
+      isPdfFile,
+      hideDriveLink: true
+    };
+  }
   if (isFirebaseStorageFile(file)) {
     const storagePath = String(file?.storagePath || file?.id || "").trim();
     if (!storagePath) throw new Error("El storagePath es obligatorio.");
@@ -298,6 +332,39 @@ function buildFileFieldsFromSavedFiles(record, savedFiles, driveResult = {}) {
     storageBucket,
     attachmentStorageProvider: storageFolder ? "firebase_storage" : (record.attachmentStorageProvider || ""),
     uploadWarning: warning
+  };
+}
+
+function getSkippedAttachmentKey(file) {
+  return [
+    String(file?.name || "").trim(),
+    String(file?.mimeType || "").trim(),
+    String(file?.size || "").trim(),
+    String(file?.type || file?.kind || "").trim()
+  ].join("|");
+}
+
+async function uploadAttachmentsWithFirebaseFallback(owner, attachments) {
+  const storageResult = await uploadAttachmentsToFirebaseStorage(owner, attachments);
+  if (storageResult.ok || !Array.isArray(storageResult.skippedAttachments) || !storageResult.skippedAttachments.length) {
+    return storageResult;
+  }
+
+  const skippedKeys = new Set(storageResult.skippedAttachments.map(getSkippedAttachmentKey));
+  const fallbackAttachments = (Array.isArray(attachments) ? attachments : []).filter(file =>
+    skippedKeys.has(getSkippedAttachmentKey(file))
+  );
+  const blobResult = await uploadAttachmentsToRealtimeDatabase(owner, fallbackAttachments);
+  const storageWarning = blobResult.ok
+    ? `${storageResult.storageWarning || "Firebase Storage no disponible."} Se guardaron los adjuntos en Firebase Realtime Database.`
+    : `${storageResult.storageWarning || "Firebase Storage no disponible."} ${blobResult.storageWarning || ""}`.trim();
+  return {
+    ...storageResult,
+    ok: blobResult.ok,
+    savedFiles: [...(storageResult.savedFiles || []), ...(blobResult.savedFiles || [])],
+    skippedAttachments: blobResult.skippedAttachments || [],
+    storageWarning,
+    fallbackStorageProvider: "firebase_realtime_database"
   };
 }
 
@@ -628,7 +695,7 @@ export const gasHandlers = {
     records.unshift(record);
     await writeFeedbackRecords(records);
 
-    const storageResult = await uploadAttachmentsToFirebaseStorage(
+    const storageResult = await uploadAttachmentsWithFirebaseFallback(
       {
         id: `feedback_${id}`,
         idEvaluacion: `feedback_${id}`,
@@ -773,7 +840,7 @@ export const gasHandlers = {
     };
 
     const savedBeforeAttachments = await persistEvaluation(evaluation);
-    const storageResult = await uploadAttachmentsToFirebaseStorage(savedBeforeAttachments, attachments);
+    const storageResult = await uploadAttachmentsWithFirebaseFallback(savedBeforeAttachments, attachments);
     const savedFiles = [...(savedBeforeAttachments.files || []), ...(storageResult.savedFiles || [])];
     const withAttachmentState = {
       ...buildFileFieldsFromSavedFiles(savedBeforeAttachments, savedFiles, storageResult),
@@ -791,7 +858,7 @@ export const gasHandlers = {
     const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
     const updated = await persistEvaluation({ ...current, ...sanitizeRuntimePayload(payload), id, idEvaluacion: id });
     if (!attachments.length) return updated;
-    const storageResult = await uploadAttachmentsToFirebaseStorage(updated, attachments);
+    const storageResult = await uploadAttachmentsWithFirebaseFallback(updated, attachments);
     const savedFiles = [...(updated.files || []), ...(storageResult.savedFiles || [])];
     return await persistEvaluation({
       ...buildFileFieldsFromSavedFiles(updated, savedFiles, storageResult),

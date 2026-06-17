@@ -1113,7 +1113,7 @@ function extractDriveFileIdFromUrl(url){
 }
 
 function getAttachmentDriveFileId(file){
-  if (file?.storagePath || String(file?.storageProvider || "").toLowerCase() === "firebase_storage") return "";
+  if (file?.storagePath || file?.blobId || String(file?.storageProvider || "").toLowerCase().includes("firebase")) return "";
   return String(file?.fileId || file?.id || extractDriveFileIdFromUrl(file?.publicUrl || file?.downloadUrl || file?.url || file?.audioLlamadaUrl) || "").trim();
 }
 
@@ -1122,6 +1122,9 @@ function getAttachmentPlaybackUrl(file){
   if (file.dataUrl || file.audioDataUrl) return file.dataUrl || file.audioDataUrl;
   if (file.storagePath || String(file.storageProvider || "").toLowerCase() === "firebase_storage") {
     return "/api/storage/files/" + encodeURIComponent(String(file.storagePath || file.id || "")) + "/content";
+  }
+  if (file.blobId || String(file.storageProvider || "").toLowerCase() === "firebase_realtime_database") {
+    return "/api/firebase-files/" + encodeURIComponent(String(file.blobId || file.id || "")) + "/content";
   }
   const driveFileId = getAttachmentDriveFileId(file);
   if (driveFileId) return "/api/drive/files/" + encodeURIComponent(driveFileId) + "/content";
@@ -7381,8 +7384,8 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
         )
       ),
       skippedFeedbackAttachments.length>0 && h("div",{style:{...CARD,marginBottom:18,border:"1px solid rgba(245,158,11,0.35)",background:"rgba(245,158,11,0.06)"}},
-        h("div",{style:{fontSize:12,fontWeight:800,color:"#F59E0B",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:12}},"Adjuntos pendientes de Drive"),
-        h("div",{style:{fontSize:12,color:"#f8d79b",lineHeight:1.7,marginBottom:12}},record.driveWarning || "Algunos adjuntos no pudieron subirse a Drive."),
+        h("div",{style:{fontSize:12,fontWeight:800,color:"#F59E0B",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:12}},"Adjuntos pendientes de almacenamiento"),
+        h("div",{style:{fontSize:12,color:"#f8d79b",lineHeight:1.7,marginBottom:12}},record.uploadWarning || record.storageWarning || record.driveWarning || "Algunos adjuntos no pudieron guardarse."),
         h("div",{style:{display:"flex",flexDirection:"column",gap:8}},
           skippedFeedbackAttachments.map((file,index)=>h("div",{key:`skipped-${index}-${file.name || ""}`,style:{background:"rgba(9,9,17,0.54)",border:"1px solid rgba(245,158,11,0.22)",borderRadius:10,padding:"10px 12px"}},
             h("div",{style:{fontSize:11,color:"#fff",fontWeight:800,wordBreak:"break-word",marginBottom:4}},file.name || "Adjunto pendiente"),
