@@ -867,6 +867,43 @@ export const gasHandlers = {
     });
   },
 
+  async uploadEvaluationAttachment(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    requireRoles(currentUser, ["admin", "analista", "formador"], "No tienes permisos para subir adjuntos de evaluaciones.");
+    const id = normalizeId(payload.idEvaluacion || payload.id);
+    if (!id) throw new Error("El id de la evaluacion es obligatorio.");
+    const current = await gasHandlers.getEvaluationRecordDetail(id);
+    if (!current) throw new Error("No se encontro la evaluacion principal en Firebase.");
+
+    const attachment = payload.attachment || null;
+    if (!attachment || typeof attachment !== "object") {
+      throw new Error("El adjunto de la evaluacion es obligatorio.");
+    }
+    const metadata = payload.attachmentMetadata && typeof payload.attachmentMetadata === "object" ? payload.attachmentMetadata : {};
+    const normalizedAttachment = {
+      ...attachment,
+      name: attachment.name || metadata.name || "adjunto_evaluacion",
+      mimeType: attachment.mimeType || metadata.mimeType || "application/octet-stream",
+      kind: attachment.kind || metadata.kind || metadata.type || "evaluation_attachment",
+      type: attachment.type || attachment.kind || metadata.kind || metadata.type || "evaluation_attachment",
+      size: attachment.size || metadata.size || 0
+    };
+
+    const storageResult = await uploadAttachmentsWithFirebaseFallback(current, [normalizedAttachment]);
+    const savedFiles = [...(Array.isArray(current.files) ? current.files : []), ...(storageResult.savedFiles || [])];
+    const next = {
+      ...buildFileFieldsFromSavedFiles(current, savedFiles, storageResult),
+      estadoAdjuntos: storageResult.ok ? "completo" : "pendiente",
+      reintentoPendiente: !storageResult.ok,
+      ultimoErrorAdjuntos: storageResult.ok ? "" : (storageResult.storageWarning || "No se pudo guardar el adjunto."),
+      errorAdjuntos: storageResult.ok ? "" : (storageResult.storageWarning || "No se pudo guardar el adjunto."),
+      attachmentFailures: storageResult.ok ? [] : (storageResult.skippedAttachments || []),
+      updatedAt: nowIso(),
+      updatedBy: currentUser.usuario
+    };
+    return await persistEvaluation(next);
+  },
+
   async markEvaluationAttachmentsPending(payload = {}) {
     const currentUser = ensureCurrentUser(payload.currentUser);
     requireRoles(currentUser, ["admin", "analista", "formador"], "No tienes permisos para actualizar adjuntos de evaluaciones.");
