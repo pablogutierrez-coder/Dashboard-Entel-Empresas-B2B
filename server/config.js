@@ -6,7 +6,8 @@ export const config = {
   firebaseSecret: String(process.env.FIREBASE_DATABASE_SECRET || ""),
   spreadsheetId: String(process.env.SPREADSHEET_ID || ""),
   driveRootFolderId: String(process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || ""),
-  googleCredentials: String(process.env.GOOGLE_APPLICATION_CREDENTIALS || "")
+  googleCredentials: String(process.env.GOOGLE_APPLICATION_CREDENTIALS || ""),
+  googleCredentialsJson: String(process.env.GOOGLE_CREDENTIALS_JSON || "")
 };
 
 export function requireConfig(name, value) {

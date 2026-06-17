@@ -70,6 +70,33 @@ Validar:
 http://localhost:5174/api/drive/validate
 ```
 
+## Publicar en Railway
+
+Railway puede desplegar este repo directamente desde GitHub. El comando de arranque ya esta configurado:
+
+```bash
+npm start
+```
+
+Variables necesarias en Railway:
+
+```text
+FIREBASE_URL=https://calidad-b2b-firebase-default-rtdb.firebaseio.com/
+FIREBASE_DATABASE_SECRET=tu_secreto_de_firebase
+SPREADSHEET_ID=1qJq5PPrcnZDScHoU7RLqnjm65T9x_AlT6TlXkvRIEw8
+GOOGLE_DRIVE_ROOT_FOLDER_ID=1H1yNrsLizMKyDQanoiLCsAymV7BAaSm9
+GOOGLE_CREDENTIALS_JSON={"type":"service_account",...}
+```
+
+No configures `PORT`; Railway lo asigna automaticamente.
+
+Despues del deploy, valida:
+
+```text
+https://tu-dominio.up.railway.app/api/health
+https://tu-dominio.up.railway.app/api/drive/validate
+```
+
 ## Siguiente paso recomendado
 
 Configurar las credenciales de Drive y probar una evaluacion nueva con audio. La carpeta objetivo se mantiene:

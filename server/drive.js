@@ -73,14 +73,16 @@ function extractBase64(file) {
 async function getDriveClient() {
   if (driveClientPromise) return driveClientPromise;
   driveClientPromise = (async () => {
-    if (!config.googleCredentials && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      throw new Error("Drive no esta configurado. Define GOOGLE_APPLICATION_CREDENTIALS en .env.");
+    if (!config.googleCredentials && !config.googleCredentialsJson && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      throw new Error("Drive no esta configurado. Define GOOGLE_APPLICATION_CREDENTIALS o GOOGLE_CREDENTIALS_JSON.");
     }
     if (config.googleCredentials && !fs.existsSync(config.googleCredentials)) {
       throw new Error(`No existe el archivo GOOGLE_APPLICATION_CREDENTIALS: ${config.googleCredentials}`);
     }
+    const credentials = config.googleCredentialsJson ? JSON.parse(config.googleCredentialsJson) : undefined;
     const auth = new google.auth.GoogleAuth({
       keyFile: config.googleCredentials || undefined,
+      credentials,
       scopes: ["https://www.googleapis.com/auth/drive"]
     });
     return google.drive({ version: "v3", auth });
@@ -315,7 +317,7 @@ export async function uploadEvaluationAttachmentsToDrive(evaluation, attachments
 export async function validateDriveConnection() {
   const status = {
     ok: false,
-    configured: Boolean(config.googleCredentials || process.env.GOOGLE_APPLICATION_CREDENTIALS),
+    configured: Boolean(config.googleCredentials || config.googleCredentialsJson || process.env.GOOGLE_APPLICATION_CREDENTIALS),
     rootFolderId: config.driveRootFolderId,
     rootFolderAccessible: false,
     canList: false,
