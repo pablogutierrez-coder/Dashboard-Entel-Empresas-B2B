@@ -1419,8 +1419,7 @@ function getEvaluationItemIdentityValues(item){
     item?.pregunta,
     item?.criterio,
     item?.factor,
-    item?.dimension,
-    item?.categoria
+    item?.dimension
   ].map(value => normalizeName(value)).filter(Boolean);
 }
 
@@ -5949,10 +5948,36 @@ function getAntiguedadBucket(value){
   return "25+ meses";
 }
 
+function mergeEvaluationSectionWithTemplate(templateSection, storedSection){
+  const result = storedSection && typeof storedSection === "object" ? storedSection : {};
+  return {
+    ...result,
+    categoria: templateSection.categoria,
+    pesoItem: Number(templateSection.pesoItem || 0) || 0,
+    nombreSeccion: templateSection.nombreSeccion,
+    criterio: templateSection.criterio,
+    pesoSub: Number(templateSection.pesoSub || 0) || 0,
+    resultado: result.resultado !== undefined ? result.resultado : templateSection.resultado,
+    detalleAuditado: result.detalleAuditado || "",
+    oportunidadMejora: result.oportunidadMejora || "",
+    evidencia: result.evidencia || "",
+    puntaje: result.puntaje !== undefined ? result.puntaje : templateSection.puntaje
+  };
+}
+
+function normalizeEvaluationSectionsForScoring(secciones){
+  const template = getDefaultEvaluationSections();
+  const source = Array.isArray(secciones) ? secciones : [];
+  return template.map(templateSection => mergeEvaluationSectionWithTemplate(
+    templateSection,
+    findMatchingEvaluationItem(source, templateSection)
+  ));
+}
+
 function calculateWeightedEvaluationScore(secciones){
   let applicableWeight = 0;
   let achievedWeight = 0;
-  (secciones || []).forEach(section => {
+  normalizeEvaluationSectionsForScoring(secciones).forEach(section => {
     const weight = Number(section?.pesoSub || 0) || 0;
     const result = normalizeComparableValue(section?.resultado);
     if (!weight || !result || result === "no aplica") return;
@@ -6852,10 +6877,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
               ? sourceEvaluation.atributos
               : [];
     const currentSections = storedSections.length
-      ? template.map(section => {
-          const existing = findMatchingEvaluationItem(storedSections, section);
-          return existing ? {...section,...existing,pesoSub:Number(existing.pesoSub || section.pesoSub) || section.pesoSub,pesoItem:Number(existing.pesoItem || section.pesoItem) || section.pesoItem} : {...section};
-        })
+      ? normalizeEvaluationSectionsForScoring(storedSections)
       : template.map(section => ({...section}));
     const currentZeroTolerance = Array.isArray(sourceEvaluation?.zeroToleranceItems) && sourceEvaluation.zeroToleranceItems.length
       ? zeroToleranceTemplate.map(item => {
@@ -6973,7 +6995,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       detalleAuditadoGeneral: savedEvaluation.detalleAuditadoGeneral || prev.detalleAuditadoGeneral,
       oportunidadMejoraGeneral: savedEvaluation.oportunidadMejoraGeneral || prev.oportunidadMejoraGeneral,
       evidenciaGeneral: savedEvaluation.evidenciaGeneral || prev.evidenciaGeneral,
-      secciones: Array.isArray(savedEvaluation.secciones) && savedEvaluation.secciones.length ? savedEvaluation.secciones.map(section => ({...section})) : prev.secciones,
+      secciones: Array.isArray(savedEvaluation.secciones) && savedEvaluation.secciones.length ? normalizeEvaluationSectionsForScoring(savedEvaluation.secciones) : prev.secciones,
       zeroToleranceItems: Array.isArray(savedEvaluation.zeroToleranceItems) && savedEvaluation.zeroToleranceItems.length ? savedEvaluation.zeroToleranceItems.map(item => ({...item})) : prev.zeroToleranceItems
     }));
   };
@@ -7115,7 +7137,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
         resultadoGeneral: summary.text,
         tipoGestion: isOjtMode ? "Evaluacion OJT" : "Evaluacion de calidad",
         estadoEvaluacion: closeAfterSave ? "closed" : form.estadoEvaluacion,
-        secciones: form.secciones.map(section => ({
+        secciones: normalizeEvaluationSectionsForScoring(form.secciones).map(section => ({
           ...section,
           detalleAuditado: String(section.detalleAuditado || "").trim(),
           oportunidadMejora: "",

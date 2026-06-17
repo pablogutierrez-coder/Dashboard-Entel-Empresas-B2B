@@ -302,6 +302,98 @@ function sanitizeRuntimePayload(payload = {}) {
   return rest;
 }
 
+const DEFAULT_EVALUATION_SECTIONS = [
+  { categoria: "1. Protocolo de Inicio", pesoItem: 5, nombreSeccion: "1.1 Presentacion", criterio: "Identificacion, empresa y motivo del contacto", pesoSub: 2.5, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
+  { categoria: "1. Protocolo de Inicio", pesoItem: 5, nombreSeccion: "1.2 Validacion", criterio: "Validacion correcta del cliente y datos base", pesoSub: 2.5, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
+  { categoria: "2. Habilidad Comercial", pesoItem: 30, nombreSeccion: "2.1 Sondeo estrategico", criterio: "Identificacion de necesidad y contexto comercial", pesoSub: 10, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
+  { categoria: "2. Habilidad Comercial", pesoItem: 30, nombreSeccion: "2.2 Posicionamiento de valor", criterio: "Presentacion de beneficios y propuesta de valor", pesoSub: 10, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
+  { categoria: "2. Habilidad Comercial", pesoItem: 30, nombreSeccion: "2.3 Manejo de objeciones", criterio: "Respuesta estructurada frente a dudas o barreras", pesoSub: 10, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
+  { categoria: "3. Informacion Correcta y Completa", pesoItem: 35, nombreSeccion: "3.1 Transparencia de la oferta", criterio: "Explicacion clara de precios, condiciones y vigencia", pesoSub: 15, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
+  { categoria: "3. Informacion Correcta y Completa", pesoItem: 35, nombreSeccion: "3.2 Control de Riesgo Comercial", criterio: "Validaciones para evitar errores o reclamos", pesoSub: 10, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
+  { categoria: "3. Informacion Correcta y Completa", pesoItem: 35, nombreSeccion: "3.3 Procesos y plazos", criterio: "Informacion sobre pasos, tiempos y condiciones", pesoSub: 10, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
+  { categoria: "4. Experiencia del Cliente", pesoItem: 10, nombreSeccion: "4.1 Escucha activa y empatia", criterio: "Comprension del cliente y respuesta empatica", pesoSub: 5, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
+  { categoria: "4. Experiencia del Cliente", pesoItem: 10, nombreSeccion: "4.2 Profesionalismo y claridad", criterio: "Seguridad, orden y claridad al comunicar", pesoSub: 5, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
+  { categoria: "5. Cumplimiento y Cierre de Venta", pesoItem: 20, nombreSeccion: "5.1 Cierre de ventas", criterio: "Validacion final y concrecion del cierre", pesoSub: 10, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
+  { categoria: "5. Cumplimiento y Cierre de Venta", pesoItem: 20, nombreSeccion: "5.2 Script de verificacion", criterio: "Uso correcto del script obligatorio", pesoSub: 5, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
+  { categoria: "5. Cumplimiento y Cierre de Venta", pesoItem: 20, nombreSeccion: "5.3 Tipificacion y sistemas", criterio: "Registro correcto y trazabilidad de la gestion", pesoSub: 5, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 }
+];
+
+function getEvaluationItemIdentityValues(item = {}) {
+  return [
+    item.nombreSeccion,
+    item.subItem,
+    item.item,
+    item.itemCalidad,
+    item.atributo,
+    item.atributoCalidad,
+    item.nombreAtributo,
+    item.pregunta,
+    item.criterio,
+    item.factor,
+    item.dimension
+  ].map(value => normalizeText(value)).filter(Boolean);
+}
+
+function findMatchingEvaluationItem(items, templateItem) {
+  const templateKeys = getEvaluationItemIdentityValues(templateItem);
+  if (!Array.isArray(items) || !items.length || !templateKeys.length) return null;
+  return items.find(item => {
+    const itemKeys = getEvaluationItemIdentityValues(item);
+    return itemKeys.some(itemKey => templateKeys.includes(itemKey));
+  }) || null;
+}
+
+function normalizeEvaluationSections(sections) {
+  const source = Array.isArray(sections) ? sections : [];
+  return DEFAULT_EVALUATION_SECTIONS.map(templateSection => {
+    const stored = findMatchingEvaluationItem(source, templateSection) || {};
+    return {
+      ...stored,
+      categoria: templateSection.categoria,
+      pesoItem: templateSection.pesoItem,
+      nombreSeccion: templateSection.nombreSeccion,
+      criterio: templateSection.criterio,
+      pesoSub: templateSection.pesoSub,
+      resultado: stored.resultado !== undefined ? stored.resultado : templateSection.resultado,
+      detalleAuditado: stored.detalleAuditado || "",
+      oportunidadMejora: stored.oportunidadMejora || "",
+      evidencia: stored.evidencia || "",
+      puntaje: stored.puntaje !== undefined ? stored.puntaje : templateSection.puntaje
+    };
+  });
+}
+
+function calculateEvaluationScore(sections) {
+  let applicableWeight = 0;
+  let achievedWeight = 0;
+  for (const section of normalizeEvaluationSections(sections)) {
+    const weight = Number(section.pesoSub || 0) || 0;
+    const result = normalizeText(section.resultado);
+    if (!weight || !result || result === "no aplica") continue;
+    applicableWeight += weight;
+    if (result === "cumple") achievedWeight += weight;
+  }
+  const pct = applicableWeight ? achievedWeight / applicableWeight * 100 : 0;
+  const label = pct >= 90 ? "Excelente" : pct >= 80 ? "Cumple" : pct >= 60 ? "En seguimiento" : "Critico";
+  return { applicableWeight, achievedWeight, pct, label, text: `${pct.toFixed(1)}% - ${label}` };
+}
+
+function normalizeEvaluationRecordForRuntime(record) {
+  if (!record || typeof record !== "object" || !Array.isArray(record.secciones) || !record.secciones.length) return record;
+  const secciones = normalizeEvaluationSections(record.secciones);
+  const score = calculateEvaluationScore(secciones);
+  const appliesCeroTolerancia = Boolean(record.appliesCeroTolerancia) ||
+    (Array.isArray(record.zeroToleranceItems) && record.zeroToleranceItems.some(item => normalizeText(item?.resultado) === "cumple"));
+  return {
+    ...record,
+    secciones,
+    pesoAplicable: score.applicableWeight,
+    puntajeLogrado: score.achievedWeight,
+    resultadoGeneral: appliesCeroTolerancia ? "0.0% - Cero tolerancia" : score.text,
+    appliesCeroTolerancia
+  };
+}
+
 function buildFileFieldsFromSavedFiles(record, savedFiles, driveResult = {}) {
   const files = Array.isArray(savedFiles) ? savedFiles : [];
   const audioFile = files.find(isEvaluationAudioFile) || {};
@@ -415,7 +507,9 @@ async function readEvaluationRecordsFromFirebase(options = {}) {
   const records = [];
   const compact = await readSharedJson(EVALUATIONS_KEY, []);
   if (Array.isArray(compact) && compact.length) {
-    return compact.sort((a, b) => new Date(b.fechaEvaluacion || b.createdAt || 0) - new Date(a.fechaEvaluacion || a.createdAt || 0));
+    return compact
+      .map(normalizeEvaluationRecordForRuntime)
+      .sort((a, b) => new Date(b.fechaEvaluacion || b.createdAt || 0) - new Date(a.fechaEvaluacion || a.createdAt || 0));
   }
 
   if (!options.includeDetailFallback) return [];
@@ -431,13 +525,29 @@ async function readEvaluationRecordsFromFirebase(options = {}) {
     if (!id) continue;
     byId.set(id, { ...(byId.get(id) || {}), ...record, id });
   }
-  return [...byId.values()].sort((a, b) => new Date(b.fechaEvaluacion || b.createdAt || 0) - new Date(a.fechaEvaluacion || a.createdAt || 0));
+  return [...byId.values()]
+    .map(normalizeEvaluationRecordForRuntime)
+    .sort((a, b) => new Date(b.fechaEvaluacion || b.createdAt || 0) - new Date(a.fechaEvaluacion || a.createdAt || 0));
 }
 
 async function persistEvaluation(record) {
   const id = normalizeId(record?.id || record?.idEvaluacion);
   if (!id) throw new Error("No se puede guardar una evaluacion sin id.");
-  const normalized = { ...record, id, idEvaluacion: id, updatedAt: nowIso() };
+  const secciones = normalizeEvaluationSections(record?.secciones);
+  const score = calculateEvaluationScore(secciones);
+  const appliesCeroTolerancia = Boolean(record?.appliesCeroTolerancia) ||
+    (Array.isArray(record?.zeroToleranceItems) && record.zeroToleranceItems.some(item => normalizeText(item?.resultado) === "cumple"));
+  const normalized = {
+    ...record,
+    id,
+    idEvaluacion: id,
+    secciones,
+    pesoAplicable: score.applicableWeight,
+    puntajeLogrado: score.achievedWeight,
+    resultadoGeneral: appliesCeroTolerancia ? "0.0% - Cero tolerancia" : score.text,
+    appliesCeroTolerancia,
+    updatedAt: nowIso()
+  };
   await writeSharedRecord(getEvaluationRecordKey(id), normalized);
   const compact = await readSharedJson(EVALUATIONS_KEY, []);
   await writeSharedRecord(EVALUATIONS_KEY, upsertById(compact, normalized));
@@ -858,7 +968,7 @@ export const gasHandlers = {
   async getEvaluationRecordDetail(id) {
     const key = getEvaluationRecordKey(id);
     const detail = await readSharedJson(key, null);
-    if (detail) return await enrichEvaluationWithDirectDriveFolder(detail);
+    if (detail) return await enrichEvaluationWithDirectDriveFolder(normalizeEvaluationRecordForRuntime(detail));
     const records = await readEvaluationRecordsFromFirebase({ includeDetailFallback: false });
     const record = records.find(item => normalizeId(item?.id || item?.idEvaluacion) === normalizeId(id)) || null;
     return record ? await enrichEvaluationWithDirectDriveFolder(record) : null;
