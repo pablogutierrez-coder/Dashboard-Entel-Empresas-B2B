@@ -1837,6 +1837,10 @@ function canViewDashboards(user){
   return String(user?.rol||"").trim().toLowerCase() !== "asesor";
 }
 
+function canViewImprovementDashboard(user){
+  return ["admin","analista","supervisor","formador"].includes(String(user?.rol||"").trim().toLowerCase());
+}
+
 function canManageCommunications(user){
   return ["admin","analista","supervisor","formador"].includes(String(user?.rol||"").trim().toLowerCase());
 }
@@ -5996,7 +6000,7 @@ function App(){
         ),
         h("div",{style:{display:"flex",flexDirection:"column",gap:10,flex:1}},
           currentUser.rol === "asesor" && h("button",{style:{...BTN(view==="advisor"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="advisor"?"#fff":"#8b92a5"},onClick:()=>setView("advisor")},I("users",18,view==="advisor"?"#fff":"#8b92a5"),"MI PERFIL"),
-          canViewImprovementDashboard(currentUser) && h("button",{style:{...BTN(view==="improvement"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="improvement"?"#fff":"#8b92a5"},onClick:()=>setView("improvement")},I("trend",18,view==="improvement"?"#fff":"#8b92a5"),"MEJORA CONTINUA"),
+          canViewImprovementDashboard(currentUser) && h("button",{style:{...BTN(view==="improvement"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="improvement"?"#fff":"#8b92a5"},onClick:()=>setView("improvement")},I("trend",18,view==="improvement"?"#fff":"#8b92a5"),"DASHBOARD MEJORA"),
           canViewDashboards(currentUser) && h("button",{style:{...BTN(view==="evaluations"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="evaluations"?"#fff":"#8b92a5"},onClick:()=>setView("evaluations")},I("hist",18,view==="evaluations"?"#fff":"#8b92a5"),"EVALUACIONES"),
           canViewTeamFeedback(currentUser) && h("button",{style:{...BTN(view==="feedback"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="feedback"?"#fff":"#8b92a5"},onClick:()=>setView("feedback")},I("send",18,view==="feedback"?"#fff":"#8b92a5"),"FEEDBACKS"),
           h("button",{style:{...BTN(view==="communications"?"p":"out"),width:"100%",justifyContent:"space-between",padding:"16px 20px",color:view==="communications"?"#fff":"#8b92a5"},onClick:()=>setView("communications")},
@@ -6435,11 +6439,18 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
     if (item?.id) feedbackById[String(item.id)] = item;
   });
 
-  const canSeeAdvisor = advisorName => {
+  const currentSupervisorCanSeeRecord = record => {
+    const assignedUser = String(record?.supervisorUser || record?.supervisorId || "").trim().toLowerCase();
+    if (assignedUser) return assignedUser === String(currentUser?.usuario || "").trim().toLowerCase();
+    const assignedName = record?.supervisorName || record?.supervisor || "";
+    return String(assignedName || "").trim() ? isSupervisorIdentityMatch(currentUser, assignedName) : false;
+  };
+
+  const canSeeAdvisor = (advisorName, linkedFeedback = null) => {
     const role = String(currentUser?.rol || "").trim().toLowerCase();
     if (["admin","analista","formador"].includes(role)) return true;
     if (role === "supervisor") {
-      return !(staffing || []).length || canCurrentSupervisorSeeAdvisor(currentUser, staffing, advisorName);
+      return currentSupervisorCanSeeRecord(linkedFeedback) || !(staffing || []).length || canCurrentSupervisorSeeAdvisor(currentUser, staffing, advisorName);
     }
     return false;
   };
@@ -6483,12 +6494,15 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
 
   const visibleEvaluationRecords = getVisibleEvaluationRecords(currentUser, staffing, evaluationRecords);
   const evaluationFeedbackRows = visibleEvaluationRecords
-    .filter(evaluation => canSeeAdvisor(evaluation?.asesorNombre))
+    .filter(evaluation => {
+      const linkedFeedback = evaluation?.feedbackId ? feedbackById[String(evaluation.feedbackId)] || null : null;
+      return canSeeAdvisor(evaluation?.asesorNombre, linkedFeedback);
+    })
     .map(buildBaseRow);
   const evaluationFeedbackIds = new Set(visibleEvaluationRecords.map(item => String(item?.feedbackId || "")).filter(Boolean));
   const feedbackOnlyRows = (feedbackRecords || [])
     .filter(record => !evaluationFeedbackIds.has(String(record?.id || "")))
-    .filter(record => canSeeAdvisor(record?.asesorNombre || record?.assessor))
+    .filter(record => canSeeAdvisor(record?.asesorNombre || record?.assessor, record))
     .map(record => {
       const advisorName = record?.asesorNombre || record?.assessor || "-";
       const staffingItem = (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
@@ -7641,7 +7655,7 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
       h("div",{style:{display:"flex",justifyContent:"flex-end",gap:12,flexWrap:"wrap"}},
         h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:()=>window.print()},"IMPRIMIR"),
         canManage && preview.estado !== "closed" && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onSetFollowUp},"EN SEGUIMIENTO"),
-        canSupervisorClose && h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:()=>requireActionComment(onCloseFeedback)},"CERRAR FEEDBACK"),
+        canSupervisorClose && h("button",{style:{...BTN("pink"),padding:"10px 14px"},onClick:()=>requireActionComment(onCloseFeedback)},"ACEPTAR Y CERRAR FEEDBACK"),
         isAdvisor && !record.fechaVisualizacionAsesor && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onMarkViewed},"CONFIRMAR LECTURA"),
         isAdvisor && !advisorValidated && preview.estado !== "closed" && h("button",{style:{...BTN("out"),padding:"10px 14px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>requireActionComment(onReject)},"NO ACEPTO"),
         isAdvisor && !advisorValidated && preview.estado !== "closed" && h("button",{style:{...BTN("pink"),padding:"10px 14px"},onClick:()=>requireActionComment(onAccept)},"ACEPTAR")
