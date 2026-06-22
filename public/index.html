@@ -3983,7 +3983,7 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
       h("div",{style:{...CARD,marginBottom:18}},h("div",{style:{fontSize:12,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:12}},"Compromiso de mejora"),h("div",{style:{fontSize:12,color:"#d6d8e3",lineHeight:1.8,whiteSpace:"pre-wrap"}},preview.compromisoMejora || "Sin compromiso registrado.")),
       h("div",{style:{display:"flex",justifyContent:"flex-end",gap:12,flexWrap:"wrap"}},
         h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:()=>window.print()},"IMPRIMIR"),
-        canManage && preview.estado !== "closed" && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onSetFollowUp},"EN SEGUIMIENTO"),
+        ["admin","analista"].includes(String(currentUser?.rol||"").trim().toLowerCase()) && preview.estado !== "closed" && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onSetFollowUp},"EN SEGUIMIENTO"),
         canManage && ["admin","analista"].includes(String(currentUser?.rol||"").trim().toLowerCase()) && preview.estado !== "closed" && h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:onCloseFeedback},"CERRAR FEEDBACK"),
         isAdvisor && !record.fechaVisualizacionAsesor && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onMarkViewed},"CONFIRMAR LECTURA"),
         isAdvisor && preview.estado !== "accepted" && h("button",{style:{...BTN("pink"),padding:"10px 14px"},onClick:onAccept},"ACEPTAR")
@@ -4149,6 +4149,7 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpen
   const supervisorSummary = useMemo(() => {
     const isAdvisorValidated = record => {
       const status = String(record?.estado || record?.status || "").trim();
+      if (status === "in_follow_up") return false;
       return ["accepted","rejected","advisor_accepted","advisor_rejected","closed"].includes(status) || !!record?.advisorValidatedAt || !!record?.advisorValidationStatus || !!record?.advisorAcceptedAt;
     };
     const accepted = visibleRecords.filter(record => String(record?.estado || record?.status || "") === "closed").length;
@@ -4343,7 +4344,7 @@ function AdvisorPortal({currentUser,users,staffing,feedbackRecords,evaluationRec
             const statusTheme = getFeedbackStatusTheme(record.estado || record.status || "pending");
             const managementTheme = getFeedbackCategoryTheme(record.tipoGestion || record.feedbackCategory || "Feedback");
             const currentStatus = record.estado || record.status || "pending";
-            const advisorAlreadyValidated = ["accepted","rejected","advisor_accepted","advisor_rejected","closed"].includes(currentStatus) || !!record.advisorValidatedAt || !!record.advisorValidationStatus;
+            const advisorAlreadyValidated = currentStatus !== "in_follow_up" && (["accepted","rejected","advisor_accepted","advisor_rejected","closed"].includes(currentStatus) || !!record.advisorValidatedAt || !!record.advisorValidationStatus);
             return h("div",{key:record.id,style:{...CARD,borderTop: `4px solid ${managementTheme.color}`,marginBottom:0}},
               h("div",{style:{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:12}},
                 h("div",null,
@@ -7565,7 +7566,8 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
   const isAdvisor = role === "asesor";
   const isSupervisor = role === "supervisor";
   const canManage = ["admin","analista","formador","supervisor"].includes(role);
-  const advisorValidated = ["accepted","rejected","advisor_accepted","advisor_rejected","closed"].includes(preview.estado) || !!record.advisorValidatedAt || !!record.advisorValidationStatus;
+  const canSetFollowUp = ["admin","analista"].includes(role) && (preview.estado !== "closed" || role === "admin");
+  const advisorValidated = preview.estado !== "in_follow_up" && (["accepted","rejected","advisor_accepted","advisor_rejected","closed"].includes(preview.estado) || !!record.advisorValidatedAt || !!record.advisorValidationStatus);
   const canSupervisorClose = isSupervisor && advisorValidated && preview.estado !== "closed";
   const requireActionComment = (handler) => {
     const comment = String(actionComment || "").trim();
@@ -7681,7 +7683,7 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
       isSupervisor && !advisorValidated && preview.estado !== "closed" && h("div",{style:{fontSize:12,color:"#F59E0B",marginBottom:18,fontWeight:700}},"Pendiente: el asesor debe validar primero este feedback para habilitar el cierre del supervisor."),
       h("div",{style:{display:"flex",justifyContent:"flex-end",gap:12,flexWrap:"wrap"}},
         h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:()=>window.print()},"IMPRIMIR"),
-        canManage && preview.estado !== "closed" && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onSetFollowUp},"EN SEGUIMIENTO"),
+        canSetFollowUp && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onSetFollowUp},"EN SEGUIMIENTO"),
         canSupervisorClose && h("button",{style:{...BTN("pink"),padding:"10px 14px"},onClick:()=>requireActionComment(onCloseFeedback)},"ACEPTAR Y CERRAR FEEDBACK"),
         isAdvisor && !record.fechaVisualizacionAsesor && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onMarkViewed},"CONFIRMAR LECTURA"),
         isAdvisor && !advisorValidated && preview.estado !== "closed" && h("button",{style:{...BTN("out"),padding:"10px 14px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>requireActionComment(onReject)},"NO ACEPTO"),

@@ -301,6 +301,7 @@ function canManageFeedback(user) {
 function isFeedbackAdvisorValidated(record = {}) {
   const validation = normalizeText(record.advisorValidationStatus || record.advisorDecision || "");
   const status = normalizeText(record.estado || record.status || "");
+  if (status === "in follow up" || status === "in_follow_up") return false;
   return ["accepted", "rejected", "advisor accepted", "advisor rejected", "advisor_accepted", "advisor_rejected"].includes(validation) ||
     ["accepted", "rejected", "advisor accepted", "advisor rejected", "advisor_accepted", "advisor_rejected"].includes(status) ||
     !!record.advisorValidatedAt ||
@@ -926,6 +927,12 @@ export const gasHandlers = {
       throw new Error("No tienes permisos para acceder a este feedback.");
     }
 
+    const feedbackIsClosed = normalizeText(record.estado || record.status || "") === "closed";
+    const role = getRole(currentUser);
+    if (feedbackIsClosed && role !== "admin") {
+      throw new Error("Este feedback ya fue cerrado por supervisor. Solo un administrador puede modificarlo.");
+    }
+
     if (action === "mark_viewed") {
       if (!actorIsAdvisor) throw new Error("Solo el asesor puede marcar la lectura del feedback.");
       record.fechaVisualizacionAsesor = record.fechaVisualizacionAsesor || nowIso();
@@ -953,7 +960,7 @@ export const gasHandlers = {
       if (!actorIsAdvisor) throw new Error("Solo el asesor puede validar el feedback.");
       const responseText = String(payload.responseText || payload.messageText || "").trim();
       if (!responseText) throw new Error("Para validar el feedback debes dejar un comentario.");
-      if (isFeedbackAdvisorValidated(record) && record.estado !== "viewed" && record.estado !== "pending") {
+      if (isFeedbackAdvisorValidated(record) && record.estado !== "viewed" && record.estado !== "pending" && record.estado !== "in_follow_up") {
         throw new Error("Este feedback ya fue validado por el asesor.");
       }
       const decision = action === "reject_feedback" ? "rejected" : "accepted";
@@ -983,7 +990,30 @@ export const gasHandlers = {
     }
 
     if (action === "set_follow_up") {
-      requireRoles(currentUser, ["admin", "analista", "formador", "supervisor"], "No tienes permisos para marcar seguimiento.");
+      requireRoles(currentUser, ["admin", "analista"], "Solo administradores y analistas pueden reactivar el feedback en seguimiento.");
+      appendFeedbackThreadMessage(record, {
+        text: "El feedback fue reactivado en seguimiento. Se requiere una nueva validacion del asesor.",
+        authorName: actorName,
+        authorUser: actorUser,
+        authorRole: actorRole
+      });
+      record.advisorValidationStatus = "";
+      record.advisorDecision = "";
+      record.advisorValidationComment = "";
+      record.advisorValidatedAt = "";
+      record.advisorValidatedBy = "";
+      record.advisorValidatedName = "";
+      record.advisorAcceptedAt = "";
+      record.advisorAcceptedBy = "";
+      record.advisorAcceptedName = "";
+      record.comentarioAsesor = "";
+      record.fechaVisualizacionAsesor = "";
+      if (feedbackIsClosed && role === "admin") {
+        record.supervisorValidationComment = "";
+        record.supervisorValidatedAt = "";
+        record.supervisorValidatedBy = "";
+        record.supervisorValidatedName = "";
+      }
       record.estado = "in_follow_up";
       record.status = "in_follow_up";
     }
