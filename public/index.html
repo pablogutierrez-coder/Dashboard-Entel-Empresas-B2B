@@ -1948,7 +1948,7 @@ function canSupervisorSeeRecord(currentUser, staffing, record){
   if (String(assignedSupervisorName || "").trim()) {
     return isSupervisorIdentityMatch(currentUser, assignedSupervisorName);
   }
-  return true;
+  return !(staffing || []).length || canCurrentSupervisorSeeAdvisor(currentUser, staffing, record?.asesorNombre || record?.assessor || "");
 }
 
 function buildFeedbackPreviewModel(record, evaluation){
@@ -4146,13 +4146,39 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpen
       (!filters.search.trim() || haystack.includes(filters.search.trim().toLowerCase()));
   }), [visibleRecords,filters]);
 
+  const supervisorSummary = useMemo(() => {
+    const isAdvisorValidated = record => {
+      const status = String(record?.estado || record?.status || "").trim();
+      return ["accepted","rejected","advisor_accepted","advisor_rejected","closed"].includes(status) || !!record?.advisorValidatedAt || !!record?.advisorValidationStatus || !!record?.advisorAcceptedAt;
+    };
+    const accepted = visibleRecords.filter(record => String(record?.estado || record?.status || "") === "closed").length;
+    const pendingSupervisor = visibleRecords.filter(record => isAdvisorValidated(record) && String(record?.estado || record?.status || "") !== "closed").length;
+    const pendingAdvisor = visibleRecords.filter(record => !isAdvisorValidated(record)).length;
+    const total = Math.max(visibleRecords.length, 1);
+    return [
+      {label:"Aceptados",value:accepted,color:"#19C37D",caption:"Cerrados por supervisor"},
+      {label:"Pendientes por supervisor",value:pendingSupervisor,color:THEME.accent,caption:"Ya validados por asesor"},
+      {label:"Pendientes por asesor",value:pendingAdvisor,color:"#F59E0B",caption:"Esperando validacion inicial"},
+    ].map(item => ({...item,pct:Math.round((item.value / total) * 100)}));
+  }, [visibleRecords]);
+
   return h(Fragment,null,
     h("div",{style:{marginBottom:30,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:20}},
       h("div",null,
-        h("h1",{style:{fontSize:24,fontWeight:800,color:"#fff",marginBottom:6}}, role === "supervisor" ? "Seguimiento de equipo" : "Gestion de feedbacks"),
-        h("span",{style:{fontSize:12,color:"#8b92a5"}},"Tabla dinamica con filtros por asesor, analista, gestion, clasificacion y estado")
+        h("h1",{style:{fontSize:24,fontWeight:800,color:"#fff",marginBottom:6}}, role === "supervisor" ? "Mis feedbacks asignados" : "Gestion de feedbacks"),
+        h("span",{style:{fontSize:12,color:"#8b92a5"}},role === "supervisor" ? "Bandeja de feedbacks que requieren seguimiento y validacion final." : "Tabla dinamica con filtros por asesor, analista, gestion, clasificacion y estado")
       ),
       canCreateFeedback(currentUser) && h("button",{style:BTN("pink"),onClick:()=>onOpenFeedback("")},I("plus",14,"#fff"),"CREAR FEEDBACK")
+    ),
+    role === "supervisor" && h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16,marginBottom:24}},
+      supervisorSummary.map(item => h("div",{key:item.label,style:{...CARD,marginBottom:0,padding:18,borderTop:`3px solid ${item.color}`}},
+        h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.14em",fontWeight:800,fontFamily:THEME.displayFont,marginBottom:10}},item.label),
+        h("div",{style:{fontSize:34,color:item.color,fontWeight:800,fontFamily:THEME.displayFont,marginBottom:8}},item.value),
+        h("div",{style:{height:8,borderRadius:999,background:"rgba(255,255,255,0.06)",overflow:"hidden",marginBottom:8}},
+          h("div",{style:{height:"100%",width:`${item.pct}%`,background:item.color,borderRadius:999}})
+        ),
+        h("div",{style:{fontSize:11,color:"#8b92a5",lineHeight:1.5}},item.caption," - ",item.pct,"%")
+      ))
     ),
     h("div",{style:{...CARD,marginBottom:24}},
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14}},
@@ -4711,6 +4737,7 @@ function canViewImprovementDashboard(user){
 function getDefaultViewForUser(user){
   const role = String(user?.rol || "").trim().toLowerCase();
   if (role === "asesor") return "advisor";
+  if (role === "supervisor") return "feedback";
   if (role === "formador") return "evaluations";
   if (canViewImprovementDashboard(user)) return "improvement";
   if (canViewTeamFeedback(user)) return "feedback";
@@ -6450,7 +6477,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
     const role = String(currentUser?.rol || "").trim().toLowerCase();
     if (["admin","analista","formador"].includes(role)) return true;
     if (role === "supervisor") {
-      return currentSupervisorCanSeeRecord(linkedFeedback) || !(staffing || []).length || canCurrentSupervisorSeeAdvisor(currentUser, staffing, advisorName);
+      return true;
     }
     return false;
   };
