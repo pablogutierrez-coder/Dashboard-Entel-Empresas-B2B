@@ -1752,6 +1752,7 @@ const IC = {
   lock:["M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z","M7 11V7a5 5 0 0 1 10 0v4"],
   eye:["M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z","M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"],
   book:["M4 19.5A2.5 2.5 0 0 1 6.5 17H20","M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z","M8 6h8","M8 10h8","M8 14h5"],
+  sliders:["M4 21v-7","M4 10V3","M12 21v-9","M12 8V3","M20 21v-5","M20 12V3","M2 14h4","M10 8h4","M18 16h4"],
   logout:["M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4","M16 17l5-5-5-5","M21 12H9"],
   useradd:["M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2","M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z","M19 8v6","M22 11h-6"],
   shield:["M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"],
@@ -4265,6 +4266,10 @@ function AdvisorPortal({currentUser,users,staffing,feedbackRecords,evaluationRec
   }, [myEvaluations]);
   const advisorAverageScore = advisorAverageData.score;
   const advisorAverageColor = advisorAverageScore === null ? THEME.violet : advisorAverageScore >= 80 ? "#19C37D" : advisorAverageScore >= 60 ? THEME.primary : THEME.accent;
+  const myWeeklyTrend = useMemo(() => buildTrendFromEvaluations(myEvaluations), [myEvaluations]);
+  const myWeeklyTrendConfig = useMemo(() => buildScoreTrendConfig("Tendencia del asesor", myWeeklyTrend, {
+    datasetLabel: "Promedio ponderado semanal"
+  }), [myWeeklyTrend]);
 
   const runFeedbackAction = async(record, action) => {
     const responseText = String(responseDrafts[record.id] || "").trim();
@@ -4304,6 +4309,7 @@ function AdvisorPortal({currentUser,users,staffing,feedbackRecords,evaluationRec
       h("div",{style:{...CARD,marginBottom:0}},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10,fontWeight:700,fontFamily:THEME.displayFont}},"Evaluaciones realizadas"),h("div",{style:{fontSize:36,color:THEME.primary,fontWeight:800,fontFamily:THEME.displayFont,marginBottom:8}},myEvaluations.length),h("div",{style:{fontSize:12,color:"#8b92a5"}},"Antiguedad: ",profile.antiguedad || 0," meses")),
       h("div",{style:{...CARD,marginBottom:0}},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10,fontWeight:700,fontFamily:THEME.displayFont}},"Nota promedio"),h("div",{style:{fontSize:34,color:advisorAverageColor,fontWeight:800,fontFamily:THEME.displayFont,marginBottom:8}}, advisorAverageScore === null ? "--" : `${advisorAverageScore.toFixed(1)}%`),h("div",{style:{fontSize:12,color:"#8b92a5"}},advisorAverageScore === null ? "Sin evaluaciones con nota" : `${advisorAverageData.count} evaluacion(es) promediadas`))
     ),
+    h(AnalyticsChart,{title:"Tendencia del asesor",subtitle:"Promedio ponderado por semana dentro de cada mes.",config:myWeeklyTrendConfig,height:260,emptyMessage:"No hay suficientes evaluaciones para construir esta tendencia."}),
     h("div",{style:{marginBottom:20}},
       h("h2",{style:{fontSize:22,fontWeight:800,color:"#fff",marginBottom:8}},"Mis evaluaciones"),
       h("div",{style:{fontSize:12,color:"#8b92a5"}},"Aqui puedes ver tus fichas de calidad en solo lectura, escuchar audios y revisar evidencias adjuntas.")
@@ -4854,6 +4860,13 @@ function getPeriodKey(value){
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}`;
 }
 
+function getMonthWeekPeriodKey(value){
+  const date = parseAppDate(value);
+  if (!date) return "";
+  const week = Math.min(4, Math.max(1, Math.ceil(date.getDate() / 7)));
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-S${week}`;
+}
+
 function formatPeriodLabel(key){
   if (!key) return "-";
   const parts = String(key).split("-");
@@ -4861,6 +4874,11 @@ function formatPeriodLabel(key){
   const month = Number(parts[1] || 1);
   const date = new Date(year, month - 1, 1);
   if (isNaN(date.getTime())) return key;
+  if (parts[2]) {
+    const monthText = date.toLocaleDateString("es-PE",{month:"long"});
+    const monthLabel = monthText.charAt(0).toUpperCase() + monthText.slice(1);
+    return `${monthLabel} ${parts[2]}`;
+  }
   return date.toLocaleDateString("es-PE",{month:"short",year:"numeric"});
 }
 
@@ -5023,7 +5041,7 @@ function buildObservationCounts(sectionRows){
 }
 
 function buildTrendByPeriod(sectionRows){
-  const grouped = grp(sectionRows || [], row => getPeriodKey(row.date));
+  const grouped = grp(sectionRows || [], row => getMonthWeekPeriodKey(row.date));
   return Object.entries(grouped).filter(([key])=>!!key).map(([period,rows]) => {
     const evaluationRows = Object.values(grp(rows, row => String(row.evaluationId || row.feedbackId || ""))).map(group => group[0]).filter(Boolean);
     const scores = evaluationRows.map(row => Number(row.finalScore)).filter(value => !isNaN(value));
@@ -5051,6 +5069,7 @@ function buildAdvisorInsight(feedbackRows, sectionRows){
   if (!feedbackRows.length) return null;
   const latest = getLatestFeedbackRow(feedbackRows);
   const scoreSeries = buildEvaluationScoreSeries(sectionRows);
+  const weeklyTrend = buildTrendByPeriod(sectionRows);
   const firstScore = scoreSeries[0]?.score ?? null;
   const lastScore = scoreSeries[scoreSeries.length - 1]?.score ?? null;
   const delta = firstScore !== null && lastScore !== null ? lastScore - firstScore : null;
@@ -5077,6 +5096,7 @@ function buildAdvisorInsight(feedbackRows, sectionRows){
     currentStatus: latest?.estado || "pending",
     currentStatusLabel: getStatusLabel(latest?.estado),
     scoreSeries,
+    weeklyTrend,
     firstScore,
     lastScore,
     delta,
@@ -6407,6 +6427,61 @@ function buildNoTipificationTrend(noTipificationRows){
   })).sort((a,b)=>String(a.period).localeCompare(String(b.period)));
 }
 
+function buildTrendFromEvaluations(evaluations){
+  const grouped = grp(evaluations || [], evaluation => getMonthWeekPeriodKey(evaluation?.fechaEvaluacion || evaluation?.updatedAt || evaluation?.createdAt));
+  return Object.entries(grouped).filter(([key])=>!!key).map(([period,rows]) => {
+    const scores = rows.map(row => {
+      const rawScore = row?.resultadoGeneral ?? row?.nota ?? row?.score ?? "";
+      if (String(rawScore || "").trim() === "") return null;
+      return extractEvaluationPct(rawScore);
+    }).filter(value => typeof value === "number" && !isNaN(value));
+    return {
+      period,
+      label: formatPeriodLabel(period),
+      score: averageNumeric(scores),
+      evaluationCount: scores.length,
+      noCumple: 0,
+      cumple: 0
+    };
+  }).filter(item => item.score !== null).sort((a,b)=>String(a.period).localeCompare(String(b.period)));
+}
+
+function buildScoreTrendConfig(title, trendRows, options = {}){
+  const trend = trendRows || [];
+  const labels = trend.map(item => item.label);
+  if (!labels.length) return null;
+  const basePeriod = options.basePeriod || "";
+  const comparedPeriod = options.comparedPeriod || "";
+  const baseScore = trend.find(item => item.period === basePeriod)?.score;
+  const config = buildLineChartConfig(title || "Tendencia", labels, [
+    {
+      label: options.datasetLabel || "Promedio ponderado semanal",
+      data: trend.map(item => item.score),
+      borderColor: options.borderColor || THEME.primary,
+      backgroundColor: options.backgroundColor || "rgba(29,43,255,0.12)",
+      fill: true,
+      tension: 0.35,
+      pointBackgroundColor: trend.map(item => item.period === basePeriod ? THEME.accent : item.period === comparedPeriod ? "#19C37D" : THEME.white),
+      pointRadius: trend.map(item => item.period === basePeriod || item.period === comparedPeriod ? 5 : 3)
+    }
+  ]);
+  config.options.plugins.tooltip = {
+    callbacks: {
+      title: items => items?.[0]?.label || "",
+      label: context => `Promedio ponderado: ${Number(context.parsed.y || 0).toFixed(2)}%`,
+      afterLabel: context => {
+        const item = trend[context.dataIndex] || {};
+        const lines = [`Cantidad de evaluaciones: ${item.evaluationCount || 0}`];
+        if (typeof baseScore === "number" && !isNaN(baseScore) && item.period !== basePeriod) {
+          lines.push(`Diferencia vs periodo base: ${formatPointDifference(Number(item.score) - baseScore)}`);
+        }
+        return lines;
+      }
+    }
+  };
+  return config;
+}
+
 function buildNoTipificationByAdvisor(noTipificationRows){
   const grouped = grp(noTipificationRows || [], row => normalizeName(row.advisorName));
   return Object.values(grouped).map(rows => {
@@ -6426,6 +6501,7 @@ function buildAdvisorInsight(feedbackRows, sectionRows, noTipificationRows){
   if (!feedbackRows.length) return null;
   const latest = getLatestFeedbackRow(feedbackRows);
   const scoreSeries = buildEvaluationScoreSeries(sectionRows);
+  const weeklyTrend = buildTrendByPeriod(sectionRows);
   const firstScore = scoreSeries[0]?.score ?? null;
   const lastScore = scoreSeries[scoreSeries.length - 1]?.score ?? null;
   const delta = firstScore !== null && lastScore !== null ? lastScore - firstScore : null;
@@ -6456,6 +6532,7 @@ function buildAdvisorInsight(feedbackRows, sectionRows, noTipificationRows){
     currentStatus: latest?.estado || "pending",
     currentStatusLabel: getStatusLabel(latest?.estado),
     scoreSeries,
+    weeklyTrend,
     firstScore,
     lastScore,
     delta,
@@ -7920,6 +7997,7 @@ function StaffingConfig({staffing,setStaffing,notify,onOpenFeedback,onOpenEvalua
 function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationRecords,evaluationsLoading,noTipificationRecords,staffing,historico,users,onOpenEvaluation,onOpenNoTipification}){
   const [filters,setFilters] = useState(() => buildEmptyImprovementFilters(currentUser));
   const [scope,setScope] = useState("individual");
+  const [filtersOpen,setFiltersOpen] = useState(false);
   const [trendComparison,setTrendComparison] = useState({baseMonth:"",comparedMonth:""});
   const dataset = useMemo(() => buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,noTipificationRecords,staffing,historico,users}), [currentUser,feedbackRecords,evaluationRecords,noTipificationRecords,staffing,historico,users]);
   const options = useMemo(() => buildImprovementOptions(dataset), [dataset]);
@@ -7951,30 +8029,15 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
     ], false);
   }, [advisorInsight]);
 
-  const teamTrendConfig = useMemo(() => {
-    const trend = teamInsight?.trend || [];
-    const labels = trend.map(item => item.label);
-    if (!labels.length) return null;
-    const baseScore = trend.find(item => item.period === effectiveBaseMonth)?.score;
-    const config = buildLineChartConfig("Tendencia del equipo", labels, [
-      {label:"Promedio ponderado mensual",data:trend.map(item => item.score),borderColor:THEME.primary,backgroundColor:"rgba(29,43,255,0.12)",fill:true,tension:0.35,pointBackgroundColor:trend.map(item => item.period === effectiveBaseMonth ? THEME.accent : item.period === effectiveComparedMonth ? "#19C37D" : THEME.white),pointRadius:trend.map(item => item.period === effectiveBaseMonth || item.period === effectiveComparedMonth ? 5 : 3)}
-    ]);
-    config.options.plugins.tooltip = {
-      callbacks: {
-        title: items => items?.[0]?.label || "",
-        label: context => `Promedio ponderado: ${Number(context.parsed.y || 0).toFixed(2)}%`,
-        afterLabel: context => {
-          const item = trend[context.dataIndex] || {};
-          const lines = [`Cantidad de evaluaciones: ${item.evaluationCount || 0}`];
-          if (typeof baseScore === "number" && !isNaN(baseScore) && item.period !== effectiveBaseMonth) {
-            lines.push(`Diferencia vs mes base: ${formatPointDifference(Number(item.score) - baseScore)}`);
-          }
-          return lines;
-        }
-      }
-    };
-    return config;
-  }, [teamInsight,effectiveBaseMonth,effectiveComparedMonth]);
+  const teamTrendConfig = useMemo(() => buildScoreTrendConfig("Tendencia del equipo", teamInsight?.trend || [], {
+    basePeriod: effectiveBaseMonth,
+    comparedPeriod: effectiveComparedMonth,
+    datasetLabel: "Promedio ponderado semanal"
+  }), [teamInsight,effectiveBaseMonth,effectiveComparedMonth]);
+
+  const advisorTrendConfig = useMemo(() => buildScoreTrendConfig("Tendencia del asesor", advisorInsight?.weeklyTrend || [], {
+    datasetLabel: "Promedio ponderado semanal"
+  }), [advisorInsight]);
 
   const qDistributionConfig = useMemo(() => {
     const entries = Object.entries(teamInsight?.qDistribution || {}).filter(([key]) => key !== "Sin dato");
@@ -8075,15 +8138,18 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
       h("h1",{style:{fontSize:44,fontWeight:700,color:THEME.text,letterSpacing:"0.03em",lineHeight:1.05,fontFamily:THEME.displayFont,textTransform:"uppercase",marginBottom:10}},"Dashboard de mejora continua"),
       h("div",{style:{fontSize:13,color:"#9aa4ba",maxWidth:900,lineHeight:1.7}},"El foco principal de esta vista es el seguimiento de evaluaciones ponderadas por asesor y por equipo. Desde aqui puedes registrar evaluaciones directas y medir si el acompanamiento esta generando recuperacion real.")
     ),
-    h("div",{style:{...CARD,marginBottom:24}},
+    h("div",{style:{...CARD,marginBottom:24,padding:20}},
       h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:18,flexWrap:"wrap"}},
-        h("div",{style:{fontSize:12,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.15em",fontFamily:THEME.displayFont}},"Filtros principales"),
+        h("div",{style:{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}},
+          h("button",{style:{...BTN(filtersOpen?"p":"out"),padding:"10px 14px"},onClick:()=>setFiltersOpen(prev=>!prev)},I("sliders",12,filtersOpen ? "#fff" : "#8b92a5"),filtersOpen ? "OCULTAR FILTROS" : "FILTROS"),
+          h("div",{style:{fontSize:11,color:"#8b92a5",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em"}},Object.values(filters).filter(Boolean).length," filtro(s) activo(s)")
+        ),
         h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},
           activeAdvisor && h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:()=>openAdvisorNoTipification(activeAdvisor)},I("alert",12,"#8b92a5"),"ALERTA NO TIPIFICACION"),
           activeAdvisor && h("button",{style:{...BTN("pink"),padding:"10px 14px"},onClick:()=>openAdvisorEvaluation(activeAdvisor)},I("file",12,"#fff"),"INGRESAR EVALUACION")
         )
       ),
-      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14}},
+      filtersOpen && h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha desde"),h("input",{type:"date",style:INP,value:filters.dateFrom,onChange:ev=>setFilters(prev=>({...prev,dateFrom:ev.target.value}))})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha hasta"),h("input",{type:"date",style:INP,value:filters.dateTo,onChange:ev=>setFilters(prev=>({...prev,dateTo:ev.target.value}))})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Asesor"),h("select",{style:SEL,value:filters.advisor,onChange:ev=>setFilters(prev=>({...prev,advisor:ev.target.value}))},h("option",{value:""},"Todos"),options.advisors.map(value=>h("option",{key:value,value},value)))),
@@ -8109,7 +8175,10 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
               h(ImprovementKpiCard,{label:"Estado de seguimiento",value:advisorInsight.currentStatusLabel,caption:`Compromisos abiertos: ${advisorInsight.openCommitments}`,color:getFeedbackStatusTheme(advisorInsight.currentStatus).color})
             ),
             h("div",{style:{display:"grid",gridTemplateColumns:"1.2fr 1fr",gap:20,marginBottom:20}},
-              h(AnalyticsChart,{title:"Evolucion de evaluaciones",subtitle:"Comparativo entre primera y ultima evaluacion ponderada.",config:advisorLineConfig,height:320}),
+              h("div",{style:{display:"flex",flexDirection:"column",gap:20}},
+                h(AnalyticsChart,{title:"Tendencia del asesor",subtitle:"Promedio ponderado por semana dentro de cada mes.",config:advisorTrendConfig,height:260,emptyMessage:"No hay suficientes evaluaciones para construir esta tendencia."}),
+                h(AnalyticsChart,{title:"Evolucion de evaluaciones",subtitle:"Comparativo entre primera y ultima evaluacion ponderada.",config:advisorLineConfig,height:260})
+              ),
               h(AnalyticsChart,{title:"Indicadores criticos",subtitle:"Sub-items donde se concentra el mayor volumen de No cumple.",config:advisorCriticalConfig,height:320})
             ),
             h("div",{style:{...CARD,marginBottom:20}},
@@ -8148,13 +8217,13 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
               h("div",{style:{display:"flex",flexDirection:"column",gap:12}},
                 h("div",{style:{...CARD,marginBottom:0,padding:16,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:12}},
                   h("div",null,
-                    h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Mes base"),
+                    h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Periodo base"),
                     h("select",{style:SEL,value:effectiveBaseMonth,onChange:ev=>setTrendComparison(prev=>({...prev,baseMonth:ev.target.value}))},
                       trendMonthOptions.length ? trendMonthOptions.map(item=>h("option",{key:item.value,value:item.value},item.label)) : h("option",{value:""},"Sin meses")
                     )
                   ),
                   h("div",null,
-                    h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Mes comparado"),
+                    h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Periodo comparado"),
                     h("select",{style:SEL,value:effectiveComparedMonth,onChange:ev=>setTrendComparison(prev=>({...prev,comparedMonth:ev.target.value}))},
                       trendMonthOptions.length ? trendMonthOptions.map(item=>h("option",{key:item.value,value:item.value},item.label)) : h("option",{value:""},"Sin meses")
                     )
@@ -8165,7 +8234,7 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
                     h("div",{style:{fontSize:11,color:"#8b92a5"}},getVariationLabel(trendSelectedComparison.difference))
                   )
                 ),
-                h(AnalyticsChart,{title:"Tendencia del equipo",subtitle:"Promedio ponderado mensual del equipo. La diferencia se calcula como mes comparado menos mes base.",config:teamTrendConfig,height:260})
+                h(AnalyticsChart,{title:"Tendencia del equipo",subtitle:"Promedio ponderado por semana dentro de cada mes. La diferencia se calcula como periodo comparado menos periodo base.",config:teamTrendConfig,height:260})
               ),
               h(AnalyticsChart,{title:"Distribucion por quartiles",subtitle:"Clasificacion actual de asesores visibles para el usuario.",config:qDistributionConfig,height:320})
             ),
