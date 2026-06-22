@@ -1751,6 +1751,7 @@ const IC = {
   layout:["M3 3h7v7H3z","M14 3h7v7h-7z","M14 14h7v7h-7z","M3 14h7v7H3z"],
   lock:["M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z","M7 11V7a5 5 0 0 1 10 0v4"],
   eye:["M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z","M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"],
+  book:["M4 19.5A2.5 2.5 0 0 1 6.5 17H20","M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z","M8 6h8","M8 10h8","M8 14h5"],
   logout:["M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4","M16 17l5-5-5-5","M21 12H9"],
   useradd:["M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2","M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z","M19 8v6","M22 11h-6"],
   shield:["M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"],
@@ -3219,6 +3220,7 @@ function App(){
   const [chatMessages,setChatMessages] = useState([]);
   const [chatOpen,setChatOpen] = useState(false);
   const [chatSending,setChatSending] = useState(false);
+  const [manualOpen,setManualOpen] = useState(false);
   const [feedbackModalAssessor,setFeedbackModalAssessor] = useState(null);
   const [view,setView] = useState("home");
   const [toast,setToast] = useState(null);
@@ -4388,6 +4390,7 @@ function App(){
   const [chatMessages,setChatMessages] = useState([]);
   const [chatOpen,setChatOpen] = useState(false);
   const [chatSending,setChatSending] = useState(false);
+  const [manualOpen,setManualOpen] = useState(false);
   const [feedbackModalAssessor,setFeedbackModalAssessor] = useState(null);
   const [selectedPreviewFeedback,setSelectedPreviewFeedback] = useState(null);
   const [selectedEvaluationFeedback,setSelectedEvaluationFeedback] = useState(null);
@@ -5474,6 +5477,102 @@ function SimpleDataTable({columns,rows,emptyMessage}){
   );
 }
 
+const USER_MANUAL_PROFILES = [
+  {
+    role:"admin",
+    title:"Administrador",
+    subtitle:"Control total de usuarios, dotacion, evaluaciones, feedbacks, comunicados y gobierno del proceso.",
+    sections:[
+      {title:"Inicio y tablero", steps:["Al ingresar, revisa Dashboard mejora para ver evolucion, volumen de evaluaciones, promedio, no tipificacion, tendencia y pareto.","Usa filtros de fecha, asesor, antiguedad, supervisor, coordinador y tipo de gestion para depurar el analisis.","La vista Evaluaciones muestra el consolidado operativo y permite abrir detalle de cada ficha."]},
+      {title:"Gestion de usuarios y dotacion", steps:["En Usuarios crea perfiles de administrador, analista, formador, supervisor y asesor.","Para asesores, vincula el usuario con el nombre real de dotacion para que su perfil lea evaluaciones y feedbacks.","En Gestion dotacion registra asesor, supervisor, coordinador, antiguedad, fecha de ingreso, tipo RUC y DNI.","Corrige dotacion antes de crear feedbacks para que el sistema sugiera supervisor y permita trazabilidad correcta."]},
+      {title:"Evaluaciones", steps:["Puede abrir evaluaciones, revisar detalle, adjuntos, audios, imagenes y evidencia.","Puede eliminar evaluaciones cuando corresponda; las evaluaciones borradas no deben aparecer para asesor.","Verifica que la suma de pesos sea 100% y que No aplica salga del denominador aplicable."]},
+      {title:"Feedbacks y reaperturas", steps:["Puede crear feedbacks y asignarlos a asesor y supervisor.","Si un feedback debe volver al asesor, marca En seguimiento: esto reinicia la validacion del asesor y borra su validacion anterior.","Si el supervisor ya cerro el feedback, solo administrador puede modificar o reabrirlo.","Reabrir un cierre de supervisor debe ser una accion excepcional y con trazabilidad en el hilo."]},
+      {title:"Comunicados y soporte", steps:["Crea comunicados por audiencia: staff, asesores o todos.","Adjunta archivos cuando aplique y valida que el publico objetivo pueda leerlos.","Usa Notificaciones para revisar eventos pendientes del proceso."]}
+    ]
+  },
+  {
+    role:"analista",
+    title:"Analista",
+    subtitle:"Responsable de crear feedbacks, registrar evaluaciones y dar seguimiento operativo.",
+    sections:[
+      {title:"Dashboard y evaluaciones", steps:["Usa Dashboard mejora para monitorear indicadores de calidad y priorizar asesores.","En Evaluaciones abre fichas existentes o registra nuevas fichas desde feedback, dotacion o no tipificacion.","Completa modalidad, asesor, auditor, tipo de gestion, fecha, resultados por item y hallazgos finales.","Adjunta audio, imagen o documento cuando corresponda y valida que se puedan previsualizar."]},
+      {title:"Crear feedback", steps:["En Feedbacks selecciona Crear feedback.","Elige asesor y supervisor asignado. El supervisor puede venir sugerido por dotacion, pero puedes cambiarlo.","Completa tipo de gestion, clasificacion/refuerzo, resultado, observacion, detalle y compromiso.","Si agregas agenda online, completa fecha/hora y correo juntos.","Guarda el feedback y revisa que aparezca en la bandeja del asesor y del supervisor asignado."]},
+      {title:"Seguimiento del ciclo", steps:["El asesor debe aceptar o no aceptar con comentario obligatorio.","Si necesitas una nueva validacion del asesor, marca En seguimiento; esto anula la validacion anterior del asesor.","Cuando el asesor valida, el supervisor queda habilitado para aceptar y cerrar.","No cierres el proceso desde analista; el cierre final corresponde al supervisor."]},
+      {title:"Comunicados", steps:["Publica cambios de proceso, recordatorios, capacitaciones y alertas operativas.","Usa etiquetas y prioridad para facilitar lectura.","Da seguimiento a comentarios o confirmaciones de lectura."]}
+    ]
+  },
+  {
+    role:"supervisor",
+    title:"Supervisor",
+    subtitle:"Valida feedbacks asignados y consulta el tablero completo de mejora.",
+    sections:[
+      {title:"Vista inicial", steps:["Al ingresar veras Mis feedbacks asignados.","Arriba aparece el resumen: aceptados, pendientes por supervisor y pendientes por asesor.","Usa filtros por asesor, analista, tipo, clasificacion, estado o busqueda para encontrar casos."]},
+      {title:"Validacion final de feedback", steps:["Abre Ver ficha para revisar observacion, compromiso, adjuntos, audio y documentos.","Si el asesor aun no valido, espera su decision; el sistema mostrara pendiente por asesor.","Cuando el asesor ya acepto o no acepto, escribe comentario final obligatorio.","Presiona Aceptar y cerrar feedback. Una vez cerrado, no se debe modificar salvo por administrador."]},
+      {title:"Dashboard mejora", steps:["La opcion Dashboard mejora muestra todas las evaluaciones realizadas, no solo feedbacks asignados.","Usa la vista individual y grupal para comparar asesores, tipos de gestion, tendencia y pareto.","La seccion Evaluaciones se mantiene como consulta del consolidado."]},
+      {title:"Comunicados y notificaciones", steps:["Lee comunicados del staff o de todos.","Revisa notificaciones de eventos relacionados con feedbacks y tareas pendientes."]}
+    ]
+  },
+  {
+    role:"formador",
+    title:"Formador",
+    subtitle:"Gestiona refuerzos, OJT y acciones de capacitacion.",
+    sections:[
+      {title:"Refuerzos", steps:["En Feedbacks crea registros de tipo Refuerzo.","Selecciona asesor, supervisor asignado, tipo de refuerzo, observacion, detalle y compromiso.","Adjunta evidencias o documentos de capacitacion si aplica."]},
+      {title:"Evaluaciones OJT", steps:["En Evaluaciones registra OJT para personal nuevo o entrenamiento.","Completa datos del asesor/formador, fecha y resultados de la ficha.","Usa Dashboard mejora para revisar avances y patrones generales."]},
+      {title:"Comunicados", steps:["Publica comunicados de capacitacion, certificacion o cambios de aprendizaje.","Incluye adjuntos y define audiencia correctamente."]},
+      {title:"Limites del rol", steps:["No administra usuarios ni dotacion.","No cierra feedbacks como supervisor.","No reactiva feedbacks En seguimiento; esa accion queda para admin o analista."]}
+    ]
+  },
+  {
+    role:"asesor",
+    title:"Asesor",
+    subtitle:"Consulta su perfil, revisa evaluaciones y valida feedbacks recibidos.",
+    sections:[
+      {title:"Mi perfil", steps:["Al ingresar veras tu perfil, feedbacks asignados, evaluaciones realizadas y nota promedio.","En Mis evaluaciones abre cada ficha para revisar nota, estado, audio y evidencias.","Los adjuntos pueden reproducirse o descargarse segun el tipo de archivo."]},
+      {title:"Validacion de feedback", steps:["En Mis feedbacks abre Ver ficha y revisa observacion, compromiso, audio, documento y evaluacion asociada.","Escribe siempre un comentario antes de validar.","Si estas de acuerdo, presiona Aceptar.","Si no estas de acuerdo, presiona No acepto y deja el sustento en el comentario.","Si analista/admin vuelve a poner En seguimiento, la validacion anterior se anula y debes validar nuevamente."]},
+      {title:"Hilo y seguimiento", steps:["Usa Responder en hilo para consultas o aclaraciones antes del cierre.","Una vez que el supervisor cierre, el feedback queda bloqueado para nuevas modificaciones.","Lee comunicados y notificaciones para mantenerte actualizado."]}
+    ]
+  }
+];
+
+function UserManualModal({isOpen,currentUser,onClose}){
+  if (!isOpen) return null;
+  const role = String(currentUser?.rol || "").trim().toLowerCase();
+  const profiles = [
+    ...USER_MANUAL_PROFILES.filter(profile => profile.role === role),
+    ...USER_MANUAL_PROFILES.filter(profile => profile.role !== role)
+  ];
+  return h("div",{style:{position:"fixed",inset:0,background:"rgba(11,17,33,0.94)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2100,padding:20}},
+    h("div",{style:{background:"linear-gradient(180deg, rgba(18,19,29,0.99) 0%, rgba(22,12,40,0.99) 100%)",border:`1px solid ${THEME.border}`,borderRadius:20,padding:28,width:"100%",maxWidth:1080,maxHeight:"92vh",overflowY:"auto",boxShadow:THEME.glowViolet}},
+      h("div",{style:{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:20,marginBottom:24}},
+        h("div",null,
+          h("div",{style:{fontSize:11,color:THEME.primary,textTransform:"uppercase",letterSpacing:"0.24em",fontWeight:800,fontFamily:THEME.displayFont,marginBottom:8}},"Manual de uso"),
+          h("h2",{style:{fontSize:28,color:"#fff",margin:0,fontWeight:800}},"Guia operativa por perfil"),
+          h("div",{style:{fontSize:12,color:"#8b92a5",lineHeight:1.7,marginTop:8,maxWidth:760}},"Consulta los pasos principales de cada rol: dashboard, evaluaciones, feedbacks, validaciones, comunicados y restricciones del flujo.")
+        ),
+        h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:onClose},"CERRAR")
+      ),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:18}},
+        profiles.map(profile => h("div",{key:profile.role,style:{...CARD,marginBottom:0,borderTop:`4px solid ${ROL_COLOR[profile.role] || THEME.primary}`,padding:20}},
+          h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:10}},
+            h("div",{style:{fontSize:20,color:"#fff",fontWeight:800}},profile.title),
+            profile.role === role && h("span",{style:{background:"rgba(25,195,125,0.12)",border:"1px solid rgba(25,195,125,0.28)",color:"#19C37D",padding:"6px 10px",borderRadius:999,fontSize:10,fontWeight:800,letterSpacing:"0.1em",fontFamily:THEME.displayFont}},"TU PERFIL")
+          ),
+          h("div",{style:{fontSize:12,color:"#9aa4ba",lineHeight:1.7,marginBottom:16}},profile.subtitle),
+          h("div",{style:{display:"flex",flexDirection:"column",gap:14}},
+            profile.sections.map(section => h("div",{key:section.title,style:{background:"rgba(255,255,255,0.03)",border:`1px solid ${THEME.border}`,borderRadius:14,padding:"14px 16px"}},
+              h("div",{style:{fontSize:12,color:"#fff",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em",fontFamily:THEME.displayFont,marginBottom:10}},section.title),
+              h("ol",{style:{margin:0,paddingLeft:18,color:"#d6d8e3",fontSize:12,lineHeight:1.75}},
+                section.steps.map((step,index) => h("li",{key:index,style:{marginBottom:6}},step))
+              )
+            ))
+          )
+        ))
+      )
+    )
+  );
+}
+
 // Version antigua duplicada de ContinuousImprovementDashboard removida.
 // La implementacion vigente esta definida mas adelante e incluye no tipificacion y evaluaciones OJT.
 function App(){
@@ -5491,6 +5590,7 @@ function App(){
   const [chatMessages,setChatMessages] = useState([]);
   const [chatOpen,setChatOpen] = useState(false);
   const [chatSending,setChatSending] = useState(false);
+  const [manualOpen,setManualOpen] = useState(false);
   const [feedbackModalAssessor,setFeedbackModalAssessor] = useState(null);
   const [selectedPreviewFeedback,setSelectedPreviewFeedback] = useState(null);
   const [selectedEvaluationFeedback,setSelectedEvaluationFeedback] = useState(null);
@@ -6043,7 +6143,10 @@ function App(){
         h("div",{style:{marginTop:"auto",borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:24}},
           h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 10px"}},
             h("div",null,h("div",{style:{fontSize:13,fontWeight:800,color:THEME.text,marginBottom:4}},currentUser.nombre),h("div",{style:{fontSize:10,color:ROL_COLOR[currentUser.rol] || THEME.primary,fontWeight:800,letterSpacing:"0.14em",fontFamily:THEME.displayFont}},(ROL_LABEL[currentUser.rol] || currentUser.rol).toUpperCase())),
-            h("button",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.18)",cursor:"pointer",padding:10,borderRadius:10,transition:"all 0.2s"},onClick:()=>{setCurrentUser(null);setView("legend");}},I("logout",16,THEME.accent))
+            h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+              h("button",{title:"Manual de uso",style:{background:"rgba(29,43,255,0.10)",border:"1px solid rgba(29,43,255,0.24)",cursor:"pointer",padding:10,borderRadius:10,transition:"all 0.2s"},onClick:()=>setManualOpen(true)},I("book",16,THEME.primary)),
+              h("button",{title:"Cerrar sesion",style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.18)",cursor:"pointer",padding:10,borderRadius:10,transition:"all 0.2s"},onClick:()=>{setCurrentUser(null);setView("legend");}},I("logout",16,THEME.accent))
+            )
           ),
         )
       ),
@@ -6065,6 +6168,7 @@ function App(){
     ),
     toast && h("div",{style:{position:"fixed",bottom:112,right:30,background:toast.type==="s"?THEME.primary:THEME.accent,color:THEME.white,padding:"16px 24px",borderRadius:14,fontSize:13,fontWeight:800,boxShadow:"0 10px 30px rgba(0,0,0,0.3)",zIndex:2000,letterSpacing:"0.08em",fontFamily:THEME.displayFont}},toast.msg),
     h(TigerChatWidget,{currentUser,messages:chatMessages,isOpen:chatOpen,onToggle:()=>setChatOpen(prev=>!prev),onSendMessage:sendInternalChatMessage,sending:chatSending}),
+    h(UserManualModal,{isOpen:manualOpen,currentUser,onClose:()=>setManualOpen(false)}),
     h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor:feedbackModalAssessor || "",notify}),
     h(NoTipificationModal,{isOpen:!!selectedNoTipificationEntry,onClose:closeNoTipificationModal,entryContext:selectedNoTipificationEntry,currentUser,onSave:guardarNoTipificacion,notify}),
     h(EvaluationModal,{isOpen:!!selectedEvaluationFeedback,onClose:closeEvaluationModal,feedbackRecord:selectedEvaluationFeedback,evaluationRecord:editingEvaluation,currentUser,onSave:guardarEvaluacion,onUpdate:actualizarEvaluacion,notify}),
