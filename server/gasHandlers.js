@@ -298,6 +298,15 @@ function canManageFeedback(user) {
   return ["admin", "analista", "supervisor", "formador"].includes(getRole(user));
 }
 
+function isFeedbackAdvisorValidated(record = {}) {
+  const validation = normalizeText(record.advisorValidationStatus || record.advisorDecision || "");
+  const status = normalizeText(record.estado || record.status || "");
+  return ["accepted", "rejected", "advisor accepted", "advisor rejected", "advisor_accepted", "advisor_rejected"].includes(validation) ||
+    ["accepted", "rejected", "advisor accepted", "advisor rejected", "advisor_accepted", "advisor_rejected"].includes(status) ||
+    !!record.advisorValidatedAt ||
+    !!record.advisorAcceptedAt;
+}
+
 function sanitizeRuntimePayload(payload = {}) {
   const { attachments, currentUser, attachment, attachmentMetadata, ...rest } = payload;
   return rest;
@@ -890,7 +899,7 @@ export const gasHandlers = {
 
     const record = { ...records[index] };
     const action = String(payload.action || "").trim();
-    const validActions = ["add_message", "submit_response", "accept_feedback", "submit_response_and_accept", "mark_viewed", "set_follow_up", "close_feedback"];
+    const validActions = ["add_message", "submit_response", "accept_feedback", "reject_feedback", "submit_response_and_accept", "mark_viewed", "set_follow_up", "close_feedback"];
     if (!validActions.includes(action)) throw new Error("La accion de actualizacion no es valida.");
 
     const actorName = String(payload.acceptedByName || payload.actorName || currentUser.nombre || "").trim();
@@ -927,14 +936,37 @@ export const gasHandlers = {
       }
     }
 
-    if (action === "accept_feedback" || action === "submit_response_and_accept") {
-      if (!actorIsAdvisor) throw new Error("Solo el asesor puede aceptar el feedback.");
+    if (action === "accept_feedback" || action === "reject_feedback" || action === "submit_response_and_accept") {
+      if (!actorIsAdvisor) throw new Error("Solo el asesor puede validar el feedback.");
+      const responseText = String(payload.responseText || payload.messageText || "").trim();
+      if (!responseText) throw new Error("Para validar el feedback debes dejar un comentario.");
+      if (isFeedbackAdvisorValidated(record) && record.estado !== "viewed" && record.estado !== "pending") {
+        throw new Error("Este feedback ya fue validado por el asesor.");
+      }
+      const decision = action === "reject_feedback" ? "rejected" : "accepted";
+      const decisionLabel = decision === "accepted" ? "Acepta feedback" : "No acepta feedback";
+      const alreadyAdded = (action === "submit_response_and_accept");
+      if (!alreadyAdded) {
+        appendFeedbackThreadMessage(record, {
+          text: `${decisionLabel}: ${responseText}`,
+          authorName: actorName,
+          authorUser: actorUser,
+          authorRole: actorRole
+        });
+      }
       record.fechaVisualizacionAsesor = record.fechaVisualizacionAsesor || nowIso();
-      record.advisorAcceptedAt = nowIso();
-      record.advisorAcceptedBy = actorUser;
-      record.advisorAcceptedName = actorName;
-      record.estado = "accepted";
-      record.status = "accepted";
+      record.advisorValidationStatus = decision;
+      record.advisorDecision = decision;
+      record.advisorValidationComment = responseText;
+      record.advisorValidatedAt = nowIso();
+      record.advisorValidatedBy = actorUser;
+      record.advisorValidatedName = actorName;
+      record.advisorAcceptedAt = decision === "accepted" ? nowIso() : "";
+      record.advisorAcceptedBy = decision === "accepted" ? actorUser : "";
+      record.advisorAcceptedName = decision === "accepted" ? actorName : "";
+      record.comentarioAsesor = responseText;
+      record.estado = decision === "accepted" ? "advisor_accepted" : "advisor_rejected";
+      record.status = record.estado;
     }
 
     if (action === "set_follow_up") {
@@ -944,7 +976,22 @@ export const gasHandlers = {
     }
 
     if (action === "close_feedback") {
-      requireRoles(currentUser, ["admin", "analista"], "Solo administradores y analistas pueden cerrar feedbacks.");
+      requireRoles(currentUser, ["supervisor"], "Solo el supervisor puede cerrar la validacion final del feedback.");
+      if (!isFeedbackAdvisorValidated(record)) {
+        throw new Error("El asesor debe validar primero el feedback antes del cierre del supervisor.");
+      }
+      const closingComment = String(payload.responseText || payload.messageText || "").trim();
+      if (!closingComment) throw new Error("Para cerrar el feedback debes dejar un comentario de validacion final.");
+      appendFeedbackThreadMessage(record, {
+        text: `Cierre supervisor: ${closingComment}`,
+        authorName: actorName,
+        authorUser: actorUser,
+        authorRole: actorRole
+      });
+      record.supervisorValidationComment = closingComment;
+      record.supervisorValidatedAt = nowIso();
+      record.supervisorValidatedBy = actorUser;
+      record.supervisorValidatedName = actorName;
       record.estado = "closed";
       record.status = "closed";
     }
