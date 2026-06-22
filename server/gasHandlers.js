@@ -307,6 +307,16 @@ function isFeedbackAdvisorValidated(record = {}) {
     !!record.advisorAcceptedAt;
 }
 
+function isFeedbackAssignedToSupervisor(record = {}, user = {}) {
+  const assignedUser = String(record.supervisorUser || record.supervisorId || "").trim();
+  if (assignedUser) return normalizeText(assignedUser) === normalizeText(user.usuario);
+  const assignedName = String(record.supervisorName || record.supervisor || "").trim();
+  if (!assignedName) return true;
+  const userKeys = [user.nombre, user.usuario, user.assessorName].map(normalizeText).filter(Boolean);
+  const assignedKey = normalizeText(assignedName);
+  return userKeys.some(key => key === assignedKey || (key.length > 6 && assignedKey.length > 6 && (key.includes(assignedKey) || assignedKey.includes(key))));
+}
+
 function sanitizeRuntimePayload(payload = {}) {
   const { attachments, currentUser, attachment, attachmentMetadata, ...rest } = payload;
   return rest;
@@ -834,6 +844,9 @@ export const gasHandlers = {
       authorUser: String(payload.authorUser || currentUser.usuario || "").trim(),
       authorRole: String(payload.authorRole || ROLE_LABELS[getRole(currentUser)] || getRole(currentUser)).trim(),
       advisorUser: String(payload.advisorUser || "").trim(),
+      supervisorName: String(payload.supervisorName || payload.supervisor || "").trim(),
+      supervisor: String(payload.supervisor || payload.supervisorName || "").trim(),
+      supervisorUser: String(payload.supervisorUser || "").trim(),
       feedbackCategory: tipoGestion,
       tipoGestion,
       clasificacionFeedback,
@@ -977,6 +990,9 @@ export const gasHandlers = {
 
     if (action === "close_feedback") {
       requireRoles(currentUser, ["supervisor"], "Solo el supervisor puede cerrar la validacion final del feedback.");
+      if (!isFeedbackAssignedToSupervisor(record, currentUser)) {
+        throw new Error("Este feedback esta asignado a otro supervisor.");
+      }
       if (!isFeedbackAdvisorValidated(record)) {
         throw new Error("El asesor debe validar primero el feedback antes del cierre del supervisor.");
       }

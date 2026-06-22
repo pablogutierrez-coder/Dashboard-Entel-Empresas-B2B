@@ -1484,6 +1484,19 @@ function buildAdvisorProfiles(staffing, users){
   });
 }
 
+function buildSupervisorOptions(users, advisorProfiles){
+  const options = new Map();
+  (users || []).filter(user => String(user?.rol || "").trim().toLowerCase() === "supervisor").forEach(user => {
+    const label = normalizeName(user?.nombre || user?.usuario);
+    if (label) options.set(label, {name: label, user: String(user?.usuario || "").trim()});
+  });
+  (advisorProfiles || []).forEach(profile => {
+    const label = normalizeName(profile?.supervisor);
+    if (label && !options.has(label)) options.set(label, {name: label, user: ""});
+  });
+  return [...options.values()].sort((a,b) => a.name.localeCompare(b.name, "es"));
+}
+
 function getAdvisorProfileForUser(currentUser, staffing, users){
   const advisorName = normalizeName(currentUser?.assessorName || currentUser?.nombre);
   const staffingItem = (staffing || []).find(item => normalizeName(item?.asesor) === advisorName || String(item?.usuarioAsignado || "").trim().toLowerCase() === String(currentUser?.usuario || "").trim().toLowerCase());
@@ -1923,6 +1936,14 @@ function canCurrentSupervisorSeeAdvisor(currentUser, staffing, advisorName){
 
 function canSupervisorSeeRecord(currentUser, staffing, record){
   if (String(currentUser?.rol||"").trim().toLowerCase() !== "supervisor") return false;
+  const assignedSupervisorUser = String(record?.supervisorUser || record?.supervisorId || "").trim().toLowerCase();
+  if (assignedSupervisorUser) {
+    return assignedSupervisorUser === String(currentUser?.usuario || "").trim().toLowerCase();
+  }
+  const assignedSupervisorName = record?.supervisorName || record?.supervisor || "";
+  if (String(assignedSupervisorName || "").trim()) {
+    return isSupervisorIdentityMatch(currentUser, assignedSupervisorName);
+  }
   return true;
 }
 
@@ -3967,30 +3988,39 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
   );
 }
 
-function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisorProfiles,defaultAssessor,notify}){
-  const [form,setForm] = useState({assessor:defaultAssessor || "",tipoGestion:String(currentUser?.rol||"").trim().toLowerCase()==="formador" ? "Refuerzo" : "Feedback",clasificacionFeedback:"",tipoRefuerzo:"",campaign:"",meetingType:"Presencial",feedbackDate:toDatetimeLocalValue(),resultadoGeneral:"",feedbackText:"",observacionGeneral:"",compromisoMejora:"",scheduledMeetingAt:"",notificationEmail:"",meetingLink:""});
+function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor,notify}){
+  const initialSupervisor = ((advisorProfiles || []).find(profile => profile.advisorName === normalizeName(defaultAssessor)) || {})?.supervisor || "";
+  const [form,setForm] = useState({assessor:defaultAssessor || "",supervisorName:initialSupervisor,supervisorUser:"",tipoGestion:String(currentUser?.rol||"").trim().toLowerCase()==="formador" ? "Refuerzo" : "Feedback",clasificacionFeedback:"",tipoRefuerzo:"",campaign:"",meetingType:"Presencial",feedbackDate:toDatetimeLocalValue(),resultadoGeneral:"",feedbackText:"",observacionGeneral:"",compromisoMejora:"",scheduledMeetingAt:"",notificationEmail:"",meetingLink:""});
   const [audioFile,setAudioFile] = useState(null);
   const [docFile,setDocFile] = useState(null);
   const [saving,setSaving] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      setForm({assessor:defaultAssessor || "",tipoGestion:String(currentUser?.rol||"").trim().toLowerCase()==="formador" ? "Refuerzo" : "Feedback",clasificacionFeedback:"",tipoRefuerzo:"",campaign:"",meetingType:"Presencial",feedbackDate:toDatetimeLocalValue(),resultadoGeneral:"",feedbackText:"",observacionGeneral:"",compromisoMejora:"",scheduledMeetingAt:"",notificationEmail:"",meetingLink:""});
+      const defaultSupervisor = ((advisorProfiles || []).find(profile => profile.advisorName === normalizeName(defaultAssessor)) || {})?.supervisor || "";
+      setForm({assessor:defaultAssessor || "",supervisorName:defaultSupervisor,supervisorUser:"",tipoGestion:String(currentUser?.rol||"").trim().toLowerCase()==="formador" ? "Refuerzo" : "Feedback",clasificacionFeedback:"",tipoRefuerzo:"",campaign:"",meetingType:"Presencial",feedbackDate:toDatetimeLocalValue(),resultadoGeneral:"",feedbackText:"",observacionGeneral:"",compromisoMejora:"",scheduledMeetingAt:"",notificationEmail:"",meetingLink:""});
       setAudioFile(null);
       setDocFile(null);
       setSaving(false);
     }
-  }, [isOpen, defaultAssessor, currentUser]);
+  }, [isOpen, defaultAssessor, currentUser, advisorProfiles]);
 
   if (!isOpen) return null;
 
   const selectedAdvisorProfile = (advisorProfiles || []).find(profile => profile.advisorName === normalizeName(form.assessor)) || null;
+  const supervisorOptions = buildSupervisorOptions(users, advisorProfiles);
+  const selectedSupervisorOption = supervisorOptions.find(option =>
+    (form.supervisorUser && option.user === form.supervisorUser) ||
+    normalizeName(option.name) === normalizeName(form.supervisorName)
+  ) || null;
+  const selectedSupervisorValue = selectedSupervisorOption ? (selectedSupervisorOption.user ? `user:${selectedSupervisorOption.user}` : `name:${selectedSupervisorOption.name}`) : "";
   const categoryTheme = getFeedbackCategoryTheme(form.tipoGestion);
   const inputFileStyle = {...INP,padding:"10px 12px"};
   const allowedManagementOptions = String(currentUser?.rol||"").trim().toLowerCase()==="formador" ? ["Refuerzo"] : MANAGEMENT_OPTIONS;
 
   const save = async() => {
     if (!form.assessor.trim()) { notify("e","Selecciona un asesor."); return; }
+    if (!form.supervisorName.trim()) { notify("e","Selecciona un supervisor asignado."); return; }
     if (!form.tipoGestion.trim()) { notify("e","Selecciona el tipo de gestion."); return; }
     if (form.tipoGestion === "Feedback" && !form.clasificacionFeedback.trim()) { notify("e","La clasificacion del feedback es obligatoria."); return; }
     if (form.tipoGestion === "Refuerzo" && !form.tipoRefuerzo.trim()) { notify("e","El tipo de refuerzo es obligatorio."); return; }
@@ -4007,6 +4037,9 @@ function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisor
         authorUser: currentUser.usuario,
         authorRole: ROL_LABEL[currentUser.rol] || currentUser.rol,
         advisorUser: selectedAdvisorProfile.usuarioAsignado,
+        supervisorName: form.supervisorName.trim().toUpperCase(),
+        supervisor: form.supervisorName.trim().toUpperCase(),
+        supervisorUser: form.supervisorUser.trim(),
         tipoGestion: form.tipoGestion,
         clasificacionFeedback: form.tipoGestion === "Feedback" ? form.clasificacionFeedback : "",
         tipoRefuerzo: form.tipoGestion === "Refuerzo" ? form.tipoRefuerzo : "",
@@ -4039,7 +4072,16 @@ function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisor
         h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:onClose},"CERRAR")
       ),
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16,marginBottom:16}},
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Asesor"),h("select",{style:SEL,value:form.assessor,onChange:ev=>setForm({...form,assessor:ev.target.value})},h("option",{value:""},"Selecciona un asesor"),advisorOptions.map(name=>h("option",{key:name,value:name},name)))),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Asesor"),h("select",{style:SEL,value:form.assessor,onChange:ev=>{
+          const nextAssessor = ev.target.value;
+          const nextProfile = (advisorProfiles || []).find(profile => profile.advisorName === normalizeName(nextAssessor)) || null;
+          setForm({...form,assessor:nextAssessor,supervisorName:nextProfile?.supervisor || form.supervisorName,supervisorUser:""});
+        }},h("option",{value:""},"Selecciona un asesor"),advisorOptions.map(name=>h("option",{key:name,value:name},name)))),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Supervisor asignado"),h("select",{style:SEL,value:selectedSupervisorValue,onChange:ev=>{
+          const value = ev.target.value;
+          const selected = supervisorOptions.find(option => value === `user:${option.user}` || value === `name:${option.name}`) || null;
+          setForm({...form,supervisorName:selected?.name || "",supervisorUser:selected?.user || ""});
+        }},h("option",{value:""},"Selecciona un supervisor"),supervisorOptions.map(option=>h("option",{key:`${option.user || option.name}`,value:option.user ? `user:${option.user}` : `name:${option.name}`},option.name)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Fecha y hora"),h("input",{type:"datetime-local",style:INP,value:form.feedbackDate,onChange:ev=>setForm({...form,feedbackDate:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Campana"),h("input",{style:INP,placeholder:"Ej: Empresas B2B",value:form.campaign,onChange:ev=>setForm({...form,campaign:ev.target.value})}))
       ),
@@ -4648,7 +4690,7 @@ function App(){
     ),
     toast && h("div",{style:{position:"fixed",bottom:112,right:30,background:toast.type==="s"?THEME.primary:THEME.accent,color:THEME.white,padding:"16px 24px",borderRadius:14,fontSize:13,fontWeight:800,boxShadow:"0 10px 30px rgba(0,0,0,0.3)",zIndex:2000,letterSpacing:"0.08em",fontFamily:THEME.displayFont}},toast.msg),
     h(TigerChatWidget,{currentUser,messages:chatMessages,isOpen:chatOpen,onToggle:()=>setChatOpen(prev=>!prev),onSendMessage:sendInternalChatMessage,sending:chatSending}),
-    h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,defaultAssessor:feedbackModalAssessor || "",notify}),
+    h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor:feedbackModalAssessor || "",notify}),
     h(EvaluationModal,{isOpen:!!selectedEvaluationFeedback,onClose:closeEvaluationModal,feedbackRecord:selectedEvaluationFeedback,evaluationRecord:editingEvaluation,currentUser,onSave:guardarEvaluacion,onUpdate:actualizarEvaluacion,notify}),
     h(FeedbackPreviewModal,{record:selectedPreviewFeedback,evaluation:previewEvaluation,currentUser,onClose:closePreviewModal,onMarkViewed:()=>runPreviewAction("mark_viewed",selectedPreviewFeedback),onAccept:comment=>runPreviewAction("accept_feedback",selectedPreviewFeedback,comment),onReject:comment=>runPreviewAction("reject_feedback",selectedPreviewFeedback,comment),onSetFollowUp:()=>runPreviewAction("set_follow_up",selectedPreviewFeedback),onCloseFeedback:comment=>runPreviewAction("close_feedback",selectedPreviewFeedback,comment)})
   );
@@ -5991,7 +6033,7 @@ function App(){
     ),
     toast && h("div",{style:{position:"fixed",bottom:112,right:30,background:toast.type==="s"?THEME.primary:THEME.accent,color:THEME.white,padding:"16px 24px",borderRadius:14,fontSize:13,fontWeight:800,boxShadow:"0 10px 30px rgba(0,0,0,0.3)",zIndex:2000,letterSpacing:"0.08em",fontFamily:THEME.displayFont}},toast.msg),
     h(TigerChatWidget,{currentUser,messages:chatMessages,isOpen:chatOpen,onToggle:()=>setChatOpen(prev=>!prev),onSendMessage:sendInternalChatMessage,sending:chatSending}),
-    h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,defaultAssessor:feedbackModalAssessor || "",notify}),
+    h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor:feedbackModalAssessor || "",notify}),
     h(NoTipificationModal,{isOpen:!!selectedNoTipificationEntry,onClose:closeNoTipificationModal,entryContext:selectedNoTipificationEntry,currentUser,onSave:guardarNoTipificacion,notify}),
     h(EvaluationModal,{isOpen:!!selectedEvaluationFeedback,onClose:closeEvaluationModal,feedbackRecord:selectedEvaluationFeedback,evaluationRecord:editingEvaluation,currentUser,onSave:guardarEvaluacion,onUpdate:actualizarEvaluacion,notify}),
     h(EvaluationHistoryModal,{advisorName:selectedEvaluationHistoryAdvisor,evaluations:evaluationRecords,evaluationsLoading,feedbackRecords,noTipificationRecords,currentUser,onClose:closeEvaluationHistory,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,onDeleteEvaluation:eliminarEvaluacion}),
