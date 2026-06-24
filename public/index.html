@@ -6028,6 +6028,37 @@ function App(){
     return true;
   };
 
+  const actualizarEstadoUsuario = async(usuario, estado) => {
+    const nextStatus = normalizeProfileStatus(estado || "activo");
+    const latestUsers = await loadUsers().catch(() => users);
+    const normalizedUserKey = normalizeLoginKey(usuario);
+    const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
+    const targetUser = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+    if (!targetUser) {
+      notify("e","No se encontro el usuario para actualizar estado.");
+      return false;
+    }
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, estado: nextStatus} : u);
+    let nextStaffing = staffing;
+    if (targetUser?.rol === "asesor") {
+      nextStaffing = staffing.map(item => {
+        const matchesUser = normalizeLoginKey(item?.usuarioAsignado) === normalizedUserKey;
+        const matchesAdvisor = normalizeName(item?.asesor) === normalizeName(targetUser?.assessorName || targetUser?.nombre);
+        return matchesUser || matchesAdvisor ? {...item, estado: nextStatus, usuarioAsignado: item?.usuarioAsignado || targetUser.usuario} : item;
+      });
+    }
+    const saved = await saveUsers(updated);
+    if (saved === false) { notify("e","No se pudo actualizar el estado del usuario."); return false; }
+    if (nextStaffing !== staffing) {
+      const staffingSaved = await saveStaffing(nextStaffing);
+      if (staffingSaved === false) { notify("e","Usuario actualizado, pero no se pudo sincronizar dotacion."); return false; }
+      setStaffing(nextStaffing);
+    }
+    setUsers(updated);
+    notify("s", nextStatus === "cesado" ? "Usuario cesado. Ya no podra ingresar." : "Usuario activado.");
+    return true;
+  };
+
   const reloadFeedbackRecords = async() => {
     const loaded = await loadFeedbackRecords();
     setFeedbackRecords(loaded);
