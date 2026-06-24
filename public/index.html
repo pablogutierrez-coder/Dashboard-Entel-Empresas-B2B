@@ -4278,20 +4278,37 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpen
       (!filters.search.trim() || haystack.includes(filters.search.trim().toLowerCase()));
   }), [visibleRecords,filters]);
 
-  const supervisorSummary = useMemo(() => {
+  const feedbackSummary = useMemo(() => {
     const isAdvisorValidated = record => {
       const status = String(record?.estado || record?.status || "").trim();
       if (status === "in_follow_up") return false;
       return ["accepted","rejected","advisor_accepted","advisor_rejected","closed"].includes(status) || !!record?.advisorValidatedAt || !!record?.advisorValidationStatus || !!record?.advisorAcceptedAt;
     };
-    const accepted = visibleRecords.filter(record => String(record?.estado || record?.status || "") === "closed").length;
+    const isAdvisorAccepted = record => {
+      const status = String(record?.estado || record?.status || "").trim();
+      const validationStatus = String(record?.advisorValidationStatus || "").trim();
+      return ["accepted","advisor_accepted","closed"].includes(status) || validationStatus === "accepted" || !!record?.advisorAcceptedAt;
+    };
+    const isAdvisorRejected = record => {
+      const status = String(record?.estado || record?.status || "").trim();
+      const validationStatus = String(record?.advisorValidationStatus || "").trim();
+      return ["rejected","advisor_rejected"].includes(status) || validationStatus === "rejected";
+    };
+    const closed = visibleRecords.filter(record => String(record?.estado || record?.status || "") === "closed").length;
     const pendingSupervisor = visibleRecords.filter(record => isAdvisorValidated(record) && String(record?.estado || record?.status || "") !== "closed").length;
     const pendingAdvisor = visibleRecords.filter(record => !isAdvisorValidated(record)).length;
+    const accepted = visibleRecords.filter(isAdvisorAccepted).length;
+    const rejected = visibleRecords.filter(isAdvisorRejected).length;
+    const inFollowUp = visibleRecords.filter(record => ["in_follow_up","response_submitted"].includes(String(record?.estado || record?.status || "").trim())).length;
     const total = Math.max(visibleRecords.length, 1);
     return [
-      {label:"Aceptados",value:accepted,color:"#19C37D",caption:"Cerrados por supervisor"},
-      {label:"Pendientes por supervisor",value:pendingSupervisor,color:THEME.accent,caption:"Ya validados por asesor"},
-      {label:"Pendientes por asesor",value:pendingAdvisor,color:"#F59E0B",caption:"Esperando validacion inicial"},
+      {label:"Cantidad de feedbacks",value:visibleRecords.length,color:THEME.primary,caption:"Registros visibles"},
+      {label:"Feedbacks cerrados",value:closed,color:"#A6A0B8",caption:"Cierre final supervisor"},
+      {label:"Aceptados",value:accepted,color:"#19C37D",caption:"Validados por asesor"},
+      {label:"Pendientes",value:pendingAdvisor + pendingSupervisor + inFollowUp,color:"#F59E0B",caption:"En flujo de validacion"},
+      {label:"Pendientes por asesor",value:pendingAdvisor,color:THEME.accent,caption:"Esperando primera validacion"},
+      {label:"Pendientes por supervisor",value:pendingSupervisor,color:"#38BDF8",caption:"Listos para cierre"},
+      {label:"No aceptados",value:rejected,color:"#FF6B7A",caption:"Requieren revision"},
     ].map(item => ({...item,pct:Math.round((item.value / total) * 100)}));
   }, [visibleRecords]);
 
@@ -4303,10 +4320,10 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpen
       ),
       canCreateFeedback(currentUser) && h("button",{style:BTN("pink"),onClick:()=>onOpenFeedback("")},I("plus",14,"#fff"),"CREAR FEEDBACK")
     ),
-    role === "supervisor" && h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16,marginBottom:24}},
-      supervisorSummary.map(item => h("div",{key:item.label,style:{...CARD,marginBottom:0,padding:18,borderTop:`3px solid ${item.color}`}},
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:14,marginBottom:24}},
+      feedbackSummary.map(item => h("div",{key:item.label,style:{...CARD,marginBottom:0,padding:16,borderTop:`3px solid ${item.color}`}},
         h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.14em",fontWeight:800,fontFamily:THEME.displayFont,marginBottom:10}},item.label),
-        h("div",{style:{fontSize:34,color:item.color,fontWeight:800,fontFamily:THEME.displayFont,marginBottom:8}},item.value),
+        h("div",{style:{fontSize:32,color:item.color,fontWeight:800,fontFamily:THEME.displayFont,marginBottom:8}},item.value),
         h("div",{style:{height:8,borderRadius:999,background:"rgba(255,255,255,0.06)",overflow:"hidden",marginBottom:8}},
           h("div",{style:{height:"100%",width:`${item.pct}%`,background:item.color,borderRadius:999}})
         ),
