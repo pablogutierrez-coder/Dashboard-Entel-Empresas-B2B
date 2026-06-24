@@ -1960,9 +1960,10 @@ function getDefaultZeroToleranceItems(){
   ];
 }
 
-function calculateEvaluationSummary(secciones, zeroToleranceItems){
-  const baseSummary = calculateWeightedEvaluationScore(secciones);
-  const appliesCeroTolerancia = (zeroToleranceItems || []).some(item => normalizeComparableValue(item?.resultado) === "cumple");
+function calculateEvaluationSummary(secciones, zeroToleranceItems, formType){
+  const baseSummary = calculateWeightedEvaluationScore(secciones, formType);
+  const appliesCeroTolerancia = normalizeEvaluationFormType(formType) === "mala_practica" ||
+    (zeroToleranceItems || []).some(item => normalizeComparableValue(item?.resultado) === "cumple");
   if (!appliesCeroTolerancia) {
     return {...baseSummary, appliesCeroTolerancia:false};
   }
@@ -6573,22 +6574,62 @@ function App(){
   );
 }
 
-function getDefaultEvaluationSections(){
-  return [
-    {categoria:"1. Protocolo de Inicio",pesoItem:5,nombreSeccion:"1.1 Presentacion",criterio:"Identificacion, empresa y motivo del contacto",pesoSub:2.5,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0},
-    {categoria:"1. Protocolo de Inicio",pesoItem:5,nombreSeccion:"1.2 Validacion",criterio:"Validacion correcta del cliente y datos base",pesoSub:2.5,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0},
-    {categoria:"2. Habilidad Comercial",pesoItem:30,nombreSeccion:"2.1 Sondeo estrategico",criterio:"Identificacion de necesidad y contexto comercial",pesoSub:10,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0},
-    {categoria:"2. Habilidad Comercial",pesoItem:30,nombreSeccion:"2.2 Posicionamiento de valor",criterio:"Presentacion de beneficios y propuesta de valor",pesoSub:10,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0},
-    {categoria:"2. Habilidad Comercial",pesoItem:30,nombreSeccion:"2.3 Manejo de objeciones",criterio:"Respuesta estructurada frente a dudas o barreras",pesoSub:10,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0},
-    {categoria:"3. Informacion Correcta y Completa",pesoItem:35,nombreSeccion:"3.1 Transparencia de la oferta",criterio:"Explicacion clara de precios, condiciones y vigencia",pesoSub:15,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0},
-    {categoria:"3. Informacion Correcta y Completa",pesoItem:35,nombreSeccion:"3.2 Control de Riesgo Comercial",criterio:"Validaciones para evitar errores o reclamos",pesoSub:10,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0},
-    {categoria:"3. Informacion Correcta y Completa",pesoItem:35,nombreSeccion:"3.3 Procesos y plazos",criterio:"Informacion sobre pasos, tiempos y condiciones",pesoSub:10,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0},
-    {categoria:"4. Experiencia del Cliente",pesoItem:10,nombreSeccion:"4.1 Escucha activa y empatia",criterio:"Comprension del cliente y respuesta empatica",pesoSub:5,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0},
-    {categoria:"4. Experiencia del Cliente",pesoItem:10,nombreSeccion:"4.2 Profesionalismo y claridad",criterio:"Seguridad, orden y claridad al comunicar",pesoSub:5,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0},
-    {categoria:"5. Cumplimiento y Cierre de Venta",pesoItem:20,nombreSeccion:"5.1 Cierre de ventas",criterio:"Validacion final y concrecion del cierre",pesoSub:10,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0},
-    {categoria:"5. Cumplimiento y Cierre de Venta",pesoItem:20,nombreSeccion:"5.2 Script de verificacion",criterio:"Uso correcto del script obligatorio",pesoSub:5,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0},
-    {categoria:"5. Cumplimiento y Cierre de Venta",pesoItem:20,nombreSeccion:"5.3 Tipificacion y sistemas",criterio:"Registro correcto y trazabilidad de la gestion",pesoSub:5,resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0}
-  ];
+const EVALUATION_FORM_TYPES = {
+  venta: {label:"Venta",tone:THEME.primary},
+  no_venta: {label:"No venta",tone:THEME.violet},
+  mala_practica: {label:"Mala practica",tone:"#FF4D5A"}
+};
+
+const EVALUATION_FORM_TEMPLATES = {
+  venta: [
+    {categoria:"1. Conecta: Entrada y Validacion",pesoItem:5,nombreSeccion:"1.1 Saludo e Identificacion",criterio:"Saludo e identificacion",pesoSub:2},
+    {categoria:"1. Conecta: Entrada y Validacion",pesoItem:5,nombreSeccion:"1.2 Validacion del Titular o Decisor",criterio:"Validacion del titular o decisor",pesoSub:3},
+    {categoria:"2. Diagnostica: Diagnostico Comercial",pesoItem:10,nombreSeccion:"2.1 Sondeo estrategico",criterio:"Sondeo estrategico",pesoSub:10},
+    {categoria:"3. Construye Valor: Presentacion de la Oferta",pesoItem:20,nombreSeccion:"3.1 Presentacion de la Oferta",criterio:"Presentacion de la oferta",pesoSub:6},
+    {categoria:"3. Construye Valor: Presentacion de la Oferta",pesoItem:20,nombreSeccion:"3.2 Plan, Beneficios e IGV",criterio:"Plan, beneficios e IGV",pesoSub:10},
+    {categoria:"3. Construye Valor: Presentacion de la Oferta",pesoItem:20,nombreSeccion:"3.3 Entrega, Portabilidad y Plazos",criterio:"Entrega, portabilidad y plazos",pesoSub:4},
+    {categoria:"4. Experiencia del Cliente",pesoItem:10,nombreSeccion:"4.1 Manejo de objeciones",criterio:"Manejo de objeciones",pesoSub:10},
+    {categoria:"5. Formaliza: Contratacion Telefonica",pesoItem:35,nombreSeccion:"5.1 Validaciones y Numero a Portar",criterio:"Validaciones y numero a portar",pesoSub:10},
+    {categoria:"5. Formaliza: Contratacion Telefonica",pesoItem:35,nombreSeccion:"5.2 Lectura de Contrato y Confirmacion Grabada",criterio:"Lectura de contrato y confirmacion grabada",pesoSub:15},
+    {categoria:"5. Formaliza: Contratacion Telefonica",pesoItem:35,nombreSeccion:"5.3 Informacion de Portabilidad y Activacion",criterio:"Informacion de portabilidad y activacion",pesoSub:10},
+    {categoria:"6. Fideliza: Cierre y Tipificacion",pesoItem:10,nombreSeccion:"6.1 Cierre de ventas",criterio:"Cierre de ventas",pesoSub:5},
+    {categoria:"6. Fideliza: Cierre y Tipificacion",pesoItem:10,nombreSeccion:"6.2 Tipificacion y sistemas",criterio:"Tipificacion y sistemas",pesoSub:5},
+    {categoria:"7. Estandar Transversal: Experiencia del Cliente",pesoItem:10,nombreSeccion:"7.1 Escucha activa y empatia",criterio:"Escucha activa y empatia",pesoSub:5},
+    {categoria:"7. Estandar Transversal: Experiencia del Cliente",pesoItem:10,nombreSeccion:"7.2 Tono Profesional y Claridad",criterio:"Tono profesional y claridad",pesoSub:5}
+  ],
+  no_venta: [
+    {categoria:"1. Conecta: Entrada y Validacion",pesoItem:10,nombreSeccion:"1.1 Saludo e Identificacion",criterio:"Saludo e identificacion",pesoSub:4},
+    {categoria:"1. Conecta: Entrada y Validacion",pesoItem:10,nombreSeccion:"1.2 Validacion del Titular o Decisor",criterio:"Validacion del titular o decisor",pesoSub:6},
+    {categoria:"2. Diagnostica: Diagnostico Comercial",pesoItem:20,nombreSeccion:"2.1 Sondeo estrategico",criterio:"Sondeo estrategico",pesoSub:20},
+    {categoria:"3. Construye Valor: Presentacion de la Oferta",pesoItem:25,nombreSeccion:"3.1 Presentacion de la Oferta",criterio:"Presentacion de la oferta",pesoSub:8},
+    {categoria:"3. Construye Valor: Presentacion de la Oferta",pesoItem:25,nombreSeccion:"3.2 Plan, Beneficios e IGV",criterio:"Plan, beneficios e IGV",pesoSub:12},
+    {categoria:"3. Construye Valor: Presentacion de la Oferta",pesoItem:25,nombreSeccion:"3.3 Entrega, Portabilidad y Plazos",criterio:"Entrega, portabilidad y plazos",pesoSub:5},
+    {categoria:"4. Experiencia del Cliente",pesoItem:25,nombreSeccion:"4.1 Manejo de objeciones",criterio:"Manejo de objeciones",pesoSub:25},
+    {categoria:"5. Formaliza: Contratacion Telefonica",pesoItem:0,nombreSeccion:"5.1 Validaciones y Numero a Portar",criterio:"Validaciones y numero a portar",pesoSub:0},
+    {categoria:"5. Formaliza: Contratacion Telefonica",pesoItem:0,nombreSeccion:"5.2 Lectura de Contrato y Confirmacion Grabada",criterio:"Lectura de contrato y confirmacion grabada",pesoSub:0},
+    {categoria:"5. Formaliza: Contratacion Telefonica",pesoItem:0,nombreSeccion:"5.3 Informacion de Portabilidad y Activacion",criterio:"Informacion de portabilidad y activacion",pesoSub:0},
+    {categoria:"6. Fideliza: Cierre y Tipificacion",pesoItem:10,nombreSeccion:"6.1 Cierre de ventas",criterio:"Cierre de ventas",pesoSub:5},
+    {categoria:"6. Fideliza: Cierre y Tipificacion",pesoItem:10,nombreSeccion:"6.2 Tipificacion y sistemas",criterio:"Tipificacion y sistemas",pesoSub:5},
+    {categoria:"7. Estandar Transversal: Experiencia del Cliente",pesoItem:10,nombreSeccion:"7.1 Escucha activa y empatia",criterio:"Escucha activa y empatia",pesoSub:5},
+    {categoria:"7. Estandar Transversal: Experiencia del Cliente",pesoItem:10,nombreSeccion:"7.2 Tono Profesional y Claridad",criterio:"Tono profesional y claridad",pesoSub:5}
+  ],
+  mala_practica: []
+};
+
+function normalizeEvaluationFormType(value){
+  const normalized = normalizeComparableValue(value);
+  if (["no venta","no_venta","noventa"].includes(normalized)) return "no_venta";
+  if (["mala practica","mala_practica","mala practica comercial","cero tolerancia"].includes(normalized)) return "mala_practica";
+  return "venta";
+}
+
+function buildEvaluationTemplateSection(section){
+  return {resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0,...section};
+}
+
+function getDefaultEvaluationSections(formType){
+  const type = normalizeEvaluationFormType(formType);
+  return (EVALUATION_FORM_TEMPLATES[type] || EVALUATION_FORM_TEMPLATES.venta).map(buildEvaluationTemplateSection);
 }
 
 function getAntiguedadBucket(value){
@@ -6617,8 +6658,8 @@ function mergeEvaluationSectionWithTemplate(templateSection, storedSection){
   };
 }
 
-function normalizeEvaluationSectionsForScoring(secciones){
-  const template = getDefaultEvaluationSections();
+function normalizeEvaluationSectionsForScoring(secciones, formType){
+  const template = getDefaultEvaluationSections(formType);
   const source = Array.isArray(secciones) ? secciones : [];
   return template.map(templateSection => mergeEvaluationSectionWithTemplate(
     templateSection,
@@ -6626,10 +6667,10 @@ function normalizeEvaluationSectionsForScoring(secciones){
   ));
 }
 
-function calculateWeightedEvaluationScore(secciones){
+function calculateWeightedEvaluationScore(secciones, formType){
   let applicableWeight = 0;
   let achievedWeight = 0;
-  normalizeEvaluationSectionsForScoring(secciones).forEach(section => {
+  normalizeEvaluationSectionsForScoring(secciones, formType).forEach(section => {
     const weight = Number(section?.pesoSub || 0) || 0;
     const result = normalizeComparableValue(section?.resultado);
     if (!weight || !result || result === "no aplica") return;
@@ -7596,8 +7637,10 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
     if (!isOpen) return;
     const sourceEvaluation = evaluationRecord || null;
     const ojtMode = isOjtEvaluationRecord(sourceEvaluation) || isOjtEvaluationRecord(feedbackRecord);
+    const storedFormType = sourceEvaluation?.evaluationFormType || sourceEvaluation?.tipoFicha || sourceEvaluation?.formType || "";
+    const initialFormType = sourceEvaluation ? normalizeEvaluationFormType(storedFormType || "venta") : "";
     setCurrentEvaluation(sourceEvaluation);
-    const template = getDefaultEvaluationSections();
+    const template = initialFormType ? getDefaultEvaluationSections(initialFormType) : [];
     const zeroToleranceTemplate = getDefaultZeroToleranceItems();
     const storedSections = Array.isArray(sourceEvaluation?.secciones) && sourceEvaluation.secciones.length
       ? sourceEvaluation.secciones
@@ -7611,7 +7654,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
               ? sourceEvaluation.atributos
               : [];
     const currentSections = storedSections.length
-      ? normalizeEvaluationSectionsForScoring(storedSections)
+      ? normalizeEvaluationSectionsForScoring(storedSections, initialFormType || "venta")
       : template.map(section => ({...section}));
     const currentZeroTolerance = Array.isArray(sourceEvaluation?.zeroToleranceItems) && sourceEvaluation.zeroToleranceItems.length
       ? zeroToleranceTemplate.map(item => {
@@ -7624,6 +7667,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       asesorNombre: feedbackRecord?.asesorNombre || feedbackRecord?.assessor || sourceEvaluation?.asesorNombre || "",
       campaign: ojtMode ? "OJT" : (feedbackRecord?.campaign || feedbackRecord?.managementTypeRuc || feedbackRecord?.tipoGestionRuc || sourceEvaluation?.campaign || ""),
       tipoGestion: sourceEvaluation?.tipoGestion || feedbackRecord?.tipoGestion || (ojtMode ? "Evaluacion OJT" : "Evaluacion de calidad"),
+      evaluationFormType: initialFormType,
       evaluationMode: ojtMode ? "ojt" : "operacion",
       isOjt: ojtMode,
       formadorNombre: sourceEvaluation?.formadorNombre || feedbackRecord?.formadorNombre || "",
@@ -7643,7 +7687,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
     setCommentEditor({open:false,index:-1,text:"",title:""});
   }, [isOpen,feedbackRecord,evaluationRecord]);
 
-  const summary = useMemo(() => form ? calculateEvaluationSummary(form.secciones, form.zeroToleranceItems) : {applicableWeight:0,achievedWeight:0,appliesCeroTolerancia:false,pct:0,label:"Critico",text:"0.0% - Critico"}, [form]);
+  const summary = useMemo(() => form ? calculateEvaluationSummary(form.secciones, form.zeroToleranceItems, form.evaluationFormType) : {applicableWeight:0,achievedWeight:0,appliesCeroTolerancia:false,pct:0,label:"Critico",text:"0.0% - Critico"}, [form]);
 
   const canCloseEvaluation = !readOnly && Boolean(currentEvaluation?.id) && !isDirty;
 
@@ -7656,10 +7700,33 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
   if (!isOpen || !form) return null;
 
   const isOjtMode = isOjtEvaluationRecord(form) || isOjtEvaluationRecord(feedbackRecord) || isOjtEvaluationRecord(currentEvaluation);
-  const groupedSections = Object.entries(grp(form.secciones, section => section.categoria || "General"));
+  const selectedFormTypeKey = form.evaluationFormType ? normalizeEvaluationFormType(form.evaluationFormType) : "";
+  const selectedFormTypeMeta = selectedFormTypeKey ? EVALUATION_FORM_TYPES[selectedFormTypeKey] : null;
+  const groupedSections = selectedFormTypeKey && selectedFormTypeKey !== "mala_practica"
+    ? Object.entries(grp(form.secciones, section => section.categoria || "General"))
+    : [];
   const savedEvaluationSource = currentEvaluation || evaluationRecord || {};
   const savedAudioFiles = getEvaluationAudioFiles(savedEvaluationSource, feedbackRecord ? [feedbackRecord] : []);
   const savedEvidenceFiles = getEvaluationEvidenceFiles(savedEvaluationSource, feedbackRecord ? [feedbackRecord] : []);
+
+  const selectEvaluationFormType = nextType => {
+    const normalizedType = normalizeEvaluationFormType(nextType);
+    const hasEnteredAnswers = (form.secciones || []).some(section =>
+      String(section.resultado || section.detalleAuditado || "").trim()
+    ) || (form.zeroToleranceItems || []).some(item => normalizeComparableValue(item.resultado) === "cumple");
+    if (hasEnteredAnswers && selectedFormTypeKey && selectedFormTypeKey !== normalizedType) {
+      const confirmed = window.confirm("Cambiar el tipo de ficha reiniciara los items y la revision de Cero Tolerancia. Deseas continuar?");
+      if (!confirmed) return;
+    }
+    setForm(prev => ({
+      ...prev,
+      evaluationFormType: normalizedType,
+      secciones: getDefaultEvaluationSections(normalizedType),
+      zeroToleranceItems: getDefaultZeroToleranceItems().map(item => ({...item}))
+    }));
+    setIsDirty(true);
+    setSaveNotice(null);
+  };
 
   const updateSection = (index, patch) => {
     const nextSections = form.secciones.map((section,idx) => {
@@ -7714,6 +7781,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
 
   const applySavedEvaluationToModal = savedEvaluation => {
     if (!savedEvaluation) return;
+    const savedFormType = normalizeEvaluationFormType(savedEvaluation.evaluationFormType || savedEvaluation.tipoFicha || savedEvaluation.formType || form.evaluationFormType || "venta");
     setCurrentEvaluation(savedEvaluation);
     setForm(prev => ({
       ...prev,
@@ -7721,6 +7789,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       asesorNombre: savedEvaluation.asesorNombre || prev.asesorNombre || "",
       campaign: savedEvaluation.campaign || prev.campaign || "",
       tipoGestion: savedEvaluation.tipoGestion || prev.tipoGestion || "",
+      evaluationFormType: savedFormType,
       evaluationMode: savedEvaluation.evaluationMode || prev.evaluationMode || (isOjtMode ? "ojt" : "operacion"),
       isOjt: savedEvaluation.isOjt !== undefined ? savedEvaluation.isOjt : prev.isOjt,
       formadorNombre: savedEvaluation.formadorNombre || prev.formadorNombre || "",
@@ -7729,7 +7798,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       detalleAuditadoGeneral: savedEvaluation.detalleAuditadoGeneral || prev.detalleAuditadoGeneral,
       oportunidadMejoraGeneral: savedEvaluation.oportunidadMejoraGeneral || prev.oportunidadMejoraGeneral,
       evidenciaGeneral: savedEvaluation.evidenciaGeneral || prev.evidenciaGeneral,
-      secciones: Array.isArray(savedEvaluation.secciones) && savedEvaluation.secciones.length ? normalizeEvaluationSectionsForScoring(savedEvaluation.secciones) : prev.secciones,
+      secciones: Array.isArray(savedEvaluation.secciones) && savedEvaluation.secciones.length ? normalizeEvaluationSectionsForScoring(savedEvaluation.secciones, savedFormType) : prev.secciones,
       zeroToleranceItems: Array.isArray(savedEvaluation.zeroToleranceItems) && savedEvaluation.zeroToleranceItems.length ? savedEvaluation.zeroToleranceItems.map(item => ({...item})) : prev.zeroToleranceItems
     }));
   };
@@ -7823,6 +7892,11 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       notify("e","Selecciona el tipo de gestion RUC.");
       return;
     }
+    if (!form.evaluationFormType) {
+      notify("e","Selecciona si la evaluacion es Venta, No venta o Mala practica.");
+      return;
+    }
+    const selectedPayloadFormType = normalizeEvaluationFormType(form.evaluationFormType);
     for (const section of form.secciones) {
       if (!String(section.resultado || "").trim()) {
         notify("e",`Completa el resultado en ${section.nombreSeccion}.`);
@@ -7834,6 +7908,10 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
         notify("e",`Completa la revision de Cero Tolerancia en ${item.subItem}.`);
         return;
       }
+    }
+    if (selectedPayloadFormType === "mala_practica" && !(form.zeroToleranceItems || []).some(item => normalizeComparableValue(item?.resultado) === "cumple")) {
+      notify("e","Selecciona al menos una infraccion de Cero Tolerancia para la Mala practica.");
+      return;
     }
     if (!String(form.detalleAuditadoGeneral || "").trim()) {
       notify("e","El detalle auditado general es obligatorio.");
@@ -7869,9 +7947,11 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
         campaign: isOjtMode ? "OJT" : form.campaign,
         fechaEvaluacion: isNaN(evaluationDate.getTime()) ? new Date().toISOString() : evaluationDate.toISOString(),
         resultadoGeneral: summary.text,
+        evaluationFormType: selectedPayloadFormType,
+        tipoFicha: EVALUATION_FORM_TYPES[selectedPayloadFormType]?.label || "Venta",
         tipoGestion: isOjtMode ? "Evaluacion OJT" : "Evaluacion de calidad",
         estadoEvaluacion: closeAfterSave ? "closed" : form.estadoEvaluacion,
-        secciones: normalizeEvaluationSectionsForScoring(form.secciones).map(section => ({
+        secciones: normalizeEvaluationSectionsForScoring(form.secciones, selectedPayloadFormType).map(section => ({
           ...section,
           detalleAuditado: String(section.detalleAuditado || "").trim(),
           oportunidadMejora: "",
@@ -7980,6 +8060,35 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
         h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:onClose},"CERRAR")
       ),
       saveNotice && h("div",{style:{position:"sticky",top:0,zIndex:2,marginBottom:18,background:saveNotice.type==="success"?"rgba(25,195,125,0.16)":"rgba(230,0,168,0.16)",border:saveNotice.type==="success"?"1px solid rgba(25,195,125,0.34)":"1px solid rgba(230,0,168,0.34)",color:saveNotice.type==="success"?"#19C37D":THEME.accent,borderRadius:14,padding:"12px 14px",fontSize:12,fontWeight:700,backdropFilter:"blur(4px)"}},saveNotice.message),
+      h("div",{style:{...CARD,marginBottom:18,padding:18,border:selectedFormTypeMeta ? `1px solid ${selectedFormTypeMeta.tone}` : `1px solid ${THEME.border}`}},
+        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap",marginBottom:12}},
+          h("div",null,
+            h("div",{style:{fontSize:12,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.14em",fontFamily:THEME.displayFont}},"Tipo de ficha"),
+            h("div",{style:{fontSize:12,color:"#8b92a5",lineHeight:1.6,marginTop:6}},"Primero selecciona si la llamada corresponde a venta, no venta o mala practica. Luego se activa la rubrica correspondiente.")
+          ),
+          selectedFormTypeMeta && h("span",{style:{background:"rgba(255,255,255,0.05)",border:`1px solid ${selectedFormTypeMeta.tone}`,color:selectedFormTypeMeta.tone,padding:"8px 12px",borderRadius:999,fontSize:10,fontWeight:800,letterSpacing:"0.1em",fontFamily:THEME.displayFont}},selectedFormTypeMeta.label)
+        ),
+        h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}},
+          Object.entries(EVALUATION_FORM_TYPES).map(([type,meta]) => {
+            const active = selectedFormTypeKey === type;
+            return h("button",{
+              key:type,
+              type:"button",
+              style:{
+                ...BTN(active ? "p" : "out"),
+                padding:"13px 14px",
+                justifyContent:"center",
+                border:active ? `1px solid ${meta.tone}` : `1px solid ${THEME.border}`,
+                background:active ? `linear-gradient(135deg, ${THEME.primary}, ${meta.tone})` : "rgba(9,9,17,0.72)",
+                opacity:readOnly ? 0.72 : 1,
+                cursor:readOnly ? "not-allowed" : "pointer"
+              },
+              onClick:()=>selectEvaluationFormType(type),
+              disabled:readOnly
+            },meta.label);
+          })
+        )
+      ),
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16,marginBottom:18}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Modalidad"),h("input",{style:INP,value:isOjtMode ? "OJT" : "Operacion",disabled:true})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},isOjtMode ? "Evaluado OJT" : "Asesor"),h("input",{style:INP,value:form.asesorNombre,onChange:ev=>patchForm({asesorNombre:ev.target.value.toUpperCase()}),disabled:readOnly || !isOjtMode,placeholder:isOjtMode ? "Nombre completo del personal nuevo" : ""})),
@@ -7995,6 +8104,12 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       ),
       summary.appliesCeroTolerancia && h("div",{style:{background:"rgba(255,77,90,0.14)",border:"1px solid rgba(255,77,90,0.30)",borderRadius:14,padding:"14px 16px",marginBottom:22,color:"#FF6B7A",fontSize:12,fontWeight:700,lineHeight:1.7}},
         "Esta evaluacion sera anulada automaticamente por activacion de un criterio de Cero Tolerancia. La nota final sera 0%."
+      ),
+      !selectedFormTypeKey && h("div",{style:{...CARD,marginBottom:22,padding:18,textAlign:"center",color:"#A6A0B8",fontSize:13,fontWeight:700}},
+        "Selecciona un tipo de ficha para activar la evaluacion."
+      ),
+      selectedFormTypeKey === "mala_practica" && h("div",{style:{background:"rgba(255,77,90,0.10)",border:"1px solid rgba(255,77,90,0.28)",borderRadius:14,padding:"14px 16px",marginBottom:22,color:"#FFB4BC",fontSize:12,fontWeight:700,lineHeight:1.7}},
+        "Mala practica usa la ficha de Cero Tolerancia. Marca la infraccion detectada; la nota final se mantiene en 0%."
       ),
       h("div",{style:{display:"flex",flexDirection:"column",gap:16,marginBottom:26}},
         groupedSections.map(([category,sections])=>h("div",{key:category,style:{background:"rgba(255,255,255,0.03)",border: `1px solid ${THEME.border}`,borderRadius:16,padding:"18px 18px 16px"}},
@@ -8025,7 +8140,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
           )
         ))
       ),
-      h("div",{style:{...CARD,marginBottom:24,padding:20}},
+      selectedFormTypeKey && h("div",{style:{...CARD,marginBottom:24,padding:20}},
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:14,flexWrap:"wrap"}},
           h("div",{style:{fontSize:12,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.14em",fontFamily:THEME.displayFont}},"Cero Tolerancia"),
           h("span",{style:{background:summary.appliesCeroTolerancia ? "rgba(255,77,90,0.12)" : "rgba(166,160,184,0.12)",border:summary.appliesCeroTolerancia ? "1px solid rgba(255,77,90,0.30)" : "1px solid rgba(166,160,184,0.24)",color:summary.appliesCeroTolerancia ? "#FF6B7A" : "#A6A0B8",padding:"8px 12px",borderRadius:999,fontSize:10,fontWeight:800,letterSpacing:"0.1em",fontFamily:THEME.displayFont}},summary.appliesCeroTolerancia ? "ANULA LA NOTA" : "SIN INFRACCION CRITICA")
