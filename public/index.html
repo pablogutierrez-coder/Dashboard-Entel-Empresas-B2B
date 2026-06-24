@@ -2156,9 +2156,10 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
   );
 }
 
-function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,notify,staffing}){
+function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPassword,notify,staffing}){
   const [form,setForm] = useState({nombre:"",usuario:"",password:"",rol:"analista",assessorName:"",correo:"",area:"",campaign:"",supervisorId:"",estado:"activo"});
   const [err,setErr] = useState("");
+  const [openMenuUser,setOpenMenuUser] = useState("");
   const staffingAdvisorOptions = useMemo(() => getStaffingAdvisorOptions(staffing), [staffing]);
 
   const add = async() => {
@@ -2204,6 +2205,22 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,notify,sta
       return;
     }
     notify("e","No se pudo eliminar el usuario.");
+  };
+
+  const resetPassword = async(usr) => {
+    const nextPassword = prompt(`Nueva contrasena para "${usr}":`);
+    if (nextPassword === null) return;
+    if (!String(nextPassword || "").trim()) {
+      notify("e","La contrasena no puede estar vacia.");
+      return;
+    }
+    const ok = await onResetPassword?.(usr, String(nextPassword).trim());
+    if (ok !== false) {
+      notify("s","Contrasena actualizada.");
+      setOpenMenuUser("");
+      return;
+    }
+    notify("e","No se pudo resetear la contrasena.");
   };
 
   return h(Fragment,null,
@@ -2254,7 +2271,13 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,notify,sta
           ),
           h("span",{style:{display:"inline-flex",padding:"7px 10px",borderRadius:999,fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",color:inactiveUser ? THEME.accent : "#20d489",border:`1px solid ${inactiveUser ? "rgba(230,0,168,0.35)" : "rgba(32,212,137,0.35)"}`,background:inactiveUser ? "rgba(230,0,168,0.10)" : "rgba(32,212,137,0.10)"}},inactiveUser ? "Cesado" : "Activo"),
           h("button",{style:{...BTN(inactiveUser ? "pink" : "out"),padding:"9px 12px"},onClick:()=>onUpdateUserStatus && onUpdateUserStatus(u.usuario, inactiveUser ? "activo" : "cesado")},inactiveUser ? "ACTIVAR" : "CESAR"),
-          h("button",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.24)",borderRadius:10,padding:"10px",cursor:"pointer",display:"flex",alignItems:"center"},onClick:() => remove(u.usuario)}, I("trash",14,THEME.accent))
+          h("div",{style:{position:"relative"}},
+            h("button",{style:{width:38,height:38,borderRadius:10,border:`1px solid ${THEME.border}`,background:"rgba(255,255,255,0.03)",color:"#fff",cursor:"pointer",fontSize:22,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"},title:"Mas acciones",onClick:()=>setOpenMenuUser(prev=>prev===u.usuario ? "" : u.usuario)},"⋮"),
+            openMenuUser === u.usuario && h("div",{style:{position:"absolute",right:0,top:44,zIndex:20,minWidth:190,background:"rgba(9,9,17,0.98)",border:`1px solid ${THEME.border}`,borderRadius:12,padding:8,boxShadow:"0 18px 44px rgba(0,0,0,0.35)"}},
+              h("button",{style:{width:"100%",textAlign:"left",background:"transparent",border:0,color:"#dbe4f3",padding:"10px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:800,letterSpacing:"0.08em",fontFamily:THEME.displayFont},onClick:()=>resetPassword(u.usuario)},"RESETEAR CONTRASENA"),
+              h("button",{style:{width:"100%",textAlign:"left",background:"rgba(230,0,168,0.08)",border:0,color:THEME.accent,padding:"10px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:800,letterSpacing:"0.08em",fontFamily:THEME.displayFont},onClick:()=>{ setOpenMenuUser(""); remove(u.usuario); }},"ELIMINAR")
+            )
+          )
         );
         })
       )
@@ -4677,6 +4700,24 @@ function App(){
     return true;
   };
 
+  const resetearContrasenaUsuario = async(usuario, nuevaContrasena) => {
+    const normalizedUserKey = normalizeLoginKey(usuario);
+    const nextPassword = String(nuevaContrasena || "").trim();
+    if (!normalizedUserKey || !nextPassword) return false;
+    const latestUsers = await loadUsers().catch(() => users);
+    const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
+    const targetUser = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+    if (!targetUser) {
+      notify("e","No se encontro el usuario para resetear contrasena.");
+      return false;
+    }
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, password: nextPassword} : u);
+    const saved = await saveUsers(updated);
+    if (saved === false) return false;
+    setUsers(updated);
+    return true;
+  };
+
   const reloadFeedbackRecords = async() => {
     const loaded = await loadFeedbackRecords();
     setFeedbackRecords(loaded);
@@ -4878,7 +4919,7 @@ function App(){
           view==="newdata" && canImportData(currentUser) && h(NewSampleLoader,{onLoad:loadData,notify}),
           view==="analysis" && canImportData(currentUser) && raw.length>0 && h(Dashboard,{raw,melted,staffing,currentUser,notify,onSaveSnapshot:agregarAlHistorico,onOpenFeedback:openFeedbackModal}),
           view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing,setStaffing,notify,onOpenFeedback:openFeedbackModal}),
-          view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,notify,staffing})
+          view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,onResetPassword:resetearContrasenaUsuario,notify,staffing})
         )
       )
     ),
@@ -6059,6 +6100,24 @@ function App(){
     return true;
   };
 
+  const resetearContrasenaUsuario = async(usuario, nuevaContrasena) => {
+    const normalizedUserKey = normalizeLoginKey(usuario);
+    const nextPassword = String(nuevaContrasena || "").trim();
+    if (!normalizedUserKey || !nextPassword) return false;
+    const latestUsers = await loadUsers().catch(() => users);
+    const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
+    const targetUser = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+    if (!targetUser) {
+      notify("e","No se encontro el usuario para resetear contrasena.");
+      return false;
+    }
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, password: nextPassword} : u);
+    const saved = await saveUsers(updated);
+    if (saved === false) return false;
+    setUsers(updated);
+    return true;
+  };
+
   const reloadFeedbackRecords = async() => {
     const loaded = await loadFeedbackRecords();
     setFeedbackRecords(loaded);
@@ -6408,7 +6467,7 @@ function App(){
           view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords,staffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
           view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords,evaluationRecords,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing}),
           view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing,setStaffing,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords,feedbackRecords,currentUser}),
-          view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,notify,staffing})
+          view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,onResetPassword:resetearContrasenaUsuario,notify,staffing})
         )
       )
     ),
