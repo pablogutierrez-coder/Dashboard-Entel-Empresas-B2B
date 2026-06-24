@@ -583,6 +583,11 @@ export const gasHandlers = {
     return await readSharedRecord(key);
   },
 
+  async listUsers() {
+    const users = await readSharedJson("users_v1", []);
+    return Array.isArray(users) ? users : [];
+  },
+
   async saveData(key, value) {
     return await writeSharedRecord(key, String(value || ""));
   },

@@ -105,6 +105,65 @@ function normalizeText(value) {
     .toUpperCase();
 }
 
+function normalizeLoginKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s._-]+/g, "");
+}
+
+function cleanUsername(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, "");
+}
+
+function normalizeUserRecord(user) {
+  if (!user || typeof user !== "object") return null;
+  const usuario = cleanUsername(user.usuario || user.user || user.username);
+  if (!usuario) return null;
+  const rol = String(user.rol || user.role || "analista").trim().toLowerCase();
+  return {
+    ...user,
+    id: user.id || usuario,
+    nombre: String(user.nombre || user.name || usuario).trim(),
+    usuario,
+    password: String(user.password || user.contrasena || user.clave || "").trim(),
+    rol,
+    assessorName: String(user.assessorName || user.asesorNombre || user.assessor || "").trim(),
+    correo: String(user.correo || user.email || "").trim(),
+    area: String(user.area || "").trim(),
+    campaign: String(user.campaign || user.campana || "").trim(),
+    supervisorId: String(user.supervisorId || user.supervisorUser || "").trim(),
+    estado: String(user.estado || "activo").trim().toLowerCase()
+  };
+}
+
+function normalizeUsersList(users) {
+  const byLogin = new Map();
+  (Array.isArray(users) ? users : []).forEach(user => {
+    const normalized = normalizeUserRecord(user);
+    if (!normalized) return;
+    const key = normalizeLoginKey(normalized.usuario);
+    if (!key) return;
+    const existing = byLogin.get(key) || {};
+    byLogin.set(key, {
+      ...existing,
+      ...normalized,
+      password: normalized.password || existing.password || "",
+      assessorName: normalized.assessorName || existing.assessorName || "",
+      correo: normalized.correo || existing.correo || "",
+      area: normalized.area || existing.area || "",
+      campaign: normalized.campaign || existing.campaign || "",
+      supervisorId: normalized.supervisorId || existing.supervisorId || "",
+      estado: normalized.estado || existing.estado || "activo"
+    });
+  });
+  return [...byLogin.values()];
+}
+
 function runGoogleScript(functionName, ...args) {
   return new Promise((resolve, reject) => {
     if (typeof google === "undefined") {
@@ -336,7 +395,7 @@ async function loadStaffing(){
 
 async function saveUsers(users){
   try{
-    const result = await stoSet("users_v1", users, false);
+    const result = await stoSet("users_v1", normalizeUsersList(users), false);
     return result;
   }catch(err){
     console.error("Error guardando usuarios:", err);
@@ -357,7 +416,7 @@ async function loadUsers(){
       data = await directFirebaseReadShared("users_v1");
     }
     if (data && Array.isArray(data) && data.length > 0) {
-      return data;
+      return normalizeUsersList(data);
     }
     const defaultUsers = [{nombre:"Pablo", usuario:"Pablo.gutierrez", password:"3100", rol:"admin"}];
     console.warn("No se recibieron usuarios persistidos; se usara usuario local de emergencia sin sobrescribir Firebase.");
@@ -1999,28 +2058,45 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
     setLoading(true);
     setErr("");
     try{
-      const normalizedUser = String(user || "").trim().toLowerCase();
+      const normalizedUser = normalizeLoginKey(user);
       const normalizedPass = String(pass || "").trim();
+      const normalizedUsers = normalizeUsersList(users);
       console.info("[Login diagnostico]", {
-        usuariosCargados: users.length,
+        usuariosCargados: normalizedUsers.length,
         usuarioIntentado: normalizedUser,
-        usuariosDisponibles: users.slice(0, 20).map(u => ({
+        usuariosDisponibles: normalizedUsers.slice(0, 30).map(u => ({
           usuario: String(u?.usuario || "").trim(),
           nombre: String(u?.nombre || "").trim(),
           rol: String(u?.rol || "").trim(),
-          estado: String(u?.estado || "").trim()
+          estado: String(u?.estado || "").trim(),
+          loginKey: normalizeLoginKey(u?.usuario)
         }))
       });
-      const found = users.find(u =>
-        String(u?.usuario || "").trim().toLowerCase() === normalizedUser &&
+      const userMatch = normalizedUsers.find(u => normalizeLoginKey(u?.usuario) === normalizedUser);
+      const found = normalizedUsers.find(u =>
+        normalizeLoginKey(u?.usuario) === normalizedUser &&
         String(u?.password || "").trim() === normalizedPass
       );
-      if (found) onLogin(found);
+      if (found) {
+        const status = String(found?.estado || "activo").trim().toLowerCase();
+        if (["inactivo","inactive","bloqueado","disabled"].includes(status)) {
+          setErr("Este usuario esta inactivo. Solicita activacion al administrador.");
+        } else {
+          onLogin(found);
+        }
+      }
       else {
-        const userExists = users.some(u => String(u?.usuario || "").trim().toLowerCase() === normalizedUser);
+        const userExists = Boolean(userMatch);
+        if (!userExists) {
+          const closeMatches = normalizedUsers
+            .filter(u => normalizeLoginKey(u?.usuario).includes(normalizedUser) || normalizedUser.includes(normalizeLoginKey(u?.usuario)))
+            .slice(0, 8)
+            .map(u => ({usuario:u.usuario,nombre:u.nombre,rol:u.rol,estado:u.estado,loginKey:normalizeLoginKey(u.usuario)}));
+          console.warn("[Login diagnostico] usuario no encontrado", {usuarioIntentado: normalizedUser, coincidenciasCercanas: closeMatches});
+        }
         setErr(userExists
           ? "La contrasena no coincide para este usuario."
-          : `Usuario no encontrado. Usuarios cargados: ${users.length}.`
+          : `Usuario no encontrado. Usuarios cargados: ${normalizedUsers.length}.`
         );
       }
     }catch(err){
@@ -2069,20 +2145,21 @@ function UserManager({users,onAddUser,onDeleteUser,notify,staffing}){
   const add = async() => {
     setErr("");
     if (!form.nombre.trim() && form.rol !== "asesor") { setErr("El nombre es requerido."); return; }
-    if (!form.usuario.trim()) { setErr("El usuario es requerido."); return; }
+    const cleanedUser = cleanUsername(form.usuario);
+    if (!cleanedUser) { setErr("El usuario es requerido."); return; }
     if (!form.password.trim()) { setErr("La contrasena es requerida."); return; }
-    if (users.find(u => u.usuario.toLowerCase() === form.usuario.trim().toLowerCase())) { setErr("Ese usuario ya existe."); return; }
+    if (normalizeUsersList(users).find(u => normalizeLoginKey(u.usuario) === normalizeLoginKey(cleanedUser))) { setErr("Ese usuario ya existe."); return; }
     const normalizedAssessor = normalizeName(form.assessorName);
     if (form.rol === "asesor") {
       if (!normalizedAssessor) { setErr("Selecciona el asesor de dotacion para este perfil."); return; }
       if (!staffingAdvisorOptions.includes(normalizedAssessor)) { setErr("El asesor debe existir en dotacion."); return; }
-      if (users.find(u => u.rol === "asesor" && normalizeName(u.assessorName) === normalizedAssessor)) { setErr("Ese asesor ya tiene un usuario asignado."); return; }
+      if (normalizeUsersList(users).find(u => u.rol === "asesor" && normalizeName(u.assessorName) === normalizedAssessor)) { setErr("Ese asesor ya tiene un usuario asignado."); return; }
     }
-    const ok = await onAddUser({
+    const normalizedUser = normalizeUserRecord({
       ...form,
       id: Date.now(),
       nombre:form.rol === "asesor" ? normalizedAssessor : form.nombre.trim(),
-      usuario:form.usuario.trim(),
+      usuario:cleanedUser,
       password:form.password.trim(),
       correo:String(form.correo||"").trim(),
       area:String(form.area||"").trim(),
@@ -2091,6 +2168,7 @@ function UserManager({users,onAddUser,onDeleteUser,notify,staffing}){
       estado:String(form.estado||"activo").trim(),
       assessorName:form.rol === "asesor" ? normalizedAssessor : ""
     });
+    const ok = await onAddUser(normalizedUser);
     if (ok === false) {
       setErr("No se pudo guardar el usuario.");
       return;
@@ -4489,10 +4567,24 @@ function App(){
   };
 
   const agregarUsuario = async(nuevoUsuario) => {
-    const updated = [...users,nuevoUsuario];
+    const normalizedNewUser = normalizeUserRecord(nuevoUsuario);
+    if (!normalizedNewUser) return false;
+    const latestUsers = await loadUsers().catch(() => []);
+    const sourceUsers = normalizeUsersList([...(latestUsers || []), ...(users || [])]);
+    if (sourceUsers.some(user => normalizeLoginKey(user.usuario) === normalizeLoginKey(normalizedNewUser.usuario))) {
+      notify("e","Ese usuario ya existe en la base.");
+      setUsers(sourceUsers);
+      return false;
+    }
+    if (normalizedNewUser.rol === "asesor" && normalizedNewUser.assessorName && sourceUsers.some(user => user.rol === "asesor" && normalizeName(user.assessorName) === normalizeName(normalizedNewUser.assessorName))) {
+      notify("e","Ese asesor ya tiene un usuario asignado en la base.");
+      setUsers(sourceUsers);
+      return false;
+    }
+    const updated = normalizeUsersList([...sourceUsers, normalizedNewUser]);
     let nextStaffing = staffing;
-    if (nuevoUsuario.rol === "asesor" && nuevoUsuario.assessorName) {
-      nextStaffing = staffing.map(item => normalizeName(item?.asesor) === normalizeName(nuevoUsuario.assessorName) ? {...item,usuarioAsignado:nuevoUsuario.usuario} : item);
+    if (normalizedNewUser.rol === "asesor" && normalizedNewUser.assessorName) {
+      nextStaffing = staffing.map(item => normalizeName(item?.asesor) === normalizeName(normalizedNewUser.assessorName) ? {...item,usuarioAsignado:normalizedNewUser.usuario} : item);
     }
     const saved = await saveUsers(updated);
     if (saved === false) return false;
@@ -4506,11 +4598,14 @@ function App(){
   };
 
   const eliminarUsuario = async(usuario) => {
-    const userToDelete = users.find(u => u.usuario === usuario);
-    const updated = users.filter(u => u.usuario !== usuario);
+    const latestUsers = await loadUsers().catch(() => users);
+    const normalizedUserKey = normalizeLoginKey(usuario);
+    const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
+    const userToDelete = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+    const updated = normalizedSource.filter(u => normalizeLoginKey(u.usuario) !== normalizedUserKey);
     let nextStaffing = staffing;
     if (userToDelete?.rol === "asesor") {
-      nextStaffing = staffing.map(item => String(item?.usuarioAsignado || "").trim().toLowerCase() === String(usuario || "").trim().toLowerCase() ? {...item,usuarioAsignado:""} : item);
+      nextStaffing = staffing.map(item => normalizeLoginKey(item?.usuarioAsignado) === normalizedUserKey ? {...item,usuarioAsignado:""} : item);
     }
     const saved = await saveUsers(updated);
     if (saved === false) return false;
@@ -5671,7 +5766,7 @@ function App(){
         setEvaluationsLoading(true);
         const bootstrap = await withTimeout(loadBootstrapData(), 25000, "Carga de plataforma");
         if (bootstrap) {
-          const bootstrapUsers = Array.isArray(bootstrap.users) ? bootstrap.users.filter(Boolean) : [];
+          const bootstrapUsers = normalizeUsersList(Array.isArray(bootstrap.users) ? bootstrap.users.filter(Boolean) : []);
           console.info("[Usuarios diagnostico]", {
             usuariosCargados: bootstrapUsers.length,
             erroresBootstrap: bootstrap.errors || {},
@@ -5823,10 +5918,24 @@ function App(){
   };
 
   const agregarUsuario = async(nuevoUsuario) => {
-    const updated = [...users,nuevoUsuario];
+    const normalizedNewUser = normalizeUserRecord(nuevoUsuario);
+    if (!normalizedNewUser) return false;
+    const latestUsers = await loadUsers().catch(() => []);
+    const sourceUsers = normalizeUsersList([...(latestUsers || []), ...(users || [])]);
+    if (sourceUsers.some(user => normalizeLoginKey(user.usuario) === normalizeLoginKey(normalizedNewUser.usuario))) {
+      notify("e","Ese usuario ya existe en la base.");
+      setUsers(sourceUsers);
+      return false;
+    }
+    if (normalizedNewUser.rol === "asesor" && normalizedNewUser.assessorName && sourceUsers.some(user => user.rol === "asesor" && normalizeName(user.assessorName) === normalizeName(normalizedNewUser.assessorName))) {
+      notify("e","Ese asesor ya tiene un usuario asignado en la base.");
+      setUsers(sourceUsers);
+      return false;
+    }
+    const updated = normalizeUsersList([...sourceUsers, normalizedNewUser]);
     let nextStaffing = staffing;
-    if (nuevoUsuario.rol === "asesor" && nuevoUsuario.assessorName) {
-      nextStaffing = staffing.map(item => normalizeName(item?.asesor) === normalizeName(nuevoUsuario.assessorName) ? {...item,usuarioAsignado:nuevoUsuario.usuario} : item);
+    if (normalizedNewUser.rol === "asesor" && normalizedNewUser.assessorName) {
+      nextStaffing = staffing.map(item => normalizeName(item?.asesor) === normalizeName(normalizedNewUser.assessorName) ? {...item,usuarioAsignado:normalizedNewUser.usuario} : item);
     }
     const saved = await saveUsers(updated);
     if (saved === false) return false;
@@ -5840,11 +5949,14 @@ function App(){
   };
 
   const eliminarUsuario = async(usuario) => {
-    const userToDelete = users.find(u => u.usuario === usuario);
-    const updated = users.filter(u => u.usuario !== usuario);
+    const latestUsers = await loadUsers().catch(() => users);
+    const normalizedUserKey = normalizeLoginKey(usuario);
+    const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
+    const userToDelete = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+    const updated = normalizedSource.filter(u => normalizeLoginKey(u.usuario) !== normalizedUserKey);
     let nextStaffing = staffing;
     if (userToDelete?.rol === "asesor") {
-      nextStaffing = staffing.map(item => String(item?.usuarioAsignado || "").trim().toLowerCase() === String(usuario || "").trim().toLowerCase() ? {...item,usuarioAsignado:""} : item);
+      nextStaffing = staffing.map(item => normalizeLoginKey(item?.usuarioAsignado) === normalizedUserKey ? {...item,usuarioAsignado:""} : item);
     }
     const saved = await saveUsers(updated);
     if (saved === false) return false;
