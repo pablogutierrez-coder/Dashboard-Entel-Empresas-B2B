@@ -4334,22 +4334,20 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpen
     ], false);
   }, [filteredRecords]);
 
-  const monthlyChartConfig = useMemo(() => {
+  const feedbackQuantityChartConfig = useMemo(() => {
     const byMonth = new Map();
     filteredRecords.forEach(record => {
       const date = parseAppDate(record.feedbackDate || record.createdAt || record.updatedAt);
       if (!date) return;
       const key = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}`;
       const label = date.toLocaleDateString("es-PE", {timeZone:APP_TIME_ZONE,month:"short",year:"numeric"});
-      const current = byMonth.get(key) || {label,total:0,closed:0};
+      const current = byMonth.get(key) || {label,total:0};
       current.total += 1;
-      if (String(record?.estado || record?.status || "") === "closed") current.closed += 1;
       byMonth.set(key,current);
     });
     const rows = [...byMonth.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([,value])=>value);
-    return buildBarChartConfig("Evolucion mensual de feedbacks", rows.map(item=>item.label), [
-      {label:"Feedbacks",data:rows.map(item=>item.total),backgroundColor:THEME.primary,borderRadius:8},
-      {label:"Cerrados",data:rows.map(item=>item.closed),backgroundColor:"#19C37D",borderRadius:8}
+    return buildBarChartConfig("Cantidad de feedbacks", rows.map(item=>item.label), [
+      {label:"Feedbacks",data:rows.map(item=>item.total),backgroundColor:THEME.primary,borderRadius:8}
     ], false);
   }, [filteredRecords]);
 
@@ -4371,12 +4369,12 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpen
         h("div",{style:{fontSize:11,color:"#8b92a5",lineHeight:1.5}},item.caption," - ",item.pct,"%")
       ))
     ),
-    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:18,marginBottom:24}},
-      h(AnalyticsChart,{title:"Estados del feedback",subtitle:`Total filtrado: ${feedbackStats.total}`,config:statusChartConfig,height:260,emptyMessage:"No hay feedbacks para graficar en el periodo seleccionado."}),
-      h(AnalyticsChart,{title:"Tipo de gestion",subtitle:"Volumen por categoria visible con los filtros activos.",config:managementChartConfig,height:260,emptyMessage:"No hay tipos de gestion para mostrar."})
-    ),
     h("div",{style:{marginBottom:24}},
-      h(AnalyticsChart,{title:"Evolucion mensual",subtitle:"Feedbacks creados y cerrados por mes con los filtros activos.",config:monthlyChartConfig,height:260,emptyMessage:"No hay suficientes fechas para construir la evolucion."})
+      h(AnalyticsChart,{title:"Cantidad de feedbacks",subtitle:`Volumen de feedbacks creados por mes. Total filtrado: ${feedbackStats.total}`,config:feedbackQuantityChartConfig,height:320,emptyMessage:"No hay feedbacks para graficar en el periodo seleccionado."})
+    ),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:18,marginBottom:24}},
+      h(AnalyticsChart,{title:"Estados del feedback",subtitle:"Distribucion de los feedbacks visibles con los filtros activos.",config:statusChartConfig,height:250,emptyMessage:"No hay estados para mostrar."}),
+      h(AnalyticsChart,{title:"Tipo de gestion",subtitle:"Volumen por categoria visible con los filtros activos.",config:managementChartConfig,height:250,emptyMessage:"No hay tipos de gestion para mostrar."})
     ),
     h("div",{style:{...CARD,marginBottom:24}},
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14}},
