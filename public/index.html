@@ -6643,6 +6643,13 @@ function getAntiguedadBucket(value){
 
 function mergeEvaluationSectionWithTemplate(templateSection, storedSection){
   const result = storedSection && typeof storedSection === "object" ? storedSection : {};
+  const explicitResult = result.resultado ?? result.cumplimiento ?? result.estadoCumplimiento ?? result.respuesta ?? result.resultadoItem ?? result.resultadoAtributo ?? result.status;
+  let normalizedResult = explicitResult !== undefined && explicitResult !== null && String(explicitResult).trim() !== "" ? explicitResult : templateSection.resultado;
+  if ((!normalizedResult || !String(normalizedResult).trim()) && result.puntaje !== undefined && result.puntaje !== null && String(result.puntaje).trim() !== "") {
+    const numericScore = Number(result.puntaje);
+    const weight = Number(templateSection.pesoSub || result.pesoSub || 0) || 0;
+    if (!isNaN(numericScore) && weight > 0) normalizedResult = numericScore >= weight ? "Cumple" : "No cumple";
+  }
   return {
     ...result,
     categoria: templateSection.categoria,
@@ -6650,7 +6657,7 @@ function mergeEvaluationSectionWithTemplate(templateSection, storedSection){
     nombreSeccion: templateSection.nombreSeccion,
     criterio: templateSection.criterio,
     pesoSub: Number(templateSection.pesoSub || 0) || 0,
-    resultado: result.resultado !== undefined ? result.resultado : templateSection.resultado,
+    resultado: normalizedResult,
     detalleAuditado: result.detalleAuditado || "",
     oportunidadMejora: result.oportunidadMejora || "",
     evidencia: result.evidencia || "",

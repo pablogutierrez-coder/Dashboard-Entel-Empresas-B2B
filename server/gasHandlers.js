@@ -323,21 +323,60 @@ function sanitizeRuntimePayload(payload = {}) {
   return rest;
 }
 
-const DEFAULT_EVALUATION_SECTIONS = [
-  { categoria: "1. Protocolo de Inicio", pesoItem: 5, nombreSeccion: "1.1 Presentacion", criterio: "Identificacion, empresa y motivo del contacto", pesoSub: 2.5, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
-  { categoria: "1. Protocolo de Inicio", pesoItem: 5, nombreSeccion: "1.2 Validacion", criterio: "Validacion correcta del cliente y datos base", pesoSub: 2.5, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
-  { categoria: "2. Habilidad Comercial", pesoItem: 30, nombreSeccion: "2.1 Sondeo estrategico", criterio: "Identificacion de necesidad y contexto comercial", pesoSub: 10, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
-  { categoria: "2. Habilidad Comercial", pesoItem: 30, nombreSeccion: "2.2 Posicionamiento de valor", criterio: "Presentacion de beneficios y propuesta de valor", pesoSub: 10, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
-  { categoria: "2. Habilidad Comercial", pesoItem: 30, nombreSeccion: "2.3 Manejo de objeciones", criterio: "Respuesta estructurada frente a dudas o barreras", pesoSub: 10, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
-  { categoria: "3. Informacion Correcta y Completa", pesoItem: 35, nombreSeccion: "3.1 Transparencia de la oferta", criterio: "Explicacion clara de precios, condiciones y vigencia", pesoSub: 15, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
-  { categoria: "3. Informacion Correcta y Completa", pesoItem: 35, nombreSeccion: "3.2 Control de Riesgo Comercial", criterio: "Validaciones para evitar errores o reclamos", pesoSub: 10, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
-  { categoria: "3. Informacion Correcta y Completa", pesoItem: 35, nombreSeccion: "3.3 Procesos y plazos", criterio: "Informacion sobre pasos, tiempos y condiciones", pesoSub: 10, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
-  { categoria: "4. Experiencia del Cliente", pesoItem: 10, nombreSeccion: "4.1 Escucha activa y empatia", criterio: "Comprension del cliente y respuesta empatica", pesoSub: 5, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
-  { categoria: "4. Experiencia del Cliente", pesoItem: 10, nombreSeccion: "4.2 Profesionalismo y claridad", criterio: "Seguridad, orden y claridad al comunicar", pesoSub: 5, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
-  { categoria: "5. Cumplimiento y Cierre de Venta", pesoItem: 20, nombreSeccion: "5.1 Cierre de ventas", criterio: "Validacion final y concrecion del cierre", pesoSub: 10, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
-  { categoria: "5. Cumplimiento y Cierre de Venta", pesoItem: 20, nombreSeccion: "5.2 Script de verificacion", criterio: "Uso correcto del script obligatorio", pesoSub: 5, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 },
-  { categoria: "5. Cumplimiento y Cierre de Venta", pesoItem: 20, nombreSeccion: "5.3 Tipificacion y sistemas", criterio: "Registro correcto y trazabilidad de la gestion", pesoSub: 5, resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0 }
-];
+const EVALUATION_FORM_TYPES = {
+  venta: { label: "Venta" },
+  no_venta: { label: "No venta" },
+  mala_practica: { label: "Mala practica" }
+};
+
+const EVALUATION_FORM_TEMPLATES = {
+  venta: [
+    { categoria: "1. Conecta: Entrada y Validacion", pesoItem: 5, nombreSeccion: "1.1 Saludo e Identificacion", criterio: "Saludo e identificacion", pesoSub: 2 },
+    { categoria: "1. Conecta: Entrada y Validacion", pesoItem: 5, nombreSeccion: "1.2 Validacion del Titular o Decisor", criterio: "Validacion del titular o decisor", pesoSub: 3 },
+    { categoria: "2. Diagnostica: Diagnostico Comercial", pesoItem: 10, nombreSeccion: "2.1 Sondeo estrategico", criterio: "Sondeo estrategico", pesoSub: 10 },
+    { categoria: "3. Construye Valor: Presentacion de la Oferta", pesoItem: 20, nombreSeccion: "3.1 Presentacion de la Oferta", criterio: "Presentacion de la oferta", pesoSub: 6 },
+    { categoria: "3. Construye Valor: Presentacion de la Oferta", pesoItem: 20, nombreSeccion: "3.2 Plan, Beneficios e IGV", criterio: "Plan, beneficios e IGV", pesoSub: 10 },
+    { categoria: "3. Construye Valor: Presentacion de la Oferta", pesoItem: 20, nombreSeccion: "3.3 Entrega, Portabilidad y Plazos", criterio: "Entrega, portabilidad y plazos", pesoSub: 4 },
+    { categoria: "4. Experiencia del Cliente", pesoItem: 10, nombreSeccion: "4.1 Manejo de objeciones", criterio: "Manejo de objeciones", pesoSub: 10 },
+    { categoria: "5. Formaliza: Contratacion Telefonica", pesoItem: 35, nombreSeccion: "5.1 Validaciones y Numero a Portar", criterio: "Validaciones y numero a portar", pesoSub: 10 },
+    { categoria: "5. Formaliza: Contratacion Telefonica", pesoItem: 35, nombreSeccion: "5.2 Lectura de Contrato y Confirmacion Grabada", criterio: "Lectura de contrato y confirmacion grabada", pesoSub: 15 },
+    { categoria: "5. Formaliza: Contratacion Telefonica", pesoItem: 35, nombreSeccion: "5.3 Informacion de Portabilidad y Activacion", criterio: "Informacion de portabilidad y activacion", pesoSub: 10 },
+    { categoria: "6. Fideliza: Cierre y Tipificacion", pesoItem: 10, nombreSeccion: "6.1 Cierre de ventas", criterio: "Cierre de ventas", pesoSub: 5 },
+    { categoria: "6. Fideliza: Cierre y Tipificacion", pesoItem: 10, nombreSeccion: "6.2 Tipificacion y sistemas", criterio: "Tipificacion y sistemas", pesoSub: 5 },
+    { categoria: "7. Estandar Transversal: Experiencia del Cliente", pesoItem: 10, nombreSeccion: "7.1 Escucha activa y empatia", criterio: "Escucha activa y empatia", pesoSub: 5 },
+    { categoria: "7. Estandar Transversal: Experiencia del Cliente", pesoItem: 10, nombreSeccion: "7.2 Tono Profesional y Claridad", criterio: "Tono profesional y claridad", pesoSub: 5 }
+  ],
+  no_venta: [
+    { categoria: "1. Conecta: Entrada y Validacion", pesoItem: 10, nombreSeccion: "1.1 Saludo e Identificacion", criterio: "Saludo e identificacion", pesoSub: 4 },
+    { categoria: "1. Conecta: Entrada y Validacion", pesoItem: 10, nombreSeccion: "1.2 Validacion del Titular o Decisor", criterio: "Validacion del titular o decisor", pesoSub: 6 },
+    { categoria: "2. Diagnostica: Diagnostico Comercial", pesoItem: 20, nombreSeccion: "2.1 Sondeo estrategico", criterio: "Sondeo estrategico", pesoSub: 20 },
+    { categoria: "3. Construye Valor: Presentacion de la Oferta", pesoItem: 25, nombreSeccion: "3.1 Presentacion de la Oferta", criterio: "Presentacion de la oferta", pesoSub: 8 },
+    { categoria: "3. Construye Valor: Presentacion de la Oferta", pesoItem: 25, nombreSeccion: "3.2 Plan, Beneficios e IGV", criterio: "Plan, beneficios e IGV", pesoSub: 12 },
+    { categoria: "3. Construye Valor: Presentacion de la Oferta", pesoItem: 25, nombreSeccion: "3.3 Entrega, Portabilidad y Plazos", criterio: "Entrega, portabilidad y plazos", pesoSub: 5 },
+    { categoria: "4. Experiencia del Cliente", pesoItem: 25, nombreSeccion: "4.1 Manejo de objeciones", criterio: "Manejo de objeciones", pesoSub: 25 },
+    { categoria: "5. Formaliza: Contratacion Telefonica", pesoItem: 0, nombreSeccion: "5.1 Validaciones y Numero a Portar", criterio: "Validaciones y numero a portar", pesoSub: 0 },
+    { categoria: "5. Formaliza: Contratacion Telefonica", pesoItem: 0, nombreSeccion: "5.2 Lectura de Contrato y Confirmacion Grabada", criterio: "Lectura de contrato y confirmacion grabada", pesoSub: 0 },
+    { categoria: "5. Formaliza: Contratacion Telefonica", pesoItem: 0, nombreSeccion: "5.3 Informacion de Portabilidad y Activacion", criterio: "Informacion de portabilidad y activacion", pesoSub: 0 },
+    { categoria: "6. Fideliza: Cierre y Tipificacion", pesoItem: 10, nombreSeccion: "6.1 Cierre de ventas", criterio: "Cierre de ventas", pesoSub: 5 },
+    { categoria: "6. Fideliza: Cierre y Tipificacion", pesoItem: 10, nombreSeccion: "6.2 Tipificacion y sistemas", criterio: "Tipificacion y sistemas", pesoSub: 5 },
+    { categoria: "7. Estandar Transversal: Experiencia del Cliente", pesoItem: 10, nombreSeccion: "7.1 Escucha activa y empatia", criterio: "Escucha activa y empatia", pesoSub: 5 },
+    { categoria: "7. Estandar Transversal: Experiencia del Cliente", pesoItem: 10, nombreSeccion: "7.2 Tono Profesional y Claridad", criterio: "Tono profesional y claridad", pesoSub: 5 }
+  ],
+  mala_practica: []
+};
+
+function normalizeEvaluationFormType(value) {
+  const normalized = normalizeText(value);
+  if (["no venta", "no_venta", "noventa"].includes(normalized)) return "no_venta";
+  if (["mala practica", "mala_practica", "mala practica comercial", "cero tolerancia"].includes(normalized)) return "mala_practica";
+  return "venta";
+}
+
+function getDefaultEvaluationSections(formType) {
+  const type = normalizeEvaluationFormType(formType);
+  return (EVALUATION_FORM_TEMPLATES[type] || EVALUATION_FORM_TEMPLATES.venta)
+    .map(section => ({ resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0, ...section }));
+}
 
 function getEvaluationItemIdentityValues(item = {}) {
   return [
@@ -361,13 +400,29 @@ function findMatchingEvaluationItem(items, templateItem) {
   return items.find(item => {
     const itemKeys = getEvaluationItemIdentityValues(item);
     return itemKeys.some(itemKey => templateKeys.includes(itemKey));
+  }) || items.find(item => {
+    const itemKeys = getEvaluationItemIdentityValues(item);
+    return itemKeys.some(itemKey => templateKeys.some(templateKey => itemKey.includes(templateKey) || templateKey.includes(itemKey)));
   }) || null;
 }
 
-function normalizeEvaluationSections(sections) {
+function getStoredSectionResult(stored, templateSection) {
+  const explicitResult = stored?.resultado ?? stored?.cumplimiento ?? stored?.estadoCumplimiento ?? stored?.respuesta ?? stored?.resultadoItem ?? stored?.resultadoAtributo ?? stored?.status;
+  if (explicitResult !== undefined && explicitResult !== null && String(explicitResult).trim() !== "") return explicitResult;
+  const score = stored?.puntaje;
+  if (score !== undefined && score !== null && String(score).trim() !== "") {
+    const numericScore = Number(score);
+    const weight = Number(templateSection?.pesoSub || stored?.pesoSub || 0) || 0;
+    if (!Number.isNaN(numericScore) && weight > 0) return numericScore >= weight ? "Cumple" : "No cumple";
+  }
+  return templateSection.resultado;
+}
+
+function normalizeEvaluationSections(sections, formType) {
   const source = Array.isArray(sections) ? sections : [];
-  return DEFAULT_EVALUATION_SECTIONS.map(templateSection => {
+  return getDefaultEvaluationSections(formType).map(templateSection => {
     const stored = findMatchingEvaluationItem(source, templateSection) || {};
+    const result = getStoredSectionResult(stored, templateSection);
     return {
       ...stored,
       categoria: templateSection.categoria,
@@ -375,7 +430,7 @@ function normalizeEvaluationSections(sections) {
       nombreSeccion: templateSection.nombreSeccion,
       criterio: templateSection.criterio,
       pesoSub: templateSection.pesoSub,
-      resultado: stored.resultado !== undefined ? stored.resultado : templateSection.resultado,
+      resultado: result,
       detalleAuditado: stored.detalleAuditado || "",
       oportunidadMejora: stored.oportunidadMejora || "",
       evidencia: stored.evidencia || "",
@@ -384,10 +439,10 @@ function normalizeEvaluationSections(sections) {
   });
 }
 
-function calculateEvaluationScore(sections) {
+function calculateEvaluationScore(sections, formType) {
   let applicableWeight = 0;
   let achievedWeight = 0;
-  for (const section of normalizeEvaluationSections(sections)) {
+  for (const section of normalizeEvaluationSections(sections, formType)) {
     const weight = Number(section.pesoSub || 0) || 0;
     const result = normalizeText(section.resultado);
     if (!weight || !result || result === "no aplica") continue;
@@ -401,12 +456,16 @@ function calculateEvaluationScore(sections) {
 
 function normalizeEvaluationRecordForRuntime(record) {
   if (!record || typeof record !== "object" || !Array.isArray(record.secciones) || !record.secciones.length) return record;
-  const secciones = normalizeEvaluationSections(record.secciones);
-  const score = calculateEvaluationScore(secciones);
+  const evaluationFormType = normalizeEvaluationFormType(record.evaluationFormType || record.tipoFicha || record.formType || "venta");
+  const secciones = normalizeEvaluationSections(record.secciones, evaluationFormType);
+  const score = calculateEvaluationScore(secciones, evaluationFormType);
   const appliesCeroTolerancia = Boolean(record.appliesCeroTolerancia) ||
+    evaluationFormType === "mala_practica" ||
     (Array.isArray(record.zeroToleranceItems) && record.zeroToleranceItems.some(item => normalizeText(item?.resultado) === "cumple"));
   return {
     ...record,
+    evaluationFormType,
+    tipoFicha: EVALUATION_FORM_TYPES[evaluationFormType]?.label || "Venta",
     secciones,
     pesoAplicable: score.applicableWeight,
     puntajeLogrado: score.achievedWeight,
@@ -557,14 +616,18 @@ async function readEvaluationRecordsFromFirebase(options = {}) {
 async function persistEvaluation(record) {
   const id = normalizeId(record?.id || record?.idEvaluacion);
   if (!id) throw new Error("No se puede guardar una evaluacion sin id.");
-  const secciones = normalizeEvaluationSections(record?.secciones);
-  const score = calculateEvaluationScore(secciones);
+  const evaluationFormType = normalizeEvaluationFormType(record?.evaluationFormType || record?.tipoFicha || record?.formType || "venta");
+  const secciones = normalizeEvaluationSections(record?.secciones, evaluationFormType);
+  const score = calculateEvaluationScore(secciones, evaluationFormType);
   const appliesCeroTolerancia = Boolean(record?.appliesCeroTolerancia) ||
+    evaluationFormType === "mala_practica" ||
     (Array.isArray(record?.zeroToleranceItems) && record.zeroToleranceItems.some(item => normalizeText(item?.resultado) === "cumple"));
   const normalized = {
     ...record,
     id,
     idEvaluacion: id,
+    evaluationFormType,
+    tipoFicha: EVALUATION_FORM_TYPES[evaluationFormType]?.label || "Venta",
     secciones,
     pesoAplicable: score.applicableWeight,
     puntajeLogrado: score.achievedWeight,
