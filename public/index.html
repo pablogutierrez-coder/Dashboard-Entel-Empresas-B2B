@@ -4253,7 +4253,7 @@ function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisor
 }
 
 function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpenEvaluation,onOpenPreview,advisorOptions,currentUser,notify,staffing}){
-  const [filters,setFilters] = useState({advisor:"all",author:"all",management:"all",classification:"all",status:"all",search:""});
+  const [filters,setFilters] = useState({dateFrom:"",dateTo:"",advisor:"all",author:"all",management:"all",classification:"all",status:"all",search:""});
   const role = String(currentUser?.rol||"").trim().toLowerCase();
 
   const visibleRecords = useMemo(() => {
@@ -4270,7 +4270,8 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpen
     const classification = record.clasificacionFeedback || record.tipoRefuerzo || "";
     const status = record.estado || record.status || "pending";
     const haystack = [record.asesorNombre,record.assessor,record.auditorNombre,record.authorName,management,classification,record.observacionGeneral,record.feedbackText].join(" ").toLowerCase();
-    return (filters.advisor === "all" || normalizeName(record.asesorNombre || record.assessor) === filters.advisor) &&
+    return isWithinDateRange(record.feedbackDate || record.createdAt || record.updatedAt, filters.dateFrom, filters.dateTo) &&
+      (filters.advisor === "all" || normalizeName(record.asesorNombre || record.assessor) === filters.advisor) &&
       (filters.author === "all" || String(record.auditorNombre || record.authorName || "") === filters.author) &&
       (filters.management === "all" || management === filters.management) &&
       (filters.classification === "all" || classification === filters.classification) &&
@@ -4278,7 +4279,7 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpen
       (!filters.search.trim() || haystack.includes(filters.search.trim().toLowerCase()));
   }), [visibleRecords,filters]);
 
-  const feedbackSummary = useMemo(() => {
+  const feedbackStats = useMemo(() => {
     const isAdvisorValidated = record => {
       const status = String(record?.estado || record?.status || "").trim();
       if (status === "in_follow_up") return false;
@@ -4294,23 +4295,63 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpen
       const validationStatus = String(record?.advisorValidationStatus || "").trim();
       return ["rejected","advisor_rejected"].includes(status) || validationStatus === "rejected";
     };
-    const closed = visibleRecords.filter(record => String(record?.estado || record?.status || "") === "closed").length;
-    const pendingSupervisor = visibleRecords.filter(record => isAdvisorValidated(record) && String(record?.estado || record?.status || "") !== "closed").length;
-    const pendingAdvisor = visibleRecords.filter(record => !isAdvisorValidated(record)).length;
-    const accepted = visibleRecords.filter(isAdvisorAccepted).length;
-    const rejected = visibleRecords.filter(isAdvisorRejected).length;
-    const inFollowUp = visibleRecords.filter(record => ["in_follow_up","response_submitted"].includes(String(record?.estado || record?.status || "").trim())).length;
-    const total = Math.max(visibleRecords.length, 1);
-    return [
-      {label:"Cantidad de feedbacks",value:visibleRecords.length,color:THEME.primary,caption:"Registros visibles"},
-      {label:"Feedbacks cerrados",value:closed,color:"#A6A0B8",caption:"Cierre final supervisor"},
-      {label:"Aceptados",value:accepted,color:"#19C37D",caption:"Validados por asesor"},
-      {label:"Pendientes",value:pendingAdvisor + pendingSupervisor + inFollowUp,color:"#F59E0B",caption:"En flujo de validacion"},
-      {label:"Pendientes por asesor",value:pendingAdvisor,color:THEME.accent,caption:"Esperando primera validacion"},
-      {label:"Pendientes por supervisor",value:pendingSupervisor,color:"#38BDF8",caption:"Listos para cierre"},
-      {label:"No aceptados",value:rejected,color:"#FF6B7A",caption:"Requieren revision"},
-    ].map(item => ({...item,pct:Math.round((item.value / total) * 100)}));
-  }, [visibleRecords]);
+    const closed = filteredRecords.filter(record => String(record?.estado || record?.status || "") === "closed").length;
+    const pendingSupervisor = filteredRecords.filter(record => isAdvisorValidated(record) && String(record?.estado || record?.status || "") !== "closed").length;
+    const pendingAdvisor = filteredRecords.filter(record => !isAdvisorValidated(record)).length;
+    const accepted = filteredRecords.filter(isAdvisorAccepted).length;
+    const rejected = filteredRecords.filter(isAdvisorRejected).length;
+    const inFollowUp = filteredRecords.filter(record => ["in_follow_up","response_submitted"].includes(String(record?.estado || record?.status || "").trim())).length;
+    const pending = pendingAdvisor + pendingSupervisor;
+    const total = Math.max(filteredRecords.length, 1);
+    return {total:filteredRecords.length,closed,pendingSupervisor,pendingAdvisor,accepted,rejected,inFollowUp,pending,totalSafe:total};
+  }, [filteredRecords]);
+
+  const feedbackCards = useMemo(() => ([
+    {label:"Pendientes",value:feedbackStats.pending,color:"#F59E0B",caption:"En flujo de validacion"},
+    {label:"Pendientes por asesor",value:feedbackStats.pendingAdvisor,color:THEME.accent,caption:"Esperando primera validacion"},
+    {label:"Pendientes por supervisor",value:feedbackStats.pendingSupervisor,color:"#38BDF8",caption:"Listos para cierre"}
+  ].map(item => ({...item,pct:Math.round((item.value / feedbackStats.totalSafe) * 100)}))), [feedbackStats]);
+
+  const statusChartConfig = useMemo(() => {
+    const rows = [
+      {label:"Cerrados",value:feedbackStats.closed,color:"#A6A0B8"},
+      {label:"Aceptados",value:feedbackStats.accepted,color:"#19C37D"},
+      {label:"Pendientes",value:feedbackStats.pending,color:"#F59E0B"},
+      {label:"No aceptados",value:feedbackStats.rejected,color:"#FF6B7A"}
+    ].filter(item => item.value > 0);
+    return buildDoughnutChartConfig("Distribucion por estado", rows.map(item => item.label), rows.map(item => item.value), rows.map(item => item.color));
+  }, [feedbackStats]);
+
+  const managementChartConfig = useMemo(() => {
+    const counts = new Map();
+    filteredRecords.forEach(record => {
+      const label = record.tipoGestion || record.feedbackCategory || "Sin tipo";
+      counts.set(label, (counts.get(label) || 0) + 1);
+    });
+    const rows = [...counts.entries()].map(([label,value]) => ({label,value})).sort((a,b)=>b.value-a.value || a.label.localeCompare(b.label,"es"));
+    return buildBarChartConfig("Feedbacks por tipo de gestion", rows.map(item=>item.label), [
+      {label:"Feedbacks",data:rows.map(item=>item.value),backgroundColor:rows.map(item=>getFeedbackCategoryTheme(item.label).color),borderRadius:8}
+    ], false);
+  }, [filteredRecords]);
+
+  const monthlyChartConfig = useMemo(() => {
+    const byMonth = new Map();
+    filteredRecords.forEach(record => {
+      const date = parseAppDate(record.feedbackDate || record.createdAt || record.updatedAt);
+      if (!date) return;
+      const key = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}`;
+      const label = date.toLocaleDateString("es-PE", {timeZone:APP_TIME_ZONE,month:"short",year:"numeric"});
+      const current = byMonth.get(key) || {label,total:0,closed:0};
+      current.total += 1;
+      if (String(record?.estado || record?.status || "") === "closed") current.closed += 1;
+      byMonth.set(key,current);
+    });
+    const rows = [...byMonth.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([,value])=>value);
+    return buildBarChartConfig("Evolucion mensual de feedbacks", rows.map(item=>item.label), [
+      {label:"Feedbacks",data:rows.map(item=>item.total),backgroundColor:THEME.primary,borderRadius:8},
+      {label:"Cerrados",data:rows.map(item=>item.closed),backgroundColor:"#19C37D",borderRadius:8}
+    ], false);
+  }, [filteredRecords]);
 
   return h(Fragment,null,
     h("div",{style:{marginBottom:30,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:20}},
@@ -4320,8 +4361,8 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpen
       ),
       canCreateFeedback(currentUser) && h("button",{style:BTN("pink"),onClick:()=>onOpenFeedback("")},I("plus",14,"#fff"),"CREAR FEEDBACK")
     ),
-    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:14,marginBottom:24}},
-      feedbackSummary.map(item => h("div",{key:item.label,style:{...CARD,marginBottom:0,padding:16,borderTop:`3px solid ${item.color}`}},
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14,marginBottom:24}},
+      feedbackCards.map(item => h("div",{key:item.label,style:{...CARD,marginBottom:0,padding:16,borderTop:`3px solid ${item.color}`}},
         h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.14em",fontWeight:800,fontFamily:THEME.displayFont,marginBottom:10}},item.label),
         h("div",{style:{fontSize:32,color:item.color,fontWeight:800,fontFamily:THEME.displayFont,marginBottom:8}},item.value),
         h("div",{style:{height:8,borderRadius:999,background:"rgba(255,255,255,0.06)",overflow:"hidden",marginBottom:8}},
@@ -4330,8 +4371,17 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpen
         h("div",{style:{fontSize:11,color:"#8b92a5",lineHeight:1.5}},item.caption," - ",item.pct,"%")
       ))
     ),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:18,marginBottom:24}},
+      h(AnalyticsChart,{title:"Estados del feedback",subtitle:`Total filtrado: ${feedbackStats.total}`,config:statusChartConfig,height:260,emptyMessage:"No hay feedbacks para graficar en el periodo seleccionado."}),
+      h(AnalyticsChart,{title:"Tipo de gestion",subtitle:"Volumen por categoria visible con los filtros activos.",config:managementChartConfig,height:260,emptyMessage:"No hay tipos de gestion para mostrar."})
+    ),
+    h("div",{style:{marginBottom:24}},
+      h(AnalyticsChart,{title:"Evolucion mensual",subtitle:"Feedbacks creados y cerrados por mes con los filtros activos.",config:monthlyChartConfig,height:260,emptyMessage:"No hay suficientes fechas para construir la evolucion."})
+    ),
     h("div",{style:{...CARD,marginBottom:24}},
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14}},
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha desde"),h("input",{type:"date",style:INP,value:filters.dateFrom,onChange:ev=>setFilters({...filters,dateFrom:ev.target.value})})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha hasta"),h("input",{type:"date",style:INP,value:filters.dateTo,onChange:ev=>setFilters({...filters,dateTo:ev.target.value})})),
         h("select",{style:SEL,value:filters.advisor,onChange:ev=>setFilters({...filters,advisor:ev.target.value})},h("option",{value:"all"},"Todos los asesores"),advisorOptions.map(name=>h("option",{key:name,value:name},name))),
         h("select",{style:SEL,value:filters.author,onChange:ev=>setFilters({...filters,author:ev.target.value})},h("option",{value:"all"},"Todos los analistas"),authors.map(name=>h("option",{key:name,value:name},name))),
         h("select",{style:SEL,value:filters.management,onChange:ev=>setFilters({...filters,management:ev.target.value})},h("option",{value:"all"},"Todos los tipos"),MANAGEMENT_OPTIONS.map(option=>h("option",{key:option,value:option},option))),
@@ -5592,6 +5642,32 @@ function buildBarChartConfig(title, labels, datasets, stacked){
       scales: {
         y: {beginAtZero:true,stacked:!!stacked,ticks:{color:THEME.muted},grid:{color:"rgba(255,255,255,0.06)"}},
         x: {stacked:!!stacked,ticks:{color:THEME.muted,font:{size:10}},grid:{color:"rgba(255,255,255,0.04)"}}
+      }
+    }
+  };
+}
+
+function buildDoughnutChartConfig(title, labels, values, colors){
+  if (!labels.length) return null;
+  return {
+    type: "doughnut",
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderColor: "rgba(9,9,17,0.92)",
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "62%",
+      plugins: {
+        legend: {position:"bottom",labels:{color:THEME.muted,font:{size:10,family:THEME.bodyFont}}},
+        title: {display:true,text:title,color:THEME.white,font:{size:13,family:THEME.displayFont,weight:"700"}},
+        datalabels: {display:false}
       }
     }
   };
