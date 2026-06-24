@@ -120,6 +120,22 @@ function cleanUsername(value) {
     .replace(/\s+/g, "");
 }
 
+function normalizeProfileStatus(value) {
+  return String(value || "activo")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function isInactiveProfileStatus(value) {
+  return ["cesado", "baja", "inactivo", "inactive", "bloqueado", "disabled", "terminated"].includes(normalizeProfileStatus(value));
+}
+
+function isStaffingActive(item) {
+  return !isInactiveProfileStatus(item?.estado || item?.status || item?.estadoDotacion || "activo");
+}
+
 function normalizeUserRecord(user) {
   if (!user || typeof user !== "object") return null;
   const usuario = cleanUsername(user.usuario || user.user || user.username);
@@ -137,7 +153,7 @@ function normalizeUserRecord(user) {
     area: String(user.area || "").trim(),
     campaign: String(user.campaign || user.campana || "").trim(),
     supervisorId: String(user.supervisorId || user.supervisorUser || "").trim(),
-    estado: String(user.estado || "activo").trim().toLowerCase()
+    estado: normalizeProfileStatus(user.estado || "activo")
   };
 }
 
@@ -1485,14 +1501,15 @@ function formatFeedbackDate(dateValue){
 
 function buildAdvisorOptions(staffing, raw, historico, feedbackRecords){
   const set = new Set();
-  (staffing || []).forEach(item => item?.asesor && set.add(normalizeText(item.asesor)));
+  const activeStaffingNames = new Set((staffing || []).filter(isStaffingActive).map(item => normalizeText(item?.asesor)).filter(Boolean));
+  (staffing || []).filter(isStaffingActive).forEach(item => item?.asesor && set.add(normalizeText(item.asesor)));
   (raw || []).forEach(item => {
     const advisor = getRowValue(item, FIELD_KEYS.advisor);
     if (advisor) set.add(normalizeText(advisor));
   });
   (historico || []).forEach(snapshot => ((snapshot?.data?.quartiles) || []).forEach(item => item?.asesor && set.add(normalizeText(item.asesor))));
   (feedbackRecords || []).forEach(item => item?.assessor && set.add(normalizeText(item.assessor)));
-  return [...set].filter(Boolean).sort((a, b) => a.localeCompare(b, "es"));
+  return [...set].filter(Boolean).filter(name => !activeStaffingNames.size || activeStaffingNames.has(name)).sort((a, b) => a.localeCompare(b, "es"));
 }
 
 function normalizeName(value){ return normalizeText(value); }
@@ -1525,10 +1542,10 @@ function findMatchingEvaluationItem(items, templateItem){
   }) || null;
 }
 
-function getStaffingAdvisorOptions(staffing){ return (staffing || []).map(item => normalizeName(item?.asesor)).filter(Boolean).sort((a, b) => a.localeCompare(b, "es")); }
+function getStaffingAdvisorOptions(staffing){ return (staffing || []).filter(isStaffingActive).map(item => normalizeName(item?.asesor)).filter(Boolean).sort((a, b) => a.localeCompare(b, "es")); }
 
 function buildAdvisorProfiles(staffing, users){
-  return (staffing || []).map(item => {
+  return (staffing || []).filter(isStaffingActive).map(item => {
     const advisorName = normalizeName(item?.asesor);
     const linkedUser = (users || []).find(user => user?.rol === "asesor" && (normalizeName(user.assessorName) === advisorName || String(user.usuario || "").trim().toLowerCase() === String(item?.usuarioAsignado || "").trim().toLowerCase()));
     return {
@@ -1572,7 +1589,8 @@ function getAdvisorProfileForUser(currentUser, staffing, users){
         fechaIngreso: currentUser?.fechaIngreso || "",
         usuarioAsignado: currentUser?.usuario || "",
         profileUser: linkedUser || currentUser,
-        profileWarning: "Perfil construido sin dotacion cargada"
+        profileWarning: "Perfil construido sin dotacion cargada",
+        estado: "activo"
       };
     }
     return null;
@@ -1584,7 +1602,8 @@ function getAdvisorProfileForUser(currentUser, staffing, users){
     antiguedad: staffingItem?.antiguedad || 0,
     fechaIngreso: staffingItem?.fechaIngreso || "",
     usuarioAsignado: staffingItem?.usuarioAsignado || linkedUser?.usuario || "",
-    profileUser: linkedUser || currentUser
+    profileUser: linkedUser || currentUser,
+    estado: staffingItem?.estado || "activo"
   };
 }
 
@@ -2078,8 +2097,8 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
         String(u?.password || "").trim() === normalizedPass
       );
       if (found) {
-        const status = String(found?.estado || "activo").trim().toLowerCase();
-        if (["inactivo","inactive","bloqueado","disabled"].includes(status)) {
+        const status = normalizeProfileStatus(found?.estado || "activo");
+        if (isInactiveProfileStatus(status)) {
           setErr("Este usuario esta inactivo. Solicita activacion al administrador.");
         } else {
           onLogin(found);
@@ -2137,7 +2156,7 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
   );
 }
 
-function UserManager({users,onAddUser,onDeleteUser,notify,staffing}){
+function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,notify,staffing}){
   const [form,setForm] = useState({nombre:"",usuario:"",password:"",rol:"analista",assessorName:"",correo:"",area:"",campaign:"",supervisorId:"",estado:"activo"});
   const [err,setErr] = useState("");
   const staffingAdvisorOptions = useMemo(() => getStaffingAdvisorOptions(staffing), [staffing]);
@@ -2206,6 +2225,10 @@ function UserManager({users,onAddUser,onDeleteUser,notify,staffing}){
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Correo"),h("input",{style:INP,placeholder:"correo@empresa.com",value:form.correo,onChange:ev => setForm({...form,correo:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Area / Campana"),h("input",{style:INP,placeholder:"B2B Empresas",value:form.area,onChange:ev => setForm({...form,area:ev.target.value,campaign:ev.target.value})}))
       ),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}},
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Estado"),h("select",{style:SEL,value:form.estado,onChange:ev=>setForm({...form,estado:ev.target.value})},h("option",{value:"activo"},"Activo"),h("option",{value:"cesado"},"Cesado"))),
+        h("div")
+      ),
       form.rol === "asesor" && h("div",{style:{marginBottom:20}},
         h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Asesor en dotacion"),
         h("select",{style:SEL,value:form.assessorName,onChange:ev => setForm({...form,assessorName:ev.target.value,nombre:ev.target.value || form.nombre})},
@@ -2219,7 +2242,9 @@ function UserManager({users,onAddUser,onDeleteUser,notify,staffing}){
     h("div",{style:CARD},
       h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:20}},"Usuarios registrados"),
       h("div",{style:{display:"flex",flexDirection:"column",gap:10}},
-        users.map(u => h("div",{key:u.usuario,style:{display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(9,9,17,0.86)",border: `1px solid ${THEME.border}`,borderRadius:14,padding:"16px 20px"}},
+        users.map(u => {
+          const inactiveUser = isInactiveProfileStatus(u?.estado || "activo");
+          return h("div",{key:u.usuario,style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,background:"rgba(9,9,17,0.86)",border: `1px solid ${THEME.border}`,borderRadius:14,padding:"16px 20px"}},
           h("div",{style:{flex:1}},
             h("div",{style:{fontSize:14,fontWeight:700,color:"#fff",marginBottom:4}}, u.nombre),
             h("div",{style:{fontSize:11,color:"#8b92a5"}},
@@ -2227,8 +2252,11 @@ function UserManager({users,onAddUser,onDeleteUser,notify,staffing}){
               u.rol === "asesor" && u.assessorName ? " - Perfil: " + u.assessorName : ""
             )
           ),
+          h("span",{style:{display:"inline-flex",padding:"7px 10px",borderRadius:999,fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",color:inactiveUser ? THEME.accent : "#20d489",border:`1px solid ${inactiveUser ? "rgba(230,0,168,0.35)" : "rgba(32,212,137,0.35)"}`,background:inactiveUser ? "rgba(230,0,168,0.10)" : "rgba(32,212,137,0.10)"}},inactiveUser ? "Cesado" : "Activo"),
+          h("button",{style:{...BTN(inactiveUser ? "pink" : "out"),padding:"9px 12px"},onClick:()=>onUpdateUserStatus && onUpdateUserStatus(u.usuario, inactiveUser ? "activo" : "cesado")},inactiveUser ? "ACTIVAR" : "CESAR"),
           h("button",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.24)",borderRadius:10,padding:"10px",cursor:"pointer",display:"flex",alignItems:"center"},onClick:() => remove(u.usuario)}, I("trash",14,THEME.accent))
-        ))
+        );
+        })
       )
     )
   );
@@ -3521,7 +3549,7 @@ function App(){
           view === "newdata" && h(NewSampleLoader,{onLoad:loadData,notify}),
           view === "analysis" && raw.length > 0 && h(Dashboard,{raw,melted,staffing,currentUser,notify,onSaveSnapshot:agregarAlHistorico,onOpenFeedback:openFeedbackModal}),
           view === "staffing" && h(StaffingConfig,{staffing,setStaffing,notify,onOpenFeedback:openFeedbackModal}),
-          view === "users" && currentUser.rol === "admin" && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,notify,staffing})
+          view === "users" && currentUser.rol === "admin" && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,notify,staffing})
         )
       )
     ),
@@ -4618,6 +4646,37 @@ function App(){
     return true;
   };
 
+  const actualizarEstadoUsuario = async(usuario, estado) => {
+    const nextStatus = normalizeProfileStatus(estado || "activo");
+    const latestUsers = await loadUsers().catch(() => users);
+    const normalizedUserKey = normalizeLoginKey(usuario);
+    const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
+    const targetUser = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+    if (!targetUser) {
+      notify("e","No se encontro el usuario para actualizar estado.");
+      return false;
+    }
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, estado: nextStatus} : u);
+    let nextStaffing = staffing;
+    if (targetUser?.rol === "asesor") {
+      nextStaffing = staffing.map(item => {
+        const matchesUser = normalizeLoginKey(item?.usuarioAsignado) === normalizedUserKey;
+        const matchesAdvisor = normalizeName(item?.asesor) === normalizeName(targetUser?.assessorName || targetUser?.nombre);
+        return matchesUser || matchesAdvisor ? {...item, estado: nextStatus, usuarioAsignado: item?.usuarioAsignado || targetUser.usuario} : item;
+      });
+    }
+    const saved = await saveUsers(updated);
+    if (saved === false) { notify("e","No se pudo actualizar el estado del usuario."); return false; }
+    if (nextStaffing !== staffing) {
+      const staffingSaved = await saveStaffing(nextStaffing);
+      if (staffingSaved === false) { notify("e","Usuario actualizado, pero no se pudo sincronizar dotacion."); return false; }
+      setStaffing(nextStaffing);
+    }
+    setUsers(updated);
+    notify("s", nextStatus === "cesado" ? "Usuario cesado. Ya no podra ingresar." : "Usuario activado.");
+    return true;
+  };
+
   const reloadFeedbackRecords = async() => {
     const loaded = await loadFeedbackRecords();
     setFeedbackRecords(loaded);
@@ -4819,7 +4878,7 @@ function App(){
           view==="newdata" && canImportData(currentUser) && h(NewSampleLoader,{onLoad:loadData,notify}),
           view==="analysis" && canImportData(currentUser) && raw.length>0 && h(Dashboard,{raw,melted,staffing,currentUser,notify,onSaveSnapshot:agregarAlHistorico,onOpenFeedback:openFeedbackModal}),
           view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing,setStaffing,notify,onOpenFeedback:openFeedbackModal}),
-          view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,notify,staffing})
+          view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,notify,staffing})
         )
       )
     ),
@@ -6176,10 +6235,27 @@ function App(){
     setView("notifications");
   };
 
-  const openFeedbackModal = assessor => setFeedbackModalAssessor(assessor || "");
+  const isAdvisorInactive = advisorName => {
+    const profile = (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
+    return profile ? !isStaffingActive(profile) : false;
+  };
+  const notifyInactiveAdvisor = () => notify("e","Este asesor esta cesado. Mantiene su historial, pero no puede recibir nuevas evaluaciones, feedbacks o alertas.");
+
+  const openFeedbackModal = assessor => {
+    if (assessor && isAdvisorInactive(assessor)) {
+      notifyInactiveAdvisor();
+      return;
+    }
+    setFeedbackModalAssessor(assessor || "");
+  };
   const closeFeedbackModal = () => setFeedbackModalAssessor(null);
 
   const openEvaluationModal = (feedbackRecord, evaluationRecord = null) => {
+    const advisorName = feedbackRecord?.asesorNombre || feedbackRecord?.advisorName || feedbackRecord?.assessor || feedbackRecord?.asesor || "";
+    if (!evaluationRecord && advisorName && isAdvisorInactive(advisorName)) {
+      notifyInactiveAdvisor();
+      return;
+    }
     setSelectedEvaluationFeedback(feedbackRecord || null);
     setSelectedEvaluationRecord(evaluationRecord || null);
     const evaluationId = evaluationRecord?.id || evaluationRecord?.idEvaluacion || feedbackRecord?.idEvaluacion || "";
@@ -6197,7 +6273,14 @@ function App(){
   };
   const openEvaluationHistory = advisorName => setSelectedEvaluationHistoryAdvisor(advisorName || "");
   const closeEvaluationHistory = () => setSelectedEvaluationHistoryAdvisor("");
-  const openNoTipificationModal = entryContext => setSelectedNoTipificationEntry(entryContext || null);
+  const openNoTipificationModal = entryContext => {
+    const advisorName = entryContext?.asesorNombre || entryContext?.advisorName || entryContext?.assessor || entryContext?.asesor || "";
+    if (advisorName && isAdvisorInactive(advisorName)) {
+      notifyInactiveAdvisor();
+      return;
+    }
+    setSelectedNoTipificationEntry(entryContext || null);
+  };
   const closeNoTipificationModal = () => setSelectedNoTipificationEntry(null);
 
   const openPreviewModal = async(record) => {
@@ -6294,7 +6377,7 @@ function App(){
           view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords,staffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
           view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords,evaluationRecords,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing}),
           view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing,setStaffing,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords,feedbackRecords,currentUser}),
-          view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,notify,staffing})
+          view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,notify,staffing})
         )
       )
     ),
@@ -6419,7 +6502,8 @@ function buildEvaluationEntryContext(data){
     supervisor: data?.supervisor || "",
     coordinador: data?.coordinador || "",
     antiguedad: data?.antiguedad || 0,
-    fechaIngreso: data?.fechaIngreso || ""
+    fechaIngreso: data?.fechaIngreso || "",
+    estadoDotacion: data?.estado || data?.estadoDotacion || ""
   };
 }
 
@@ -6431,7 +6515,8 @@ function buildNoTipificationEntryContext(data){
     coordinador: data?.coordinador || "",
     antiguedad: data?.antiguedad || 0,
     fechaIngreso: data?.fechaIngreso || "",
-    managementTypeRuc: data?.managementTypeRuc || data?.campaign || data?.tipoGestionRuc || ""
+    managementTypeRuc: data?.managementTypeRuc || data?.campaign || data?.tipoGestionRuc || "",
+    estadoDotacion: data?.estado || data?.estadoDotacion || ""
   };
 }
 
@@ -7987,20 +8072,49 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
 }
 
 function StaffingConfig({staffing,setStaffing,notify,onOpenFeedback,onOpenEvaluation,onOpenEvaluationHistory,onOpenNoTipification,evaluationRecords,feedbackRecords,currentUser}){
-  const [form,setForm] = useState({asesor:"",supervisor:"",coordinador:"",antiguedad:"",fechaIngreso:"",tipoGestionRuc:"RUC 10",dni:""});
+  const [form,setForm] = useState({asesor:"",supervisor:"",coordinador:"",antiguedad:"",fechaIngreso:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
   const [editingAdvisor,setEditingAdvisor] = useState("");
-  const [editForm,setEditForm] = useState({supervisor:"",coordinador:"",tipoGestionRuc:"RUC 10",dni:""});
+  const [editForm,setEditForm] = useState({supervisor:"",coordinador:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
   const role = String(currentUser?.rol || "").trim().toLowerCase();
   const canEditRegistry = ["admin","analista"].includes(role);
   const canDeleteRegistry = role === "admin";
+  const canChangeStatus = role === "admin";
+  const syncLinkedUserStatus = async(staffingItem, nextStatus) => {
+    const advisorName = normalizeName(staffingItem?.asesor);
+    const assignedUser = normalizeLoginKey(staffingItem?.usuarioAsignado);
+    if (!advisorName && !assignedUser) return true;
+    const latestUsers = await loadUsers().catch(() => []);
+    let touched = false;
+    const updatedUsers = normalizeUsersList(latestUsers).map(user => {
+      const matchesUser = assignedUser && normalizeLoginKey(user?.usuario) === assignedUser;
+      const matchesAdvisor = String(user?.rol || "").trim().toLowerCase() === "asesor" && normalizeName(user?.assessorName || user?.nombre) === advisorName;
+      if (!matchesUser && !matchesAdvisor) return user;
+      touched = true;
+      return {...user, estado: nextStatus};
+    });
+    if (!touched) return true;
+    const savedUsers = await saveUsers(updatedUsers);
+    return savedUsers !== false;
+  };
+  const saveStaffingAndUserStatus = async(updated, targetItem, nextStatus, errorMessage) => {
+    const saved = await saveStaffing(updated);
+    if (saved === false) { notify("e", errorMessage || "No se pudo guardar staffing."); return false; }
+    if (targetItem && nextStatus) {
+      const synced = await syncLinkedUserStatus(targetItem, nextStatus);
+      if (!synced) { notify("e","Se actualizo dotacion, pero no se pudo sincronizar el estado del usuario."); }
+    }
+    setStaffing(updated);
+    return true;
+  };
   const add = async() => {
     if (!form.asesor.trim() || !form.supervisor.trim()) { notify("e","Completa asesor y supervisor."); return; }
     if (String(form.dni || "").trim() && !/^\d{8}$/.test(String(form.dni).trim())) { notify("e","El DNI debe tener 8 digitos."); return; }
-    const updated = [...staffing, {...form,asesor:form.asesor.trim().toUpperCase(),antiguedad:+form.antiguedad || 0}];
+    const newItem = {...form,asesor:form.asesor.trim().toUpperCase(),antiguedad:+form.antiguedad || 0,estado:normalizeProfileStatus(form.estado || "activo")};
+    const updated = [...staffing, newItem];
     const saved = await saveStaffing(updated);
     if (saved === false) { notify("e","No se pudo guardar staffing."); return; }
     setStaffing(updated);
-    setForm({asesor:"",supervisor:"",coordinador:"",antiguedad:"",fechaIngreso:"",tipoGestionRuc:"RUC 10",dni:""});
+    setForm({asesor:"",supervisor:"",coordinador:"",antiguedad:"",fechaIngreso:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
     notify("s","Asesor agregado.");
   };
   const startEdit = advisor => {
@@ -8009,12 +8123,13 @@ function StaffingConfig({staffing,setStaffing,notify,onOpenFeedback,onOpenEvalua
       supervisor: advisor.supervisor || "",
       coordinador: advisor.coordinador || "",
       tipoGestionRuc: advisor.tipoGestionRuc || "RUC 10",
-      dni: advisor.dni || ""
+      dni: advisor.dni || "",
+      estado: normalizeProfileStatus(advisor.estado || "activo")
     });
   };
   const cancelEdit = () => {
     setEditingAdvisor("");
-    setEditForm({supervisor:"",coordinador:"",tipoGestionRuc:"RUC 10",dni:""});
+    setEditForm({supervisor:"",coordinador:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
   };
   const saveEdit = async asesor => {
     if (!String(editForm.supervisor || "").trim()) { notify("e","El supervisor es obligatorio."); return; }
@@ -8024,13 +8139,23 @@ function StaffingConfig({staffing,setStaffing,notify,onOpenFeedback,onOpenEvalua
       supervisor: String(editForm.supervisor || "").trim(),
       coordinador: String(editForm.coordinador || "").trim(),
       tipoGestionRuc: String(editForm.tipoGestionRuc || "RUC 10").trim(),
-      dni: String(editForm.dni || "").trim()
+      dni: String(editForm.dni || "").trim(),
+      estado: normalizeProfileStatus(editForm.estado || "activo")
     } : item);
-    const saved = await saveStaffing(updated);
-    if (saved === false) { notify("e","No se pudo actualizar el asesor."); return; }
-    setStaffing(updated);
+    const updatedItem = updated.find(item => item.asesor === asesor);
+    const saved = await saveStaffingAndUserStatus(updated, updatedItem, updatedItem?.estado, "No se pudo actualizar el asesor.");
+    if (!saved) return;
     cancelEdit();
     notify("s","Registro actualizado.");
+  };
+  const toggleStatus = async(item) => {
+    if (!canChangeStatus) return;
+    const nextStatus = isStaffingActive(item) ? "cesado" : "activo";
+    const updated = staffing.map(row => row.asesor === item.asesor ? {...row, estado: nextStatus} : row);
+    const targetItem = {...item, estado: nextStatus};
+    const saved = await saveStaffingAndUserStatus(updated, targetItem, nextStatus, "No se pudo actualizar el estado.");
+    if (!saved) return;
+    notify("s", nextStatus === "cesado" ? "Perfil cesado. Historial conservado y acceso bloqueado." : "Perfil activado nuevamente.");
   };
   const remove = async(asesor) => {
     const updated = staffing.filter(s => s.asesor !== asesor);
@@ -8047,12 +8172,13 @@ function StaffingConfig({staffing,setStaffing,notify,onOpenFeedback,onOpenEvalua
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Asesor"),h("input",{style:INP,placeholder:"Ej: CARLOS MENDOZA",value:form.asesor,onChange:ev => setForm({...form,asesor:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Supervisor"),h("input",{style:INP,placeholder:"Ej: SUPERVISOR A",value:form.supervisor,onChange:ev => setForm({...form,supervisor:ev.target.value})}))
       ),
-      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:16,marginBottom:24}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:16,marginBottom:24}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Coordinador"),h("input",{style:INP,placeholder:"Ej: COORD. OPS",value:form.coordinador,onChange:ev => setForm({...form,coordinador:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Antiguedad"),h("input",{type:"number",style:INP,placeholder:"12",value:form.antiguedad,onChange:ev => setForm({...form,antiguedad:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha ingreso"),h("input",{type:"date",style:INP,value:form.fechaIngreso,onChange:ev => setForm({...form,fechaIngreso:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Tipo de gestion"),h("select",{style:SEL,value:form.tipoGestionRuc,onChange:ev=>setForm({...form,tipoGestionRuc:ev.target.value})},h("option",{value:"RUC 10"},"RUC 10"),h("option",{value:"RUC 20"},"RUC 20"))),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"DNI"),h("input",{style:INP,placeholder:"12345678",value:form.dni,onChange:ev => setForm({...form,dni:ev.target.value.replace(/[^\d]/g,"").slice(0,8)})}))
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"DNI"),h("input",{style:INP,placeholder:"12345678",value:form.dni,onChange:ev => setForm({...form,dni:ev.target.value.replace(/[^\d]/g,"").slice(0,8)})})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Estado"),h("select",{style:SEL,value:form.estado,onChange:ev=>setForm({...form,estado:ev.target.value})},h("option",{value:"activo"},"Activo"),h("option",{value:"cesado"},"Cesado")))
       ),
       h("button",{style:{...BTN("p"),justifyContent:"center"},onClick:add}, I("plus",14,"#fff"), "AGREGAR ASESOR")
     ),
@@ -8060,12 +8186,15 @@ function StaffingConfig({staffing,setStaffing,notify,onOpenFeedback,onOpenEvalua
       h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:20}}, staffing.length, " asesores registrados"),
       h("div",{style:{overflowX:"auto"}},
         h("table",{style:{width:"100%",borderCollapse:"collapse"}},
-          h("thead",null,h("tr",null,["Asesor","DNI","Supervisor","Coordinador","Antiguedad","Tipo gestion","Evaluaciones ingresadas","Acciones"].map(hd => h("th",{key:hd,style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}, hd)))),
+          h("thead",null,h("tr",null,["Asesor","DNI","Supervisor","Coordinador","Antiguedad","Tipo gestion","Estado","Evaluaciones ingresadas","Acciones"].map(hd => h("th",{key:hd,style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}, hd)))),
           h("tbody",null,
             staffing.map(s => {
               const advisorEvaluations = getAdvisorEvaluationHistory(evaluationRecords, s.asesor);
               const advisorFeedbacks = getAdvisorFeedbackHistory(feedbackRecords, s.asesor);
               const isEditing = editingAdvisor === s.asesor;
+              const activeProfile = isStaffingActive(s);
+              const statusLabel = activeProfile ? "Activo" : "Cesado";
+              const blockedButtonStyle = {opacity:0.45,cursor:"not-allowed"};
               return h("tr",{
                 key:s.asesor,
                 style:{borderBottom:"1px solid rgba(255,255,255,0.03)"}
@@ -8076,6 +8205,9 @@ function StaffingConfig({staffing,setStaffing,notify,onOpenFeedback,onOpenEvalua
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? h("input",{style:{...INP,padding:"10px 12px"},value:editForm.coordinador,onChange:ev=>setEditForm(prev=>({...prev,coordinador:ev.target.value}))}) : (s.coordinador || "-")),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, s.antiguedad || 0, " meses"),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? h("select",{style:{...SEL,padding:"10px 12px"},value:editForm.tipoGestionRuc,onChange:ev=>setEditForm(prev=>({...prev,tipoGestionRuc:ev.target.value}))},h("option",{value:"RUC 10"},"RUC 10"),h("option",{value:"RUC 20"},"RUC 20")) : (s.tipoGestionRuc || "-")),
+                h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing && canChangeStatus
+                  ? h("select",{style:{...SEL,padding:"10px 12px"},value:editForm.estado,onChange:ev=>setEditForm(prev=>({...prev,estado:ev.target.value}))},h("option",{value:"activo"},"Activo"),h("option",{value:"cesado"},"Cesado"))
+                  : h("span",{style:{display:"inline-flex",padding:"6px 10px",borderRadius:999,fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",color:activeProfile ? "#20d489" : THEME.accent,border:`1px solid ${activeProfile ? "rgba(32,212,137,0.35)" : "rgba(230,0,168,0.35)"}`,background:activeProfile ? "rgba(32,212,137,0.10)" : "rgba(230,0,168,0.10)"}},statusLabel)),
                 h("td",{style:{padding:"14px 16px"}},
                   h("div",{style:{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}},
                     h("span",{style:{fontSize:12,color:"#fff",fontWeight:800}}, String(advisorEvaluations.length)),
@@ -8091,9 +8223,10 @@ function StaffingConfig({staffing,setStaffing,notify,onOpenFeedback,onOpenEvalua
                           h("button",{key:"cancel",style:{...BTN("out"),padding:"8px 12px"},onClick:cancelEdit},"CANCELAR")
                         ]
                       : h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:() => startEdit(s)},"EDITAR")),
-                    h("button",{style:{...BTN("s"),padding:"8px 12px"},onClick:() => onOpenFeedback(s.asesor)}, I("send",12,"#fff"), "FEEDBACK"),
-                    h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:() => onOpenEvaluation(buildEvaluationEntryContext({asesor:s.asesor,supervisor:s.supervisor,coordinador:s.coordinador,antiguedad:s.antiguedad,fechaIngreso:s.fechaIngreso,tipoGestionRuc:s.tipoGestionRuc}))}, I("file",12,"#8b92a5"), "EVALUACION"),
-                    h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:() => onOpenNoTipification(buildNoTipificationEntryContext({asesor:s.asesor,usuarioAsignado:s.usuarioAsignado,supervisor:s.supervisor,coordinador:s.coordinador,antiguedad:s.antiguedad,fechaIngreso:s.fechaIngreso,tipoGestionRuc:s.tipoGestionRuc}))}, I("alert",12,"#8b92a5"), "NO TIPIFICACION"),
+                    canChangeStatus && h("button",{style:{...BTN(activeProfile ? "out" : "pink"),padding:"8px 12px"},onClick:() => toggleStatus(s)},activeProfile ? "CESAR" : "ACTIVAR"),
+                    h("button",{style:{...BTN("s"),padding:"8px 12px",...(activeProfile ? {} : blockedButtonStyle)},disabled:!activeProfile,title:activeProfile ? "" : "Perfil cesado: no admite nuevos feedbacks",onClick:() => activeProfile && onOpenFeedback(s.asesor)}, I("send",12,"#fff"), "FEEDBACK"),
+                    h("button",{style:{...BTN("out"),padding:"8px 12px",...(activeProfile ? {} : blockedButtonStyle)},disabled:!activeProfile,title:activeProfile ? "" : "Perfil cesado: no admite nuevas evaluaciones",onClick:() => activeProfile && onOpenEvaluation(buildEvaluationEntryContext({asesor:s.asesor,supervisor:s.supervisor,coordinador:s.coordinador,antiguedad:s.antiguedad,fechaIngreso:s.fechaIngreso,tipoGestionRuc:s.tipoGestionRuc,estado:s.estado}))}, I("file",12,"#8b92a5"), "EVALUACION"),
+                    h("button",{style:{...BTN("out"),padding:"8px 12px",...(activeProfile ? {} : blockedButtonStyle)},disabled:!activeProfile,title:activeProfile ? "" : "Perfil cesado: no admite nuevas alertas",onClick:() => activeProfile && onOpenNoTipification(buildNoTipificationEntryContext({asesor:s.asesor,usuarioAsignado:s.usuarioAsignado,supervisor:s.supervisor,coordinador:s.coordinador,antiguedad:s.antiguedad,fechaIngreso:s.fechaIngreso,tipoGestionRuc:s.tipoGestionRuc,estado:s.estado}))}, I("alert",12,"#8b92a5"), "NO TIPIFICACION"),
                     canDeleteRegistry && h("button",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.2)",borderRadius:8,padding:"8px",cursor:"pointer"},onClick:() => remove(s.asesor)}, I("trash",14,THEME.accent))
                   )
                 )
@@ -8233,13 +8366,23 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
   }, [teamInsight,historicalParetoRows]);
 
   const openAdvisorEvaluation = advisorName => {
-    const profile = (dataset.feedbackRows || []).find(row => row.advisorName === advisorName) || (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
+    const staffingProfile = (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
+    if (staffingProfile && !isStaffingActive(staffingProfile)) {
+      window.alert("Este asesor esta cesado. Mantiene su historial, pero no puede recibir nuevas evaluaciones.");
+      return;
+    }
+    const profile = (dataset.feedbackRows || []).find(row => row.advisorName === advisorName) || staffingProfile;
     if (!profile) return;
     onOpenEvaluation(buildEvaluationEntryContext(profile));
   };
 
   const openAdvisorNoTipification = advisorName => {
-    const profile = (dataset.feedbackRows || []).find(row => row.advisorName === advisorName) || (dataset.noTipificationRows || []).find(row => row.advisorName === advisorName) || (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
+    const staffingProfile = (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
+    if (staffingProfile && !isStaffingActive(staffingProfile)) {
+      window.alert("Este asesor esta cesado. Mantiene su historial, pero no puede recibir nuevas alertas.");
+      return;
+    }
+    const profile = (dataset.feedbackRows || []).find(row => row.advisorName === advisorName) || (dataset.noTipificationRows || []).find(row => row.advisorName === advisorName) || staffingProfile;
     if (!profile) return;
     onOpenNoTipification(buildNoTipificationEntryContext(profile));
   };
