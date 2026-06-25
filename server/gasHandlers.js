@@ -29,6 +29,13 @@ const EVALUATIONS_KEY = "evaluations_v1";
 const DELETED_EVALUATIONS_KEY = "deleted_evaluations_v1";
 const COMMUNICATIONS_KEY = "communications_v1";
 const FEEDBACK_KEY = "feedback_records_v2";
+const CALIBRATION_SESSIONS_KEY = "calibration_sessions";
+const CALIBRATION_PARTICIPANTS_KEY = "calibration_participants";
+const CALIBRATION_EVALUATIONS_KEY = "calibration_evaluations";
+const CALIBRATION_EVALUATION_ITEMS_KEY = "calibration_evaluation_items";
+const CALIBRATION_RESULTS_KEY = "calibration_results";
+const CALIBRATION_COMPARISON_KEY = "calibration_response_comparison";
+const CALIBRATION_ACTIVITY_LOGS_KEY = "calibration_activity_logs";
 const evaluationWriteLocks = new Map();
 
 const ROLE_LABELS = {
@@ -36,6 +43,7 @@ const ROLE_LABELS = {
   analista: "Analista",
   supervisor: "Supervisor",
   formador: "Formador",
+  referente_experto: "Referente Experto",
   asesor: "Asesor"
 };
 
@@ -641,6 +649,261 @@ async function persistEvaluation(record) {
   return normalized;
 }
 
+function normalizeCalibrationStatus(value) {
+  const normalized = normalizeText(value);
+  const aliases = {
+    borrador: "draft",
+    draft: "draft",
+    programada: "scheduled",
+    scheduled: "scheduled",
+    "en vivo": "live",
+    live: "live",
+    finalizada: "finalized",
+    finalized: "finalized",
+    "cerrada con resultados": "closed_results",
+    closed: "closed_results",
+    closed_results: "closed_results",
+    anulada: "annulled",
+    annullada: "annulled",
+    cancelled: "annulled",
+    canceled: "annulled",
+    annulled: "annulled"
+  };
+  return aliases[normalized] || "draft";
+}
+
+function normalizeCalibrationResult(value) {
+  const normalized = normalizeText(value);
+  if (["cumple", "correcto", "ok", "aprobado"].includes(normalized)) return "cumple";
+  if (["no cumple", "incumple", "incorrecto", "error", "mala practica"].includes(normalized) || normalized.includes("no cumple")) return "no_cumple";
+  if (["no aplica", "na", "n/a", "no aplicable"].includes(normalized)) return "no_aplica";
+  return normalized || "";
+}
+
+function getCalibrationSectionKey(section = {}) {
+  return normalizeText(section.nombreSeccion || section.subItem || section.item || section.criterio || section.pregunta || section.id || "");
+}
+
+function getUserCalibrationArea(user = {}) {
+  const role = getRole(user);
+  if (String(user.area || "").trim()) return String(user.area).trim();
+  if (role === "formador") return "Formacion";
+  if (role === "analista" || role === "admin" || role === "referente_experto") return "Calidad";
+  if (role === "supervisor" || role === "asesor") return "Operaciones";
+  return "Otros";
+}
+
+async function readCalibrationCollection(key) {
+  const value = await readSharedJson(key, []);
+  return Array.isArray(value) ? value : [];
+}
+
+async function writeCalibrationCollection(key, records) {
+  await writeSharedRecord(key, Array.isArray(records) ? records : []);
+}
+
+async function addCalibrationLog(sessionId, user, actionType, description) {
+  const logs = await readCalibrationCollection(CALIBRATION_ACTIVITY_LOGS_KEY);
+  const log = {
+    id: normalizeId(generateNumericId()),
+    calibration_session_id: normalizeId(sessionId),
+    user_id: String(user?.usuario || user?.user_id || "").trim(),
+    user_name: String(user?.nombre || user?.user_name || "").trim(),
+    role: getRole(user),
+    action_type: String(actionType || "").trim(),
+    action_description: String(description || "").trim(),
+    created_at: nowIso()
+  };
+  await writeCalibrationCollection(CALIBRATION_ACTIVITY_LOGS_KEY, [log, ...logs]);
+  return log;
+}
+
+function canManageCalibration(user) {
+  return ["admin", "analista"].includes(getRole(user));
+}
+
+function canViewCalibrationModule(user) {
+  return ["admin", "analista", "supervisor", "formador", "referente_experto"].includes(getRole(user));
+}
+
+function canUserSeeCalibration(session, user) {
+  if (canManageCalibration(user)) return true;
+  const userId = String(user?.usuario || "").trim();
+  if (!userId) return false;
+  if (String(session?.expert_referent_id || "") === userId) return true;
+  return (session?.participants || []).some(item => String(item?.user_id || "") === userId);
+}
+
+function validateCalibrationCanStart(session) {
+  const required = [
+    ["title", "nombre de la calibracion"],
+    ["evaluation_type", "tipo de audio"],
+    ["call_date", "fecha de llamada"],
+    ["call_time", "hora de llamada"],
+    ["campaign_name", "campana o servicio"],
+    ["evaluated_agent_name", "asesor evaluado"],
+    ["call_typification", "tipificacion"],
+    ["call_result", "resultado de llamada"],
+    ["expert_referent_id", "Referente Experto"]
+  ];
+  const missing = required.filter(([key]) => !String(session?.[key] || "").trim()).map(([, label]) => label);
+  const hasAudio = Boolean(session?.audio_url || session?.audio_file?.previewUrl || session?.audio_file?.downloadUrl || session?.audio_file?.id);
+  if (!hasAudio) missing.push("audio de la llamada");
+  if (!Array.isArray(session?.participants) || !session.participants.length) missing.push("participantes");
+  if (missing.length) throw new Error(`No se puede iniciar la calibracion. Faltan: ${missing.join(", ")}.`);
+}
+
+function buildCalibrationItemRows(evaluationId, sections, evaluationType) {
+  return normalizeEvaluationSections(sections, evaluationType).map(section => {
+    const result = normalizeCalibrationResult(section.resultado);
+    const weight = Number(section.pesoSub || 0) || 0;
+    const obtained = result === "cumple" ? weight : 0;
+    return {
+      id: `${evaluationId}_${getCalibrationSectionKey(section) || generateNumericId()}`,
+      calibration_evaluation_id: evaluationId,
+      item_id: normalizeText(section.categoria),
+      item_name: section.categoria || "",
+      subitem_id: getCalibrationSectionKey(section),
+      subitem_name: section.nombreSeccion || section.subItem || "",
+      result,
+      obtained_score: obtained,
+      weight,
+      comment: section.detalleAuditado || section.comment || "",
+      is_critical: false,
+      is_zero_tolerance: false,
+      created_at: nowIso()
+    };
+  });
+}
+
+function calculateCalibrationScore(sections, zeroToleranceItems, evaluationType) {
+  const score = calculateEvaluationScore(sections, evaluationType);
+  const appliesZero = normalizeEvaluationFormType(evaluationType) === "mala_practica" ||
+    (Array.isArray(zeroToleranceItems) && zeroToleranceItems.some(item => normalizeText(item?.resultado) === "cumple"));
+  return {
+    ...score,
+    pct: appliesZero ? 0 : score.pct,
+    text: appliesZero ? "0.0% - Cero tolerancia" : score.text,
+    appliesZero
+  };
+}
+
+function compareCalibrationEvaluation(session, expertEvaluation, participantEvaluation) {
+  const evaluationType = session.evaluation_type || "venta";
+  const expertSections = normalizeEvaluationSections(expertEvaluation?.sections || expertEvaluation?.secciones || [], evaluationType);
+  const participantSections = normalizeEvaluationSections(participantEvaluation?.sections || participantEvaluation?.secciones || [], evaluationType);
+  const participantByKey = new Map(participantSections.map(section => [getCalibrationSectionKey(section), section]));
+  const comparisonRows = [];
+  let matches = 0;
+  let compared = 0;
+  let criticalMatches = 0;
+  let criticalCompared = 0;
+
+  expertSections.forEach(expertSection => {
+    const key = getCalibrationSectionKey(expertSection);
+    const participantSection = participantByKey.get(key) || {};
+    const expertResult = normalizeCalibrationResult(expertSection.resultado);
+    const participantResult = normalizeCalibrationResult(participantSection.resultado);
+    const weight = Number(expertSection.pesoSub || 0) || 0;
+    const expertScore = expertResult === "cumple" ? weight : 0;
+    const participantScore = participantResult === "cumple" ? weight : 0;
+    const matchStatus = expertResult && participantResult && expertResult === participantResult ? "coincide" : expertResult && participantResult ? "no_coincide" : "parcial";
+    if (expertResult || participantResult) {
+      compared += 1;
+      if (matchStatus === "coincide") matches += 1;
+    }
+    if (normalizeText(expertSection.categoria).includes("cero") || normalizeText(expertSection.nombreSeccion).includes("tipificacion")) {
+      criticalCompared += 1;
+      if (matchStatus === "coincide") criticalMatches += 1;
+    }
+    comparisonRows.push({
+      id: `${session.id}_${participantEvaluation.user_id}_${key || comparisonRows.length}`,
+      calibration_session_id: session.id,
+      item_id: normalizeText(expertSection.categoria),
+      subitem_id: key,
+      item_name: expertSection.categoria || "",
+      subitem_name: expertSection.nombreSeccion || "",
+      weight,
+      expert_response: expertResult,
+      expert_score: expertScore,
+      participant_user_id: participantEvaluation.user_id,
+      participant_user_name: participantEvaluation.user_name,
+      participant_response: participantResult,
+      participant_score: participantScore,
+      score_difference: participantScore - expertScore,
+      match_status: matchStatus,
+      expert_comment: expertSection.detalleAuditado || "",
+      participant_comment: participantSection.detalleAuditado || "",
+      created_at: nowIso()
+    });
+  });
+
+  const expertScore = Number(expertEvaluation.total_score || 0) || 0;
+  const userScore = Number(participantEvaluation.total_score || 0) || 0;
+  const scoreDeviation = userScore - expertScore;
+  const itemMatchPercentage = compared ? matches / compared * 100 : 0;
+  const scoreCloseness = Math.max(0, 100 - Math.abs(scoreDeviation));
+  const typificationMatch = normalizeText(participantEvaluation.selected_typification) && normalizeText(participantEvaluation.selected_typification) === normalizeText(expertEvaluation.selected_typification);
+  const criticalMatchPercentage = criticalCompared ? criticalMatches / criticalCompared * 100 : itemMatchPercentage;
+  const zeroToleranceMatchPercentage = criticalMatchPercentage;
+  const affinity = itemMatchPercentage * 0.50 + scoreCloseness * 0.25 + (typificationMatch ? 100 : 0) * 0.15 + criticalMatchPercentage * 0.10;
+  const level = affinity >= 90 ? "Muy calibrado" : affinity >= 80 ? "Calibrado" : affinity >= 70 ? "Requiere ajuste" : "No calibrado";
+  const mainDifferences = comparisonRows.filter(row => row.match_status !== "coincide").slice(0, 5).map(row => row.subitem_name || row.item_name);
+
+  return {
+    result: {
+      id: `${session.id}_${participantEvaluation.user_id}`,
+      calibration_session_id: session.id,
+      user_id: participantEvaluation.user_id,
+      user_name: participantEvaluation.user_name,
+      role: participantEvaluation.role || "",
+      area: participantEvaluation.area || "",
+      user_score: userScore,
+      expert_score: expertScore,
+      score_deviation: scoreDeviation,
+      affinity_percentage: Number(affinity.toFixed(1)),
+      item_match_percentage: Number(itemMatchPercentage.toFixed(1)),
+      subitem_match_percentage: Number(itemMatchPercentage.toFixed(1)),
+      typification_match: typificationMatch,
+      critical_criteria_match_percentage: Number(criticalMatchPercentage.toFixed(1)),
+      zero_tolerance_match_percentage: Number(zeroToleranceMatchPercentage.toFixed(1)),
+      calibration_level: level,
+      ranking_position: 0,
+      main_differences: mainDifferences,
+      improvement_opportunities: mainDifferences.map(item => `Reforzar criterio: ${item}`),
+      created_at: nowIso()
+    },
+    comparisonRows
+  };
+}
+
+async function recomputeCalibrationResults(sessionId) {
+  const sessions = await readCalibrationCollection(CALIBRATION_SESSIONS_KEY);
+  const session = sessions.find(item => normalizeId(item.id) === normalizeId(sessionId));
+  if (!session) throw new Error("No se encontro la calibracion.");
+  const evaluations = await readCalibrationCollection(CALIBRATION_EVALUATIONS_KEY);
+  const sessionEvaluations = evaluations.filter(item => normalizeId(item.calibration_session_id) === normalizeId(sessionId) && item.submitted);
+  const expert = sessionEvaluations.find(item => item.is_expert_referent);
+  if (!expert) throw new Error("No se puede cerrar la calibracion: falta la evaluacion del Referente Experto.");
+  const participants = sessionEvaluations.filter(item => !item.is_expert_referent);
+  const comparisons = participants.map(item => compareCalibrationEvaluation(session, expert, item));
+  const results = comparisons.map(item => item.result).sort((a, b) => b.affinity_percentage - a.affinity_percentage);
+  results.forEach((item, index) => { item.ranking_position = index + 1; });
+  const allResults = await readCalibrationCollection(CALIBRATION_RESULTS_KEY);
+  const allComparisons = await readCalibrationCollection(CALIBRATION_COMPARISON_KEY);
+  const nextResults = [
+    ...allResults.filter(item => normalizeId(item.calibration_session_id) !== normalizeId(sessionId)),
+    ...results
+  ];
+  const nextComparisons = [
+    ...allComparisons.filter(item => normalizeId(item.calibration_session_id) !== normalizeId(sessionId)),
+    ...comparisons.flatMap(item => item.comparisonRows)
+  ];
+  await writeCalibrationCollection(CALIBRATION_RESULTS_KEY, nextResults);
+  await writeCalibrationCollection(CALIBRATION_COMPARISON_KEY, nextComparisons);
+  return { results, comparisonRows: comparisons.flatMap(item => item.comparisonRows) };
+}
+
 export const gasHandlers = {
   async getData(key) {
     return await readSharedRecord(key);
@@ -662,6 +925,204 @@ export const gasHandlers = {
   async listData(prefix = "") {
     const keys = await listSharedKeys(prefix);
     return keys.map(key => ({ key }));
+  },
+
+  async getCalibrationData(currentUser = {}) {
+    if (!canViewCalibrationModule(currentUser)) throw new Error("No tienes permisos para ver calibraciones.");
+    const [sessions, participants, evaluations, evaluationItems, results, comparisonRows, logs] = await Promise.all([
+      readCalibrationCollection(CALIBRATION_SESSIONS_KEY),
+      readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY),
+      readCalibrationCollection(CALIBRATION_EVALUATIONS_KEY),
+      readCalibrationCollection(CALIBRATION_EVALUATION_ITEMS_KEY),
+      readCalibrationCollection(CALIBRATION_RESULTS_KEY),
+      readCalibrationCollection(CALIBRATION_COMPARISON_KEY),
+      readCalibrationCollection(CALIBRATION_ACTIVITY_LOGS_KEY)
+    ]);
+    const enrichedSessions = sessions
+      .map(session => {
+        const sessionParticipants = participants.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id));
+        return {
+          ...session,
+          participants: sessionParticipants,
+          evaluations: evaluations.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id)),
+          evaluationItems: evaluationItems.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id)),
+          results: results.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id)),
+          comparisonRows: comparisonRows.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id)),
+          logs: logs.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id))
+        };
+      })
+      .filter(session => canUserSeeCalibration(session, currentUser))
+      .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0));
+    return {
+      sessions: enrichedSessions,
+      participants,
+      evaluations,
+      evaluationItems,
+      results,
+      comparisonRows,
+      logs
+    };
+  },
+
+  async saveCalibrationSession(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    if (!canManageCalibration(currentUser)) throw new Error("Solo admin o analista pueden crear calibraciones.");
+    const sessions = await readCalibrationCollection(CALIBRATION_SESSIONS_KEY);
+    const participants = await readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY);
+    const id = normalizeId(payload.id || payload.calibration_session_id) || String(generateNumericId());
+    const existing = sessions.find(item => normalizeId(item.id) === id) || {};
+    const rawParticipants = Array.isArray(payload.participants) ? payload.participants : [];
+    const selectedParticipants = rawParticipants
+      .filter(item => item && String(item.user_id || item.usuario || "").trim())
+      .map(item => ({
+        id: `${id}_${String(item.user_id || item.usuario).trim()}`,
+        calibration_session_id: id,
+        user_id: String(item.user_id || item.usuario).trim(),
+        user_name: String(item.user_name || item.nombre || "").trim(),
+        role: getRole(item),
+        area: item.area || getUserCalibrationArea(item),
+        participation_status: item.participation_status || "assigned",
+        joined_at: item.joined_at || "",
+        submitted_at: item.submitted_at || "",
+        created_at: item.created_at || nowIso()
+      }));
+    const expertId = String(payload.expert_referent_id || payload.expertReferentId || "").trim();
+    const evaluationType = normalizeEvaluationFormType(payload.evaluation_type || payload.audio_type || "venta");
+    let session = {
+      ...existing,
+      id,
+      title: String(payload.title || existing.title || "").trim(),
+      description: String(payload.description || existing.description || "").trim(),
+      calibration_objective: String(payload.calibration_objective || existing.calibration_objective || "").trim(),
+      evaluation_type: evaluationType,
+      audio_url: payload.audio_url || existing.audio_url || "",
+      audio_file: payload.audio_file || existing.audio_file || null,
+      call_date: String(payload.call_date || existing.call_date || "").trim(),
+      call_time: String(payload.call_time || existing.call_time || "").trim(),
+      campaign_name: String(payload.campaign_name || existing.campaign_name || "").trim(),
+      evaluated_agent_name: String(payload.evaluated_agent_name || existing.evaluated_agent_name || "").trim(),
+      call_identifier: String(payload.call_identifier || existing.call_identifier || "").trim(),
+      audio_type: evaluationType,
+      call_typification: String(payload.call_typification || existing.call_typification || "").trim(),
+      call_result: String(payload.call_result || existing.call_result || "").trim(),
+      initial_case_observation: String(payload.initial_case_observation || existing.initial_case_observation || "").trim(),
+      scheduled_date: payload.scheduled_date || existing.scheduled_date || "",
+      status: normalizeCalibrationStatus(payload.status || existing.status || "draft"),
+      created_by: existing.created_by || currentUser.usuario,
+      created_by_name: existing.created_by_name || currentUser.nombre,
+      expert_referent_id: expertId,
+      expert_referent_name: String(payload.expert_referent_name || existing.expert_referent_name || "").trim(),
+      created_at: existing.created_at || nowIso(),
+      updated_at: nowIso(),
+      closed_at: existing.closed_at || ""
+    };
+    const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+    if (attachments.length) {
+      const storageResult = await uploadAttachmentsWithFirebaseFallback({ id, calibrationId: id, type: "calibration_audio" }, attachments);
+      const audioFile = (storageResult.savedFiles || [])[0] || null;
+      if (audioFile) {
+        session = {
+          ...session,
+          audio_file: audioFile,
+          audio_url: audioFile.previewUrl || audioFile.downloadUrl || audioFile.publicUrl || audioFile.url || "",
+          storageWarning: storageResult.storageWarning || ""
+        };
+      }
+    }
+    const nextSessions = upsertById(sessions, session);
+    const nextParticipants = [
+      ...participants.filter(item => normalizeId(item.calibration_session_id) !== id),
+      ...selectedParticipants
+    ];
+    await writeCalibrationCollection(CALIBRATION_SESSIONS_KEY, nextSessions);
+    await writeCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY, nextParticipants);
+    await addCalibrationLog(id, currentUser, existing.id ? "session_updated" : "session_created", existing.id ? "Se actualizo la calibracion." : "Se creo la calibracion.");
+    return { ...session, participants: selectedParticipants };
+  },
+
+  async updateCalibrationStatus(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    if (!canManageCalibration(currentUser)) throw new Error("Solo admin o analista pueden cambiar el estado de una calibracion.");
+    const id = normalizeId(payload.id || payload.calibration_session_id);
+    if (!id) throw new Error("Id de calibracion requerido.");
+    const sessions = await readCalibrationCollection(CALIBRATION_SESSIONS_KEY);
+    const session = sessions.find(item => normalizeId(item.id) === id);
+    if (!session) throw new Error("No se encontro la calibracion.");
+    const nextStatus = normalizeCalibrationStatus(payload.status);
+    if (nextStatus === "live") validateCalibrationCanStart({ ...session, participants: (await readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY)).filter(item => normalizeId(item.calibration_session_id) === id) });
+    let resultsPayload = null;
+    if (nextStatus === "closed_results") {
+      resultsPayload = await recomputeCalibrationResults(id);
+    }
+    const updated = {
+      ...session,
+      status: nextStatus,
+      updated_at: nowIso(),
+      closed_at: nextStatus === "closed_results" ? nowIso() : session.closed_at || ""
+    };
+    await writeCalibrationCollection(CALIBRATION_SESSIONS_KEY, upsertById(sessions, updated));
+    await addCalibrationLog(id, currentUser, `status_${nextStatus}`, `Estado actualizado a ${nextStatus}.`);
+    return { ...updated, ...(resultsPayload || {}) };
+  },
+
+  async submitCalibrationEvaluation(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    const sessionId = normalizeId(payload.calibration_session_id || payload.sessionId);
+    if (!sessionId) throw new Error("Id de calibracion requerido.");
+    const sessions = await readCalibrationCollection(CALIBRATION_SESSIONS_KEY);
+    const session = sessions.find(item => normalizeId(item.id) === sessionId);
+    if (!session) throw new Error("No se encontro la calibracion.");
+    const status = normalizeCalibrationStatus(session.status);
+    if (status !== "live") throw new Error("Solo se puede enviar una evaluacion cuando la calibracion esta En vivo.");
+    const participants = await readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY);
+    const userId = String(currentUser.usuario || "").trim();
+    const isExpert = String(session.expert_referent_id || "") === userId || getRole(currentUser) === "referente_experto";
+    const assigned = participants.find(item => normalizeId(item.calibration_session_id) === sessionId && String(item.user_id) === userId);
+    if (!isExpert && !assigned && !canManageCalibration(currentUser)) throw new Error("No estas asignado a esta calibracion.");
+    const evaluations = await readCalibrationCollection(CALIBRATION_EVALUATIONS_KEY);
+    const existing = evaluations.find(item => normalizeId(item.calibration_session_id) === sessionId && String(item.user_id) === userId);
+    if (existing?.locked && !canManageCalibration(currentUser)) throw new Error("Tu evaluacion ya fue enviada y esta bloqueada.");
+    const evaluationId = existing?.id || `${sessionId}_${userId}`;
+    const score = calculateCalibrationScore(payload.sections || payload.secciones || [], payload.zeroToleranceItems || [], session.evaluation_type);
+    const normalizedEvaluation = {
+      ...(existing || {}),
+      id: evaluationId,
+      calibration_session_id: sessionId,
+      user_id: userId,
+      user_name: currentUser.nombre || payload.user_name || "",
+      role: getRole(currentUser),
+      area: getUserCalibrationArea(currentUser),
+      is_expert_referent: Boolean(isExpert),
+      total_score: Number(score.pct.toFixed(1)),
+      selected_typification: String(payload.selected_typification || payload.typification || "").trim(),
+      general_observation: String(payload.general_observation || "").trim(),
+      sections: normalizeEvaluationSections(payload.sections || payload.secciones || [], session.evaluation_type),
+      zeroToleranceItems: Array.isArray(payload.zeroToleranceItems) ? payload.zeroToleranceItems : [],
+      submitted: true,
+      submitted_at: nowIso(),
+      locked: true,
+      created_at: existing?.created_at || nowIso(),
+      updated_at: nowIso()
+    };
+    await writeCalibrationCollection(CALIBRATION_EVALUATIONS_KEY, upsertById(evaluations, normalizedEvaluation));
+    const allEvaluationItems = await readCalibrationCollection(CALIBRATION_EVALUATION_ITEMS_KEY);
+    const itemRows = buildCalibrationItemRows(evaluationId, normalizedEvaluation.sections, session.evaluation_type).map(item => ({
+      ...item,
+      calibration_session_id: sessionId,
+      user_id: userId,
+      is_expert_referent: Boolean(isExpert)
+    }));
+    await writeCalibrationCollection(CALIBRATION_EVALUATION_ITEMS_KEY, [
+      ...allEvaluationItems.filter(item => normalizeId(item.calibration_evaluation_id) !== normalizeId(evaluationId)),
+      ...itemRows
+    ]);
+    const nextParticipants = participants.map(item => normalizeId(item.calibration_session_id) === sessionId && String(item.user_id) === userId
+      ? { ...item, participation_status: "submitted", submitted_at: normalizedEvaluation.submitted_at }
+      : item
+    );
+    await writeCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY, nextParticipants);
+    await addCalibrationLog(sessionId, currentUser, "evaluation_submitted", `${currentUser.nombre || userId} envio su evaluacion de calibracion.`);
+    return { ...normalizedEvaluation, items: itemRows };
   },
 
   async getBootstrapData() {

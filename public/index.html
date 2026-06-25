@@ -597,6 +597,27 @@ async function deleteEvaluationEntry(payload){
   }
 }
 
+async function loadCalibrationData(currentUser){
+  try{
+    return await runGoogleScript("getCalibrationData", currentUser);
+  }catch(err){
+    console.error("Error cargando calibraciones:", err);
+    return {sessions:[],participants:[],evaluations:[],results:[],comparisonRows:[],logs:[]};
+  }
+}
+
+async function saveCalibrationSessionEntry(payload){
+  return await runGoogleScriptWithTimeout("saveCalibrationSession", [payload], 60000);
+}
+
+async function updateCalibrationStatusEntry(payload){
+  return await runGoogleScriptWithTimeout("updateCalibrationStatus", [payload], 45000);
+}
+
+async function submitCalibrationEvaluationEntry(payload){
+  return await runGoogleScriptWithTimeout("submitCalibrationEvaluation", [payload], 45000);
+}
+
 async function loadNoTipificationRecords(){
   try{
     const data = await runGoogleScript("listNoTipificationRecords");
@@ -1837,8 +1858,8 @@ const IC = {
   bell:["M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5","M10 21a2 2 0 0 0 4 0"]
 };
 const I = (n, s, c) => sv(IC[n], s, c);
-const ROL_LABEL = {admin:"Administrador", analista:"Analista", formador:"Formador", supervisor:"Supervisor", asesor:"Asesor"};
-const ROL_COLOR = {admin:THEME.accent, analista:THEME.primary, formador:"#F59E0B", supervisor:THEME.violet, asesor:"#19C37D"};
+const ROL_LABEL = {admin:"Administrador", analista:"Analista", formador:"Formador", supervisor:"Supervisor", referente_experto:"Referente Experto", asesor:"Asesor"};
+const ROL_COLOR = {admin:THEME.accent, analista:THEME.primary, formador:"#F59E0B", supervisor:THEME.violet, referente_experto:"#22D3EE", asesor:"#19C37D"};
 const FEEDBACK_CATEGORY_THEME = {
   "Feedback": { color: THEME.primary, bg: "rgba(29,43,255,0.12)", border: "rgba(29,43,255,0.32)" },
   "Refuerzo": { color: "#F59E0B", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.30)" },
@@ -2237,7 +2258,7 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPas
       ),
       h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Contrasena"),h("input",{type:"password",style:INP,placeholder:"******",value:form.password,onChange:ev => setForm({...form,password:ev.target.value})})),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Rol"),h("select",{style:SEL,value:form.rol,onChange:ev => setForm({...form,rol:ev.target.value,assessorName:ev.target.value === "asesor" ? form.assessorName : ""})},h("option",{value:"analista"},"Analista"),h("option",{value:"formador"},"Formador"),h("option",{value:"supervisor"},"Supervisor"),h("option",{value:"asesor"},"Asesor"),h("option",{value:"admin"},"Administrador")))
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Rol"),h("select",{style:SEL,value:form.rol,onChange:ev => setForm({...form,rol:ev.target.value,assessorName:ev.target.value === "asesor" ? form.assessorName : ""})},h("option",{value:"analista"},"Analista"),h("option",{value:"formador"},"Formador"),h("option",{value:"supervisor"},"Supervisor"),h("option",{value:"referente_experto"},"Referente Experto"),h("option",{value:"asesor"},"Asesor"),h("option",{value:"admin"},"Administrador")))
       ),
       h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Correo"),h("input",{style:INP,placeholder:"correo@empresa.com",value:form.correo,onChange:ev => setForm({...form,correo:ev.target.value})})),
@@ -5005,9 +5026,18 @@ function canViewImprovementDashboard(user){
   return ["admin","analista","supervisor","formador"].includes(String(user?.rol||"").trim().toLowerCase());
 }
 
+function canViewCalibrationModule(user){
+  return ["admin","analista","supervisor","formador","referente_experto"].includes(String(user?.rol||"").trim().toLowerCase());
+}
+
+function canManageCalibrationModule(user){
+  return ["admin","analista"].includes(String(user?.rol||"").trim().toLowerCase());
+}
+
 function getDefaultViewForUser(user){
   const role = String(user?.rol || "").trim().toLowerCase();
   if (role === "asesor") return "advisor";
+  if (role === "referente_experto") return "calibration";
   if (role === "supervisor") return "feedback";
   if (role === "formador") return "evaluations";
   if (canViewImprovementDashboard(user)) return "improvement";
@@ -6528,6 +6558,7 @@ function App(){
           canViewImprovementDashboard(currentUser) && h("button",{style:{...BTN(view==="improvement"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="improvement"?"#fff":"#8b92a5"},onClick:()=>setView("improvement")},I("trend",18,view==="improvement"?"#fff":"#8b92a5"),"DASHBOARD MEJORA"),
           canViewDashboards(currentUser) && h("button",{style:{...BTN(view==="evaluations"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="evaluations"?"#fff":"#8b92a5"},onClick:()=>setView("evaluations")},I("hist",18,view==="evaluations"?"#fff":"#8b92a5"),"EVALUACIONES"),
           canViewTeamFeedback(currentUser) && h("button",{style:{...BTN(view==="feedback"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="feedback"?"#fff":"#8b92a5"},onClick:()=>setView("feedback")},I("send",18,view==="feedback"?"#fff":"#8b92a5"),"FEEDBACKS"),
+          canViewCalibrationModule(currentUser) && h("button",{style:{...BTN(view==="calibration"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="calibration"?"#fff":"#8b92a5"},onClick:()=>setView("calibration")},I("sliders",18,view==="calibration"?"#fff":"#8b92a5"),"CALIBRACION DE CALIDAD"),
           h("button",{style:{...BTN(view==="communications"?"p":"out"),width:"100%",justifyContent:"space-between",padding:"16px 20px",color:view==="communications"?"#fff":"#8b92a5"},onClick:()=>setView("communications")},
             h("span",{style:{display:"inline-flex",alignItems:"center",gap:12}},I("file",18,view==="communications"?"#fff":"#8b92a5"),"COMUNICADOS"),
             unreadCommunications>0 && h("span",{style:{minWidth:22,height:22,borderRadius:999,background:THEME.primary,color:"#fff",fontSize:10,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 6px"}},unreadCommunications)
@@ -6558,6 +6589,7 @@ function App(){
           view==="legend" && h(LegendCenter,{concepts:legendConcepts,onRefresh:reloadLegend}),
           view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords,staffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
           view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords,evaluationRecords,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing}),
+          view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users,notify}),
           view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing,setStaffing,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords,feedbackRecords,currentUser}),
           view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,onResetPassword:resetearContrasenaUsuario,notify,staffing})
         )
@@ -8235,6 +8267,305 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
         )
       )
     )
+  );
+}
+
+const CALIBRATION_STATUS_LABEL = {
+  draft: "Borrador",
+  scheduled: "Programada",
+  live: "En vivo",
+  finalized: "Finalizada",
+  closed_results: "Cerrada con resultados",
+  annulled: "Anulada"
+};
+
+function normalizeCalibrationStatus(value){
+  const normalized = normalizeComparableValue(value);
+  if (["borrador","draft"].includes(normalized)) return "draft";
+  if (["programada","scheduled"].includes(normalized)) return "scheduled";
+  if (["en vivo","live"].includes(normalized)) return "live";
+  if (["finalizada","finalized"].includes(normalized)) return "finalized";
+  if (["cerrada con resultados","closed","closed results","closed results"].includes(normalized) || normalized === "closed results") return "closed_results";
+  if (["anulada","annulled","cancelled","canceled"].includes(normalized)) return "annulled";
+  return "draft";
+}
+
+function getCalibrationAudioFile(session){
+  return session?.audio_file || session?.audioFile || (Array.isArray(session?.files) ? session.files.find(isAudioAttachment) : null) || null;
+}
+
+function getCalibrationVisibleSessions(sessions, currentUser){
+  const role = String(currentUser?.rol || "").trim().toLowerCase();
+  const userId = String(currentUser?.usuario || "").trim();
+  if (["admin","analista"].includes(role)) return sessions || [];
+  return (sessions || []).filter(session =>
+    String(session?.expert_referent_id || "") === userId ||
+    (session?.participants || []).some(item => String(item?.user_id || "") === userId)
+  );
+}
+
+function getCalibrationSessionMetrics(session){
+  const participants = session?.participants || [];
+  const evaluations = session?.evaluations || [];
+  const submitted = evaluations.filter(item => item.submitted);
+  const expertSubmitted = evaluations.some(item => item.is_expert_referent && item.submitted);
+  const results = session?.results || [];
+  const avgAffinity = averageNumeric(results.map(item => Number(item.affinity_percentage)));
+  return {
+    participantsCount: participants.length,
+    submittedCount: submitted.filter(item => !item.is_expert_referent).length,
+    pendingCount: Math.max(0, participants.length - submitted.filter(item => !item.is_expert_referent).length),
+    expertSubmitted,
+    avgAffinity: avgAffinity || 0
+  };
+}
+
+function buildCalibrationDashboardRows(sessions){
+  const closed = (sessions || []).filter(session => normalizeCalibrationStatus(session.status) === "closed_results");
+  const results = closed.flatMap(session => session.results || []);
+  const avgAffinity = averageNumeric(results.map(item => Number(item.affinity_percentage))) || 0;
+  const byStatus = grp(sessions || [], session => CALIBRATION_STATUS_LABEL[normalizeCalibrationStatus(session.status)] || "Borrador");
+  const byArea = Object.entries(grp(results, item => item.area || "Sin area")).map(([label,rows]) => ({label,value:averageNumeric(rows.map(row => Number(row.affinity_percentage))) || 0}));
+  const byRole = Object.entries(grp(results, item => ROL_LABEL[item.role] || item.role || "Sin rol")).map(([label,rows]) => ({label,value:averageNumeric(rows.map(row => Number(row.affinity_percentage))) || 0}));
+  const ranked = [...results].sort((a,b)=>Number(b.affinity_percentage || 0)-Number(a.affinity_percentage || 0));
+  return {closed,results,avgAffinity,byStatus,byArea,byRole,ranked};
+}
+
+function CalibrationSessionModal({isOpen,onClose,currentUser,users,onSave,notify,editingSession}){
+  const [form,setForm] = useState({title:"",description:"",calibration_objective:"",evaluation_type:"venta",call_date:"",call_time:"",campaign_name:"",evaluated_agent_name:"",call_identifier:"",call_typification:"",call_result:"",initial_case_observation:"",scheduled_date:"",expert_referent_id:"",participants:[]});
+  const [audioFile,setAudioFile] = useState(null);
+  const [saving,setSaving] = useState(false);
+  useEffect(() => {
+    if (!isOpen) return;
+    const source = editingSession || {};
+    setForm({
+      title: source.title || "",
+      description: source.description || "",
+      calibration_objective: source.calibration_objective || "",
+      evaluation_type: normalizeEvaluationFormType(source.evaluation_type || "venta"),
+      call_date: source.call_date || "",
+      call_time: source.call_time || "",
+      campaign_name: source.campaign_name || "",
+      evaluated_agent_name: source.evaluated_agent_name || "",
+      call_identifier: source.call_identifier || "",
+      call_typification: source.call_typification || "",
+      call_result: source.call_result || "",
+      initial_case_observation: source.initial_case_observation || "",
+      scheduled_date: source.scheduled_date || "",
+      expert_referent_id: source.expert_referent_id || "",
+      participants: (source.participants || []).map(item => item.user_id)
+    });
+    setAudioFile(null);
+  }, [isOpen,editingSession]);
+  if (!isOpen) return null;
+  const eligibleUsers = (users || []).filter(user => ["admin","analista","supervisor","formador","referente_experto"].includes(String(user.rol || "").trim().toLowerCase()) && !isInactiveProfileStatus(user.estado));
+  const expertUsers = eligibleUsers.filter(user => String(user.rol || "").trim().toLowerCase() === "referente_experto" || ["admin","analista"].includes(String(user.rol || "").trim().toLowerCase()));
+  const toggleParticipant = usuario => setForm(prev => ({...prev,participants:prev.participants.includes(usuario) ? prev.participants.filter(item => item !== usuario) : [...prev.participants, usuario]}));
+  const submit = async() => {
+    try{
+      setSaving(true);
+      const expert = eligibleUsers.find(user => user.usuario === form.expert_referent_id) || {};
+      const participants = eligibleUsers.filter(user => form.participants.includes(user.usuario)).map(user => ({...user,user_id:user.usuario,user_name:user.nombre,role:user.rol,area:user.area || ""}));
+      const attachments = audioFile ? [await prepareAttachment(audioFile,"calibration_audio")] : [];
+      const saved = await onSave({...form,id:editingSession?.id || "",expert_referent_name:expert.nombre || "",participants,attachments,currentUser});
+      notify("s","Calibracion guardada.");
+      onClose(saved);
+    }catch(err){
+      notify("e",err?.message || "No se pudo guardar la calibracion.");
+    }finally{
+      setSaving(false);
+    }
+  };
+  return h("div",{style:{position:"fixed",inset:0,background:"rgba(11,17,33,0.94)",backdropFilter:"blur(6px)",zIndex:1750,padding:20,display:"flex",alignItems:"center",justifyContent:"center"}},
+    h("div",{style:{...CARD,width:"100%",maxWidth:1040,maxHeight:"92vh",overflowY:"auto",borderTop:`4px solid ${THEME.primary}`}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",gap:16,marginBottom:20}},
+        h("div",null,h("h2",{style:{margin:0,color:"#fff"}},"Nueva calibracion de calidad"),h("div",{style:{fontSize:12,color:"#8b92a5",marginTop:6}},"Modulo independiente: no modifica evaluaciones reales.")),
+        h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:()=>onClose()},"CERRAR")
+      ),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14,marginBottom:18}},
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"Nombre"),h("input",{style:INP,value:form.title,onChange:ev=>setForm({...form,title:ev.target.value}),placeholder:"Calibracion junio S4"})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"Tipo"),h("select",{style:SEL,value:form.evaluation_type,onChange:ev=>setForm({...form,evaluation_type:ev.target.value})},h("option",{value:"venta"},"Venta"),h("option",{value:"no_venta"},"No venta"))),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"Fecha llamada"),h("input",{type:"date",style:INP,value:form.call_date,onChange:ev=>setForm({...form,call_date:ev.target.value})})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"Hora llamada"),h("input",{type:"time",style:INP,value:form.call_time,onChange:ev=>setForm({...form,call_time:ev.target.value})})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"Campana o servicio"),h("input",{style:INP,value:form.campaign_name,onChange:ev=>setForm({...form,campaign_name:ev.target.value})})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"Asesor evaluado"),h("input",{style:INP,value:form.evaluated_agent_name,onChange:ev=>setForm({...form,evaluated_agent_name:ev.target.value})})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"ID llamada"),h("input",{style:INP,value:form.call_identifier,onChange:ev=>setForm({...form,call_identifier:ev.target.value})})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"Tipificacion"),h("input",{style:INP,value:form.call_typification,onChange:ev=>setForm({...form,call_typification:ev.target.value})})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"Resultado"),h("input",{style:INP,value:form.call_result,onChange:ev=>setForm({...form,call_result:ev.target.value})})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"Programada"),h("input",{type:"datetime-local",style:INP,value:form.scheduled_date,onChange:ev=>setForm({...form,scheduled_date:ev.target.value})}))
+      ),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:18}},
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"Audio de llamada"),h("input",{type:"file",accept:"audio/*,.mp3,.mpeg,.wav,.m4a,.ogg",style:{...INP,padding:"10px 12px"},onChange:ev=>setAudioFile((ev.target.files || [])[0] || null)}),audioFile && h("div",{style:{fontSize:11,color:"#8b92a5",marginTop:8}},audioFile.name)),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"Referente Experto"),h("select",{style:SEL,value:form.expert_referent_id,onChange:ev=>setForm({...form,expert_referent_id:ev.target.value})},h("option",{value:""},"Selecciona referente"),expertUsers.map(user=>h("option",{key:user.usuario,value:user.usuario},`${user.nombre} - ${ROL_LABEL[user.rol] || user.rol}`))))
+      ),
+      h("div",{style:{marginBottom:18}},h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}},"Observacion inicial"),h("textarea",{style:{...INP,minHeight:80},value:form.initial_case_observation,onChange:ev=>setForm({...form,initial_case_observation:ev.target.value})})),
+      h("div",{style:{...CARD,marginBottom:18,padding:16}},h("div",{style:{fontSize:12,color:"#fff",fontWeight:800,marginBottom:12}},"Participantes"),h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10}},eligibleUsers.filter(user=>user.usuario!==form.expert_referent_id).map(user=>h("label",{key:user.usuario,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",border:`1px solid ${THEME.border}`,borderRadius:12,background:"rgba(9,9,17,0.65)",fontSize:12,color:"#dbe4f3"}},h("input",{type:"checkbox",checked:form.participants.includes(user.usuario),onChange:()=>toggleParticipant(user.usuario)}),h("span",null,user.nombre," - ",ROL_LABEL[user.rol] || user.rol))))),
+      h("div",{style:{display:"flex",justifyContent:"flex-end",gap:12}},h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:()=>onClose()},"CANCELAR"),h("button",{style:{...BTN("pink"),padding:"10px 14px",opacity:saving?0.6:1},disabled:saving,onClick:submit},saving ? "GUARDANDO..." : "GUARDAR CALIBRACION"))
+    )
+  );
+}
+
+function CalibrationEvaluationRoom({session,currentUser,onSubmit,notify,onBack}){
+  const userId = String(currentUser?.usuario || "").trim();
+  const status = normalizeCalibrationStatus(session?.status);
+  const isExpert = String(session?.expert_referent_id || "") === userId || String(currentUser?.rol || "").trim().toLowerCase() === "referente_experto";
+  const existing = (session?.evaluations || []).find(item => String(item.user_id || "") === userId);
+  const locked = !!existing?.locked;
+  const [sections,setSections] = useState(() => existing?.sections?.length ? normalizeEvaluationSectionsForScoring(existing.sections, session.evaluation_type) : getDefaultEvaluationSections(session.evaluation_type));
+  const [zeroItems,setZeroItems] = useState(() => existing?.zeroToleranceItems?.length ? existing.zeroToleranceItems : getDefaultZeroToleranceItems().map(item=>({...item})));
+  const [typification,setTypification] = useState(existing?.selected_typification || session?.call_typification || "");
+  const [observation,setObservation] = useState(existing?.general_observation || "");
+  const [saving,setSaving] = useState(false);
+  const summary = calculateEvaluationSummary(sections, zeroItems, session.evaluation_type);
+  const audioFile = getCalibrationAudioFile(session);
+  const updateSection = (index, result) => setSections(prev => prev.map((section,idx)=>idx===index ? {...section,resultado:result,puntaje:normalizeComparableValue(result)==="cumple" ? Number(section.pesoSub || 0) : 0} : section));
+  const submit = async() => {
+    if (locked) return;
+    if (status !== "live") { notify("e","La calibracion aun no esta En vivo."); return; }
+    if (!confirm("Despues de enviar no podras editar tu evaluacion. Deseas continuar?")) return;
+    try{
+      setSaving(true);
+      await onSubmit({calibration_session_id:session.id,sections,zeroToleranceItems:zeroItems,selected_typification:typification,general_observation:observation,currentUser});
+      notify("s","Evaluacion de calibracion enviada.");
+      onBack();
+    }catch(err){
+      notify("e",err?.message || "No se pudo enviar la evaluacion.");
+    }finally{
+      setSaving(false);
+    }
+  };
+
+  const groupedSections = Object.entries(grp(sections, section => section.categoria || "General"));
+
+  return h("div",null,
+    h("div",{style:{display:"flex",justifyContent:"space-between",gap:16,marginBottom:24}},
+      h("div",null,
+        h("h1",{style:{fontSize:34,color:"#fff",margin:0}},"Sala de calibracion"),
+        h("div",{style:{color:"#8b92a5",marginTop:6}},session.title," - ",CALIBRATION_STATUS_LABEL[status])
+      ),
+      h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:onBack},"VOLVER")
+    ),
+    h("div",{style:{...CARD,marginBottom:18,borderTop:`4px solid ${isExpert ? "#22D3EE" : THEME.primary}`}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:16}},[
+        ["Tipo",EVALUATION_FORM_TYPES[normalizeEvaluationFormType(session.evaluation_type)]?.label || "Venta"],
+        ["Campana",session.campaign_name || "-"],
+        ["Asesor evaluado",session.evaluated_agent_name || "-"],
+        ["Tipificacion",session.call_typification || "-"],
+        ["Resultado",session.call_result || "-"],
+        ["Rol en sala",isExpert ? "Evaluacion Patron Oficial" : "Participante"]
+      ].map(([label,value])=>h("div",{key:label},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:800,marginBottom:6}},label),h("div",{style:{fontSize:13,color:"#fff",fontWeight:800}},value)))),
+      audioFile ? h("div",{style:{marginTop:10}},h("div",{style:{fontSize:11,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:800,marginBottom:8}},"Audio de calibracion"),h(EvaluationAudioPlayer,{file:audioFile})) : h("div",{style:{fontSize:12,color:"#F59E0B"}},"Audio pendiente de carga.")
+    ),
+    locked && h("div",{style:{background:"rgba(25,195,125,0.12)",border:"1px solid rgba(25,195,125,0.30)",borderRadius:14,padding:14,color:"#19C37D",fontWeight:800,marginBottom:18}},"Tu evaluacion ya fue enviada y quedo bloqueada."),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14,marginBottom:18}},
+      h(ImprovementKpiCard,{label:"Resultado",value:`${summary.pct.toFixed(1)}%`,caption:summary.label,color:summary.pct >= 80 ? "#19C37D" : THEME.accent}),
+      h(ImprovementKpiCard,{label:"Peso aplicable",value:`${summary.applicableWeight.toFixed(1)}%`,caption:"No aplica excluido",color:THEME.violet}),
+      h(ImprovementKpiCard,{label:"Puntaje",value:`${summary.achievedWeight.toFixed(1)}%`,caption:"Puntos logrados",color:THEME.primary})
+    ),
+    h("div",{style:{...CARD,marginBottom:18}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}},
+        h("div",null,
+          h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:800,marginBottom:8}},"Tipificacion seleccionada"),
+          h("input",{style:INP,value:typification,disabled:locked,onChange:ev=>setTypification(ev.target.value)})
+        ),
+        h("div",null,
+          h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:800,marginBottom:8}},"Observacion general"),
+          h("input",{style:INP,value:observation,disabled:locked,onChange:ev=>setObservation(ev.target.value)})
+        )
+      )
+    ),
+    h("div",{style:{display:"flex",flexDirection:"column",gap:14}},
+      groupedSections.map(([category,items]) =>
+        h("div",{key:category,style:{...CARD,padding:16}},
+          h("div",{style:{fontSize:14,color:"#fff",fontWeight:900,marginBottom:12}},category),
+          items.map(item => {
+            const index = sections.findIndex(section => normalizeName(section.nombreSeccion) === normalizeName(item.nombreSeccion));
+            return h("div",{key:item.nombreSeccion,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 110px 170px",gap:12,alignItems:"center",padding:"12px 0",borderTop:"1px solid rgba(255,255,255,0.05)"}},
+              h("div",null,
+                h("div",{style:{color:"#fff",fontWeight:800}},item.nombreSeccion),
+                h("div",{style:{fontSize:12,color:"#8b92a5"}},item.criterio)
+              ),
+              h("div",{style:{color:THEME.primary,fontWeight:800}},`${Number(item.pesoSub || 0).toFixed(1)}%`),
+              h("select",{style:SEL,value:item.resultado,onChange:ev=>updateSection(index,ev.target.value),disabled:locked || status!=="live"},
+                h("option",{value:""},"Resultado"),
+                h("option",{value:"Cumple"},"Cumple"),
+                h("option",{value:"No cumple"},"No cumple"),
+                h("option",{value:"No aplica"},"No aplica")
+              )
+            );
+          })
+        )
+      )
+    ),
+    h("div",{style:{...CARD,marginTop:18}},
+      h("div",{style:{fontSize:12,color:"#fff",fontWeight:900,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:10}},"Cero Tolerancia"),
+      zeroItems.map((item,index) =>
+        h("div",{key:item.subItem,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 170px",gap:12,padding:"10px 0",borderTop:"1px solid rgba(255,255,255,0.05)"}},
+          h("div",null,
+            h("div",{style:{color:"#fff",fontWeight:800}},item.subItem),
+            h("div",{style:{fontSize:12,color:"#8b92a5"}},item.descripcion)
+          ),
+          h("select",{style:SEL,value:item.resultado,onChange:ev=>setZeroItems(prev=>prev.map((entry,idx)=>idx===index ? {...entry,resultado:ev.target.value} : entry)),disabled:locked || status!=="live"},
+            h("option",{value:"No aplica"},"No aplica"),
+            h("option",{value:"Cumple"},"Cumple")
+          )
+        )
+      )
+    ),
+    h("div",{style:{display:"flex",justifyContent:"flex-end",marginTop:18}},h("button",{style:{...BTN("pink"),padding:"12px 18px",opacity:locked||saving?0.55:1},disabled:locked||saving,onClick:submit},saving ? "ENVIANDO..." : "ENVIAR EVALUACION"))
+  );
+}
+
+function CalibrationModule({currentUser,users,notify}){
+  const [data,setData] = useState({sessions:[]});
+  const [loading,setLoading] = useState(true);
+  const [tab,setTab] = useState("live");
+  const [modalOpen,setModalOpen] = useState(false);
+  const [editingSession,setEditingSession] = useState(null);
+  const [activeSession,setActiveSession] = useState(null);
+  const reload = async() => { setLoading(true); const loaded = await loadCalibrationData(currentUser); setData(loaded || {sessions:[]}); setLoading(false); return loaded; };
+  useEffect(()=>{ reload(); },[currentUser?.usuario]);
+  const sessions = getCalibrationVisibleSessions(data.sessions || [], currentUser);
+  const dashboard = buildCalibrationDashboardRows(sessions);
+  const saveSession = async(payload) => { const saved = await saveCalibrationSessionEntry(payload); await reload(); return saved; };
+  const changeStatus = async(session,status) => { try{ await updateCalibrationStatusEntry({id:session.id,status,currentUser}); notify("s","Estado actualizado."); await reload(); }catch(err){ notify("e",err?.message || "No se pudo actualizar el estado."); } };
+  const submitEvaluation = async(payload) => { const saved = await submitCalibrationEvaluationEntry(payload); await reload(); return saved; };
+  if (activeSession) {
+    const refreshed = sessions.find(item => item.id === activeSession.id) || activeSession;
+    return h(CalibrationEvaluationRoom,{session:refreshed,currentUser,onSubmit:submitEvaluation,notify,onBack:()=>setActiveSession(null)});
+  }
+  const exportReport = session => {
+    const rows = (session.results || []).map(item => ({calibracion:session.title,participante:item.user_name,rol:item.role,area:item.area,afinidad:item.affinity_percentage,nivel:item.calibration_level,desviacion:item.score_deviation,diferencias:(item.main_differences || []).join(" | ")}));
+    exportCSV(rows.length ? rows : [{calibracion:session.title,estado:CALIBRATION_STATUS_LABEL[normalizeCalibrationStatus(session.status)]}],"reporte_calibracion");
+  };
+  const renderSessionCard = session => {
+    const status = normalizeCalibrationStatus(session.status);
+    const metrics = getCalibrationSessionMetrics(session);
+    const canManage = canManageCalibrationModule(currentUser);
+    const resultsOpen = status === "closed_results";
+    return h("div",{key:session.id,style:{...CARD,borderTop:`4px solid ${status==="live" ? "#19C37D" : status==="closed_results" ? THEME.primary : THEME.violet}`}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",gap:14,flexWrap:"wrap",marginBottom:12}},h("div",null,h("div",{style:{fontSize:18,color:"#fff",fontWeight:900}},session.title || "Calibracion sin nombre"),h("div",{style:{fontSize:12,color:"#8b92a5",marginTop:5}},session.campaign_name || "-", " - ", session.evaluated_agent_name || "-")),h("span",{style:{alignSelf:"flex-start",padding:"8px 12px",borderRadius:999,background:"rgba(29,43,255,0.12)",border:"1px solid rgba(29,43,255,0.28)",color:THEME.primary,fontSize:11,fontWeight:900}},CALIBRATION_STATUS_LABEL[status])),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:14}},[
+        ["Tipo",EVALUATION_FORM_TYPES[normalizeEvaluationFormType(session.evaluation_type)]?.label || "-"],
+        ["Referente",session.expert_referent_name || "-"],
+        ["Participantes",metrics.participantsCount],
+        ["Enviados",metrics.submittedCount],
+        ["Pendientes",metrics.pendingCount],
+        ["Afinidad prom.",resultsOpen ? `${metrics.avgAffinity.toFixed(1)}%` : "Oculto"]
+      ].map(([label,value])=>h("div",{key:label},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",fontWeight:800,letterSpacing:"0.1em",marginBottom:5}},label),h("div",{style:{fontSize:13,color:"#fff",fontWeight:800}},value)))),
+      h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},h("button",{style:{...BTN("p"),padding:"9px 12px"},onClick:()=>setActiveSession(session)},status==="live" ? "INGRESAR A SALA" : "VER DETALLE"),canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>{setEditingSession(session);setModalOpen(true);}},"EDITAR"),canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"scheduled")},"PROGRAMAR"),canManage && ["draft","scheduled"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"live")},"INICIAR"),canManage && status==="live" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"finalized")},"FINALIZAR"),canManage && ["finalized","live"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"closed_results")},"CERRAR CON RESULTADOS"),canManage && status!=="annulled" && h("button",{style:{...BTN("out"),padding:"9px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>changeStatus(session,"annulled")},"ANULAR"),resultsOpen && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>exportReport(session)},"DESCARGAR REPORTE"))
+    );
+  };
+  return h(Fragment,null,
+    h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:28}},h("div",null,h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.35em",fontFamily:THEME.displayFont,marginBottom:10}},"QUALITY CALIBRATION"),h("h1",{style:{fontSize:38,color:"#fff",margin:"0 0 8px"}},"Calibracion de Calidad"),h("div",{style:{color:"#9fb0d8",lineHeight:1.7}},"Modulo independiente para comparar criterios contra el Referente Experto.")),canManageCalibrationModule(currentUser) && h("button",{style:{...BTN("pink"),padding:"12px 16px"},onClick:()=>{setEditingSession(null);setModalOpen(true);}},I("plus",14,"#fff"),"NUEVA CALIBRACION")),
+    h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}},[["live","Calibraciones en vivo"],["history","Historial"],["dashboard","Dashboard"],["compare","Comparativo uno a uno"],["participants","Resultados por participante"],["experts","Referentes expertos"]].map(([key,label])=>h("button",{key,style:{...BTN(tab===key?"p":"out"),padding:"10px 13px"},onClick:()=>setTab(key)},label))),
+    loading ? h("div",{style:CARD},"Cargando calibraciones...") :
+      tab==="dashboard" ? h("div",null,h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14,marginBottom:18}},h(ImprovementKpiCard,{label:"Total calibraciones",value:sessions.length,caption:"Registros del modulo",color:THEME.primary}),h(ImprovementKpiCard,{label:"Cerradas",value:dashboard.closed.length,caption:"Con resultados",color:"#19C37D"}),h(ImprovementKpiCard,{label:"Afinidad promedio",value:`${dashboard.avgAffinity.toFixed(1)}%`,caption:"Promedio general",color:THEME.accent})),h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18}},h("div",{style:CARD},h("h3",{style:{color:"#fff"}},"Participantes mas calibrados"),dashboard.ranked.slice(0,8).map(item=>h("div",{key:item.id,style:{display:"flex",justifyContent:"space-between",padding:"10px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3"}},h("span",null,item.user_name),h("strong",null,item.affinity_percentage,"%")))),h("div",{style:CARD},h("h3",{style:{color:"#fff"}},"Participantes menos calibrados"),dashboard.ranked.slice(-8).reverse().map(item=>h("div",{key:item.id,style:{display:"flex",justifyContent:"space-between",padding:"10px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3"}},h("span",null,item.user_name),h("strong",null,item.affinity_percentage,"%")))))) :
+      tab==="compare" ? h("div",{style:CARD},h("h3",{style:{color:"#fff",marginTop:0}},"Comparativo uno a uno de respuestas"),sessions.flatMap(session=>(session.comparisonRows || []).map(row=>({...row,sessionTitle:session.title}))).slice(0,200).map(row=>h("div",{key:row.id,style:{display:"grid",gridTemplateColumns:"1.2fr 1fr 1fr 1fr 110px",gap:10,padding:"11px 0",borderTop:"1px solid rgba(255,255,255,0.05)",fontSize:12,color:"#dbe4f3"}},h("div",null,row.sessionTitle),h("div",null,row.subitem_name),h("div",null,"Experto: ",row.expert_response),h("div",null,row.participant_user_name,": ",row.participant_response),h("div",{style:{color:row.match_status==="coincide"?"#19C37D":"#FF6B7A",fontWeight:900}},row.match_status)))) :
+      tab==="participants" ? h("div",{style:CARD},h("h3",{style:{color:"#fff",marginTop:0}},"Resultados por participante"),dashboard.ranked.map(item=>h("div",{key:item.id,style:{display:"grid",gridTemplateColumns:"1fr 120px 120px 1fr",gap:12,padding:"12px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3"}},h("div",null,item.user_name),h("div",null,item.affinity_percentage,"%"),h("div",null,item.calibration_level),h("div",null,(item.main_differences || []).join(", ") || "-")))) :
+      tab==="experts" ? h("div",{style:CARD},h("h3",{style:{color:"#fff",marginTop:0}},"Configuracion de referentes expertos"),h("div",{style:{color:"#9fb0d8",lineHeight:1.7}},"Crea usuarios con rol Referente Experto desde Gestion de Usuarios. Su evaluacion se toma como patron oficial."),(users || []).filter(user=>user.rol==="referente_experto").map(user=>h("div",{key:user.usuario,style:{padding:"12px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#fff",fontWeight:800}},user.nombre," - ",user.usuario))) :
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:16}},sessions.filter(session=>tab==="history" ? true : ["scheduled","live","finalized"].includes(normalizeCalibrationStatus(session.status))).map(renderSessionCard)),
+    h(CalibrationSessionModal,{isOpen:modalOpen,onClose:()=>{setModalOpen(false);setEditingSession(null);reload();},currentUser,users,onSave:saveSession,notify,editingSession})
   );
 }
 
