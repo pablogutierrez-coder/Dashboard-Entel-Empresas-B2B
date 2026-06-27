@@ -8561,31 +8561,157 @@ function CalibrationEvaluationRoom({session,currentUser,onSubmit,notify,onBack})
   );
 }
 
+function CalibrationDetailView({session,currentUser,onBack,onEnterRoom,onChangeStatus,onExportReport}){
+  const [tab,setTab] = useState("overview");
+  const [selectedParticipantId,setSelectedParticipantId] = useState("");
+  const status = normalizeCalibrationStatus(session?.status);
+  const metrics = getCalibrationSessionMetrics(session);
+  const dashboard = buildCalibrationDashboardRows([session]);
+  const canManage = canManageCalibrationModule(currentUser);
+  const expert = (session?.evaluations || []).find(item => item.is_expert_referent || String(item.user_id || "") === String(session?.expert_referent_id || ""));
+  const participantRows = (dashboard.participantRows || []).filter(item => !item.is_expert_referent);
+  const ranked = dashboard.ranked || [];
+  const topParticipant = ranked[0] || null;
+  const lowParticipant = ranked.length ? ranked[ranked.length - 1] : null;
+  const selectedParticipant = participantRows.find(item => String(item.user_id) === String(selectedParticipantId)) || participantRows.find(item => item.affinity_percentage != null) || participantRows[0] || null;
+  const comparisonRows = (dashboard.comparisonRows || []).filter(row => !selectedParticipant || String(row.participant_user_id) === String(selectedParticipant.user_id));
+  const matchCount = comparisonRows.filter(row => row.match_status === "coincide").length;
+  const mismatchCount = comparisonRows.filter(row => row.match_status && row.match_status !== "coincide").length;
+  const renderTabs = () => h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",margin:"18px 0"}},
+    [["overview","Resumen"],["results","Resultados"],["compare","Comparativo visual"]].map(([key,label]) =>
+      h("button",{key,style:{...BTN(tab===key?"p":"out"),padding:"10px 13px"},onClick:()=>setTab(key)},label)
+    )
+  );
+  const renderCallData = () => h("div",{style:{...CARD,marginBottom:18}},
+    h("h3",{style:{color:"#fff",marginTop:0}},"Datos de la calibracion"),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}},[
+      ["Estado",CALIBRATION_STATUS_LABEL[status] || "-"],
+      ["Tipo",EVALUATION_FORM_TYPES[normalizeEvaluationFormType(session.evaluation_type)]?.label || "-"],
+      ["Campana",session.campaign_name || "-"],
+      ["Asesor evaluado",session.evaluated_agent_name || "-"],
+      ["Fecha llamada",session.call_date || "-"],
+      ["Hora llamada",session.call_time || "-"],
+      ["Tipificacion",session.call_typification || "-"],
+      ["Resultado llamada",session.call_result || "-"],
+      ["Referente Experto",session.expert_referent_name || "-"]
+    ].map(([label,value])=>h("div",{key:label},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:800,marginBottom:5}},label),h("div",{style:{fontSize:13,color:"#fff",fontWeight:800}},value))))
+  );
+  const renderOverview = () => h("div",null,
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14,marginBottom:18}},
+      h(ImprovementKpiCard,{label:"Participantes",value:metrics.participantsCount,caption:`${metrics.submittedCount} enviados`,color:THEME.primary}),
+      h(ImprovementKpiCard,{label:"Pendientes",value:metrics.pendingCount,caption:"No bloquean el cierre",color:"#F59E0B"}),
+      h(ImprovementKpiCard,{label:"Patron oficial",value:expert ? "Enviado" : "Pendiente",caption:session.expert_referent_name || "Referente",color:expert ? "#19C37D" : THEME.accent}),
+      h(ImprovementKpiCard,{label:"Afinidad promedio",value:`${metrics.avgAffinity.toFixed(1)}%`,caption:metrics.hasResults ? "Resultados generados" : "Aun sin resultados",color:THEME.accent})
+    ),
+    renderCallData(),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:18}},
+      h("div",{style:CARD},
+        h("h3",{style:{color:"#fff",marginTop:0}},"Persona mas calibrada"),
+        topParticipant ? h(Fragment,null,h("div",{style:{fontSize:22,color:"#19C37D",fontWeight:900}},topParticipant.user_name),h("div",{style:{color:"#9fb0d8",marginTop:8}},topParticipant.affinity_percentage,"% - ",topParticipant.calibration_level)) : h("div",{style:{color:"#8b92a5"}},"Aun no hay ranking generado.")
+      ),
+      h("div",{style:CARD},
+        h("h3",{style:{color:"#fff",marginTop:0}},"Persona con mayor ajuste"),
+        lowParticipant ? h(Fragment,null,h("div",{style:{fontSize:22,color:THEME.accent,fontWeight:900}},lowParticipant.user_name),h("div",{style:{color:"#9fb0d8",marginTop:8}},lowParticipant.affinity_percentage,"% - ",lowParticipant.calibration_level)) : h("div",{style:{color:"#8b92a5"}},"Aun no hay ranking generado.")
+      ),
+      h("div",{style:CARD},
+        h("h3",{style:{color:"#fff",marginTop:0}},"Referente Experto"),
+        h("div",{style:{fontSize:22,color:"#22D3EE",fontWeight:900}},session.expert_referent_name || "-"),
+        h("div",{style:{color:expert ? "#19C37D" : "#F59E0B",marginTop:8,fontWeight:800}},expert ? "Evaluacion patron enviada" : "Pendiente de evaluacion patron")
+      )
+    )
+  );
+  const renderResults = () => h("div",{style:CARD},
+    h("h3",{style:{color:"#fff",marginTop:0}},"Resultados por participante"),
+    participantRows.length ? participantRows.map(item=>h("div",{key:item.id,style:{display:"grid",gridTemplateColumns:"1.2fr 1fr 110px 130px 1fr",gap:12,padding:"13px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3",fontSize:12}},
+      h("div",null,h("strong",{style:{color:"#fff"}},item.user_name),h("div",{style:{color:"#8b92a5",marginTop:4}},ROL_LABEL[item.role] || item.role || "-")),
+      h("div",null,item.participation_status==="submitted" ? "Enviado" : "Pendiente"),
+      h("div",null,item.affinity_percentage != null ? `${item.affinity_percentage}%` : "-"),
+      h("div",null,item.total_score != null ? `${Number(item.total_score).toFixed(1)}%` : "-"),
+      h("div",null,item.calibration_level || "-")
+    )) : h("div",{style:{color:"#8b92a5"}},"Aun no hay participantes asignados.")
+  );
+  const renderCompare = () => h("div",null,
+    h("div",{style:{...CARD,padding:16,marginBottom:18}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"minmax(240px,360px) repeat(3,1fr)",gap:14,alignItems:"end"}},
+        h("div",null,
+          h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:800,marginBottom:8}},"Participante a comparar"),
+          h("select",{style:SEL,value:selectedParticipant?.user_id || "",onChange:ev=>setSelectedParticipantId(ev.target.value)},
+            participantRows.map(item=>h("option",{key:item.user_id,value:item.user_id},item.user_name))
+          )
+        ),
+        h(ImprovementKpiCard,{label:"Afinidad",value:selectedParticipant?.affinity_percentage != null ? `${selectedParticipant.affinity_percentage}%` : "-",caption:selectedParticipant?.calibration_level || "Sin resultado",color:THEME.accent}),
+        h(ImprovementKpiCard,{label:"Coincidencias",value:matchCount,caption:"Respuestas alineadas",color:"#19C37D"}),
+        h(ImprovementKpiCard,{label:"Diferencias",value:mismatchCount,caption:"Criterios a revisar",color:"#FF6B7A"})
+      )
+    ),
+    comparisonRows.length ? h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:14}},
+      comparisonRows.map(row => {
+        const ok = row.match_status === "coincide";
+        return h("div",{key:row.id,style:{...CARD,padding:16,borderTop:`4px solid ${ok ? "#19C37D" : "#FF6B7A"}`}},
+          h("div",{style:{fontSize:13,color:"#fff",fontWeight:900,marginBottom:6}},row.subitem_name || row.item_name || "Criterio"),
+          h("div",{style:{fontSize:11,color:"#8b92a5",marginBottom:12}},row.item_name || "-"," - Peso ",Number(row.weight || 0).toFixed(1),"%"),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+            h("div",{style:{padding:12,borderRadius:12,background:"rgba(34,211,238,0.08)",border:"1px solid rgba(34,211,238,0.24)"}},
+              h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:900,letterSpacing:"0.1em",textTransform:"uppercase"}},"Referente Experto"),
+              h("div",{style:{fontSize:18,color:"#22D3EE",fontWeight:900,marginTop:8}},row.expert_response || "-"),
+              h("div",{style:{fontSize:12,color:"#9fb0d8",marginTop:5}},`${Number(row.expert_score || 0).toFixed(1)} pts`)
+            ),
+            h("div",{style:{padding:12,borderRadius:12,background:ok ? "rgba(25,195,125,0.08)" : "rgba(255,77,90,0.08)",border:`1px solid ${ok ? "rgba(25,195,125,0.24)" : "rgba(255,77,90,0.28)"}`}},
+              h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:900,letterSpacing:"0.1em",textTransform:"uppercase"}},selectedParticipant?.user_name || "Participante"),
+              h("div",{style:{fontSize:18,color:ok ? "#19C37D" : "#FF6B7A",fontWeight:900,marginTop:8}},row.participant_response || "-"),
+              h("div",{style:{fontSize:12,color:"#9fb0d8",marginTop:5}},`${Number(row.participant_score || 0).toFixed(1)} pts`)
+            )
+          ),
+          h("div",{style:{marginTop:12,color:ok ? "#19C37D" : "#FF6B7A",fontWeight:900}},ok ? "Coincide con el referente" : "No coincide con el referente")
+        );
+      })
+    ) : h("div",{style:CARD},h("div",{style:{color:"#8b92a5"}},"Cierra la calibracion con evaluacion patron y al menos un participante enviado para ver el comparativo visual."))
+  );
+  return h("div",null,
+    h("div",{style:{display:"flex",justifyContent:"space-between",gap:16,alignItems:"flex-start",marginBottom:18}},
+      h("div",null,
+        h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.35em",fontFamily:THEME.displayFont,marginBottom:10}},"QUALITY CALIBRATION DETAIL"),
+        h("h1",{style:{fontSize:36,color:"#fff",margin:"0 0 8px"}},session.title || "Calibracion sin nombre"),
+        h("div",{style:{color:"#9fb0d8"}},CALIBRATION_STATUS_LABEL[status] || "-")
+      ),
+      h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}},
+        status==="live" && h("button",{style:{...BTN("p"),padding:"10px 13px"},onClick:onEnterRoom},"RESPONDER FICHA"),
+        canManage && !["closed_results","annulled"].includes(status) && h("button",{style:{...BTN("pink"),padding:"10px 13px"},onClick:()=>onChangeStatus(session,"closed_results")},"CERRAR CON RESULTADOS"),
+        status==="closed_results" && h("button",{style:{...BTN("s"),padding:"10px 13px"},onClick:()=>onExportReport(session)},"DESCARGAR REPORTE"),
+        h("button",{style:{...BTN("out"),padding:"10px 13px"},onClick:onBack},"VOLVER")
+      )
+    ),
+    renderTabs(),
+    tab==="results" ? renderResults() : tab==="compare" ? renderCompare() : renderOverview()
+  );
+}
+
 function CalibrationModule({currentUser,users,notify}){
   const [data,setData] = useState({sessions:[]});
   const [loading,setLoading] = useState(true);
   const [tab,setTab] = useState("live");
   const [modalOpen,setModalOpen] = useState(false);
   const [editingSession,setEditingSession] = useState(null);
-  const [activeSession,setActiveSession] = useState(null);
-  const [selectedCalibrationId,setSelectedCalibrationId] = useState("");
+  const [roomSession,setRoomSession] = useState(null);
+  const [detailSession,setDetailSession] = useState(null);
   const reload = async() => { setLoading(true); const loaded = await loadCalibrationData(currentUser); setData(loaded || {sessions:[]}); setLoading(false); return loaded; };
   useEffect(()=>{ reload(); },[currentUser?.usuario]);
   const sessions = getCalibrationVisibleSessions(data.sessions || [], currentUser);
-  const selectedCalibration = sessions.find(session => String(session.id) === String(selectedCalibrationId)) || null;
-  const scopedSessions = selectedCalibration ? [selectedCalibration] : sessions;
-  const dashboard = buildCalibrationDashboardRows(scopedSessions);
   const saveSession = async(payload) => { const saved = await saveCalibrationSessionEntry(payload); await reload(); return saved; };
   const changeStatus = async(session,status) => { try{ await updateCalibrationStatusEntry({id:session.id,status,currentUser}); notify("s","Estado actualizado."); await reload(); }catch(err){ notify("e",err?.message || "No se pudo actualizar el estado."); } };
   const submitEvaluation = async(payload) => { const saved = await submitCalibrationEvaluationEntry(payload); await reload(); return saved; };
-  if (activeSession) {
-    const refreshed = sessions.find(item => item.id === activeSession.id) || activeSession;
-    return h(CalibrationEvaluationRoom,{session:refreshed,currentUser,onSubmit:submitEvaluation,notify,onBack:()=>setActiveSession(null)});
+  if (roomSession) {
+    const refreshed = sessions.find(item => item.id === roomSession.id) || roomSession;
+    return h(CalibrationEvaluationRoom,{session:refreshed,currentUser,onSubmit:submitEvaluation,notify,onBack:()=>setRoomSession(null)});
   }
-  const exportReport = session => {
+  if (detailSession) {
+    const refreshed = sessions.find(item => item.id === detailSession.id) || detailSession;
+    return h(CalibrationDetailView,{session:refreshed,currentUser,onBack:()=>setDetailSession(null),onEnterRoom:()=>{setRoomSession(refreshed);setDetailSession(null);},onChangeStatus:changeStatus,onExportReport:exportReport});
+  }
+  function exportReport(session) {
     const rows = (session.results || []).map(item => ({calibracion:session.title,participante:item.user_name,rol:item.role,area:item.area,afinidad:item.affinity_percentage,nivel:item.calibration_level,desviacion:item.score_deviation,diferencias:(item.main_differences || []).join(" | ")}));
     exportCSV(rows.length ? rows : [{calibracion:session.title,estado:CALIBRATION_STATUS_LABEL[normalizeCalibrationStatus(session.status)]}],"reporte_calibracion");
-  };
+  }
   const renderSessionCard = session => {
     const status = normalizeCalibrationStatus(session.status);
     const metrics = getCalibrationSessionMetrics(session);
@@ -8601,7 +8727,17 @@ function CalibrationModule({currentUser,users,notify}){
         ["Pendientes",metrics.pendingCount],
         ["Afinidad prom.",resultsOpen ? `${metrics.avgAffinity.toFixed(1)}%` : "Oculto"]
       ].map(([label,value])=>h("div",{key:label},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",fontWeight:800,letterSpacing:"0.1em",marginBottom:5}},label),h("div",{style:{fontSize:13,color:"#fff",fontWeight:800}},value)))),
-      h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},h("button",{style:{...BTN("p"),padding:"9px 12px"},onClick:()=>setActiveSession(session)},status==="live" ? "INGRESAR A SALA" : "VER DETALLE"),canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>{setEditingSession(session);setModalOpen(true);}},"EDITAR"),canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"scheduled")},"PROGRAMAR"),canManage && ["draft","scheduled"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"live")},"INICIAR"),canManage && status==="live" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"finalized")},"FINALIZAR"),canManage && !["closed_results","annulled"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"closed_results")},"CERRAR CON RESULTADOS"),canManage && status!=="annulled" && h("button",{style:{...BTN("out"),padding:"9px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>changeStatus(session,"annulled")},"ANULAR"),resultsOpen && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>exportReport(session)},"DESCARGAR REPORTE"))
+      h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},
+        h("button",{style:{...BTN("p"),padding:"9px 12px"},onClick:()=>setDetailSession(session)},"ABRIR CALIBRACION"),
+        status==="live" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>setRoomSession(session)},"RESPONDER FICHA"),
+        canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>{setEditingSession(session);setModalOpen(true);}},"EDITAR"),
+        canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"scheduled")},"PROGRAMAR"),
+        canManage && ["draft","scheduled"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"live")},"INICIAR"),
+        canManage && status==="live" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"finalized")},"FINALIZAR"),
+        canManage && !["closed_results","annulled"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"closed_results")},"CERRAR CON RESULTADOS"),
+        canManage && status!=="annulled" && h("button",{style:{...BTN("out"),padding:"9px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>changeStatus(session,"annulled")},"ANULAR"),
+        resultsOpen && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>exportReport(session)},"DESCARGAR REPORTE")
+      )
     );
   };
   const renderStatusRows = () => Object.entries(dashboard.byStatus || {}).map(([label,rows]) =>
@@ -8693,13 +8829,8 @@ function CalibrationModule({currentUser,users,notify}){
   );
   return h(Fragment,null,
     h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:28}},h("div",null,h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.35em",fontFamily:THEME.displayFont,marginBottom:10}},"QUALITY CALIBRATION"),h("h1",{style:{fontSize:38,color:"#fff",margin:"0 0 8px"}},"Calibracion de Calidad"),h("div",{style:{color:"#9fb0d8",lineHeight:1.7}},"Modulo independiente para comparar criterios contra el Referente Experto.")),canManageCalibrationModule(currentUser) && h("button",{style:{...BTN("pink"),padding:"12px 16px"},onClick:()=>{setEditingSession(null);setModalOpen(true);}},I("plus",14,"#fff"),"NUEVA CALIBRACION")),
-    h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}},[["live","Calibraciones en vivo"],["history","Historial"],["dashboard","Dashboard"],["compare","Comparativo uno a uno"],["participants","Resultados por participante"],["experts","Referentes expertos"]].map(([key,label])=>h("button",{key,style:{...BTN(tab===key?"p":"out"),padding:"10px 13px"},onClick:()=>setTab(key)},label))),
-    renderCalibrationSelector(),
+    h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}},[["live","Calibraciones en vivo"],["history","Historial"]].map(([key,label])=>h("button",{key,style:{...BTN(tab===key?"p":"out"),padding:"10px 13px"},onClick:()=>setTab(key)},label))),
     loading ? h("div",{style:CARD},"Cargando calibraciones...") :
-      tab==="dashboard" ? renderDashboard() :
-      tab==="compare" ? renderComparison() :
-      tab==="participants" ? renderParticipantResults() :
-      tab==="experts" ? renderExperts() :
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:16}},sessions.filter(session=>tab==="history" ? true : ["scheduled","live","finalized"].includes(normalizeCalibrationStatus(session.status))).map(renderSessionCard)),
     h(CalibrationSessionModal,{isOpen:modalOpen,onClose:()=>{setModalOpen(false);setEditingSession(null);reload();},currentUser,users,onSave:saveSession,notify,editingSession})
   );
