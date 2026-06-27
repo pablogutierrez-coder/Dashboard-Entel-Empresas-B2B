@@ -8583,6 +8583,14 @@ function CalibrationDetailView({session,currentUser,onBack,onEnterRoom,onChangeS
   const descalibratedRows = Object.entries(grp(allComparisonRows.filter(row => row.match_status !== "coincide"), row => row.subitem_name || row.item_name || "Criterio sin nombre"))
     .map(([label,rows]) => ({label,count:rows.length,weight:averageNumeric(rows.map(row => Number(row.weight))) || 0,participants:[...new Set(rows.map(row => row.participant_user_name).filter(Boolean))]}))
     .sort((a,b)=>b.count-a.count);
+  const getComparisonOrder = row => {
+    const text = `${row?.subitem_name || ""} ${row?.item_name || ""} ${row?.subitem_id || ""}`;
+    const match = String(text).match(/(\d+)(?:[.\s_-]+(\d+))?/);
+    if (!match) return 999999;
+    const major = Number(match[1] || 0);
+    const minor = Number(match[2] || 0);
+    return major * 1000 + minor;
+  };
   const comparisonGroups = Object.entries(grp(allComparisonRows, row => row.subitem_id || row.subitem_name || row.id))
     .map(([key,rows]) => {
       const first = rows[0] || {};
@@ -8590,7 +8598,7 @@ function CalibrationDetailView({session,currentUser,onBack,onEnterRoom,onChangeS
       const mismatches = orderedRows.filter(row => row.match_status !== "coincide").length;
       return {key,rows:orderedRows,first,mismatches};
     })
-    .sort((a,b)=>b.mismatches-a.mismatches);
+    .sort((a,b)=>getComparisonOrder(a.first)-getComparisonOrder(b.first));
   const renderTabs = () => h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",margin:"18px 0"}},
     [["overview","Resumen"],["results","Resultados"],["compare","Comparativo visual"]].map(([key,label]) =>
       h("button",{key,style:{...BTN(tab===key?"p":"out"),padding:"10px 13px"},onClick:()=>setTab(key)},label)
