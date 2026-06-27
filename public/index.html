@@ -8312,10 +8312,13 @@ function getCalibrationSessionMetrics(session){
   const results = session?.results || [];
   const avgAffinity = averageNumeric(results.map(item => Number(item.affinity_percentage)));
   const status = normalizeCalibrationStatus(session?.status);
+  const submittedUsers = new Set(submitted.map(item => String(item.user_id || "")));
+  const submittedCount = participants.filter(item => submittedUsers.has(String(item.user_id || ""))).length;
   return {
     participantsCount: participants.length,
-    submittedCount: submitted.filter(item => !item.is_expert_referent).length,
-    pendingCount: Math.max(0, participants.length - submitted.filter(item => !item.is_expert_referent).length),
+    submittedCount,
+    participantSubmittedCount: submitted.filter(item => !item.is_expert_referent).length,
+    pendingCount: Math.max(0, participants.length - submittedCount),
     expertSubmitted,
     avgAffinity: avgAffinity || 0,
     hasResults: results.length > 0,
@@ -8406,7 +8409,7 @@ function CalibrationSessionModal({isOpen,onClose,currentUser,users,onSave,notify
       const expert = eligibleUsers.find(user => user.usuario === form.expert_referent_id) || {};
       const participants = eligibleUsers.filter(user => form.participants.includes(user.usuario)).map(user => ({...user,user_id:user.usuario,user_name:user.nombre,role:user.rol,area:user.area || ""}));
       const attachments = audioFile ? [await prepareAttachment(audioFile,"calibration_audio")] : [];
-      const saved = await onSave({...form,id:editingSession?.id || "",expert_referent_name:expert.nombre || "",participants,attachments,currentUser});
+      const saved = await onSave({...form,id:editingSession?.id || "",expert_referent_name:expert.nombre || "",expert_referent_role:expert.rol || "",expert_referent_area:expert.area || "",participants,attachments,currentUser});
       notify("s","Calibracion guardada.");
       onClose(saved);
     }catch(err){
@@ -8447,7 +8450,7 @@ function CalibrationSessionModal({isOpen,onClose,currentUser,users,onSave,notify
 function CalibrationEvaluationRoom({session,currentUser,onSubmit,notify,onBack}){
   const userId = String(currentUser?.usuario || "").trim();
   const status = normalizeCalibrationStatus(session?.status);
-  const isExpert = String(session?.expert_referent_id || "") === userId || String(currentUser?.rol || "").trim().toLowerCase() === "referente_experto";
+  const isExpert = String(session?.expert_referent_id || "") === userId;
   const existing = (session?.evaluations || []).find(item => String(item.user_id || "") === userId);
   const locked = !!existing?.locked;
   const [sections,setSections] = useState(() => existing?.sections?.length ? normalizeEvaluationSectionsForScoring(existing.sections, session.evaluation_type) : getDefaultEvaluationSections(session.evaluation_type));
@@ -8562,10 +8565,13 @@ function CalibrationModule({currentUser,users,notify}){
   const [modalOpen,setModalOpen] = useState(false);
   const [editingSession,setEditingSession] = useState(null);
   const [activeSession,setActiveSession] = useState(null);
+  const [selectedCalibrationId,setSelectedCalibrationId] = useState("");
   const reload = async() => { setLoading(true); const loaded = await loadCalibrationData(currentUser); setData(loaded || {sessions:[]}); setLoading(false); return loaded; };
   useEffect(()=>{ reload(); },[currentUser?.usuario]);
   const sessions = getCalibrationVisibleSessions(data.sessions || [], currentUser);
-  const dashboard = buildCalibrationDashboardRows(sessions);
+  const selectedCalibration = sessions.find(session => String(session.id) === String(selectedCalibrationId)) || null;
+  const scopedSessions = selectedCalibration ? [selectedCalibration] : sessions;
+  const dashboard = buildCalibrationDashboardRows(scopedSessions);
   const saveSession = async(payload) => { const saved = await saveCalibrationSessionEntry(payload); await reload(); return saved; };
   const changeStatus = async(session,status) => { try{ await updateCalibrationStatusEntry({id:session.id,status,currentUser}); notify("s","Estado actualizado."); await reload(); }catch(err){ notify("e",err?.message || "No se pudo actualizar el estado."); } };
   const submitEvaluation = async(payload) => { const saved = await submitCalibrationEvaluationEntry(payload); await reload(); return saved; };
@@ -8599,6 +8605,22 @@ function CalibrationModule({currentUser,users,notify}){
     h("div",{key:label,style:{display:"flex",justifyContent:"space-between",gap:12,padding:"10px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3"}},
       h("span",null,label),
       h("strong",null,rows.length)
+    )
+  );
+  const renderCalibrationSelector = () => ["dashboard","compare","participants"].includes(tab) && h("div",{style:{...CARD,padding:16,marginBottom:18}},
+    h("div",{style:{display:"grid",gridTemplateColumns:"minmax(260px,420px) minmax(0,1fr)",gap:16,alignItems:"end"}},
+      h("div",null,
+        h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:800,marginBottom:8}},"Calibracion a analizar"),
+        h("select",{style:SEL,value:selectedCalibrationId,onChange:ev=>setSelectedCalibrationId(ev.target.value)},
+          h("option",{value:""},"Todas las calibraciones"),
+          sessions.map(session => h("option",{key:session.id,value:session.id},`${session.title || "Calibracion sin nombre"} - ${CALIBRATION_STATUS_LABEL[normalizeCalibrationStatus(session.status)]}`))
+        )
+      ),
+      h("div",{style:{color:"#9fb0d8",fontSize:13,lineHeight:1.6}},
+        selectedCalibration
+          ? h(Fragment,null,"Mostrando resultados de: ",h("strong",{style:{color:"#fff"}},selectedCalibration.title || "Calibracion sin nombre"),".")
+          : "Selecciona una calibracion para ver su dashboard, ranking y comparativo uno a uno de forma individual."
+      )
     )
   );
   const renderDashboard = () => h("div",null,
@@ -8669,6 +8691,7 @@ function CalibrationModule({currentUser,users,notify}){
   return h(Fragment,null,
     h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:28}},h("div",null,h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.35em",fontFamily:THEME.displayFont,marginBottom:10}},"QUALITY CALIBRATION"),h("h1",{style:{fontSize:38,color:"#fff",margin:"0 0 8px"}},"Calibracion de Calidad"),h("div",{style:{color:"#9fb0d8",lineHeight:1.7}},"Modulo independiente para comparar criterios contra el Referente Experto.")),canManageCalibrationModule(currentUser) && h("button",{style:{...BTN("pink"),padding:"12px 16px"},onClick:()=>{setEditingSession(null);setModalOpen(true);}},I("plus",14,"#fff"),"NUEVA CALIBRACION")),
     h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}},[["live","Calibraciones en vivo"],["history","Historial"],["dashboard","Dashboard"],["compare","Comparativo uno a uno"],["participants","Resultados por participante"],["experts","Referentes expertos"]].map(([key,label])=>h("button",{key,style:{...BTN(tab===key?"p":"out"),padding:"10px 13px"},onClick:()=>setTab(key)},label))),
+    renderCalibrationSelector(),
     loading ? h("div",{style:CARD},"Cargando calibraciones...") :
       tab==="dashboard" ? renderDashboard() :
       tab==="compare" ? renderComparison() :

@@ -753,6 +753,23 @@ function validateCalibrationCanStart(session) {
   if (missing.length) throw new Error(`No se puede iniciar la calibracion. Faltan: ${missing.join(", ")}.`);
 }
 
+function buildCalibrationParticipantRecord(sessionId, user, overrides = {}) {
+  const userId = String(overrides.user_id || user?.user_id || user?.usuario || "").trim();
+  return {
+    id: `${sessionId}_${userId}`,
+    calibration_session_id: sessionId,
+    user_id: userId,
+    user_name: String(overrides.user_name || user?.user_name || user?.nombre || "").trim(),
+    role: String(overrides.role || user?.role || user?.rol || "").trim().toLowerCase(),
+    area: overrides.area || user?.area || getUserCalibrationArea(user),
+    participation_status: overrides.participation_status || user?.participation_status || "assigned",
+    joined_at: overrides.joined_at || user?.joined_at || "",
+    submitted_at: overrides.submitted_at || user?.submitted_at || "",
+    is_expert_referent: Boolean(overrides.is_expert_referent || user?.is_expert_referent),
+    created_at: overrides.created_at || user?.created_at || nowIso()
+  };
+}
+
 function buildCalibrationItemRows(evaluationId, sections, evaluationType) {
   return normalizeEvaluationSections(sections, evaluationType).map(section => {
     const result = normalizeCalibrationResult(section.resultado);
@@ -940,7 +957,20 @@ export const gasHandlers = {
     ]);
     const enrichedSessions = sessions
       .map(session => {
-        const sessionParticipants = participants.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id));
+        let sessionParticipants = participants.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id));
+        const expertId = String(session.expert_referent_id || "").trim();
+        if (expertId && !sessionParticipants.some(item => String(item.user_id || "") === expertId)) {
+          sessionParticipants = [
+            buildCalibrationParticipantRecord(session.id, {
+              usuario: expertId,
+              nombre: session.expert_referent_name || expertId,
+              rol: "referente_experto"
+            }, { is_expert_referent: true }),
+            ...sessionParticipants
+          ];
+        } else {
+          sessionParticipants = sessionParticipants.map(item => String(item.user_id || "") === expertId ? { ...item, is_expert_referent: true } : item);
+        }
         return {
           ...session,
           participants: sessionParticipants,
@@ -972,21 +1002,23 @@ export const gasHandlers = {
     const id = normalizeId(payload.id || payload.calibration_session_id) || String(generateNumericId());
     const existing = sessions.find(item => normalizeId(item.id) === id) || {};
     const rawParticipants = Array.isArray(payload.participants) ? payload.participants : [];
-    const selectedParticipants = rawParticipants
+    let selectedParticipants = rawParticipants
       .filter(item => item && String(item.user_id || item.usuario || "").trim())
-      .map(item => ({
-        id: `${id}_${String(item.user_id || item.usuario).trim()}`,
-        calibration_session_id: id,
-        user_id: String(item.user_id || item.usuario).trim(),
-        user_name: String(item.user_name || item.nombre || "").trim(),
-        role: getRole(item),
-        area: item.area || getUserCalibrationArea(item),
-        participation_status: item.participation_status || "assigned",
-        joined_at: item.joined_at || "",
-        submitted_at: item.submitted_at || "",
-        created_at: item.created_at || nowIso()
-      }));
+      .map(item => buildCalibrationParticipantRecord(id, item));
     const expertId = String(payload.expert_referent_id || payload.expertReferentId || "").trim();
+    if (expertId && !selectedParticipants.some(item => String(item.user_id) === expertId)) {
+      selectedParticipants = [
+        buildCalibrationParticipantRecord(id, {
+          usuario: expertId,
+          nombre: payload.expert_referent_name || existing.expert_referent_name || expertId,
+          rol: payload.expert_referent_role || "referente_experto",
+          area: payload.expert_referent_area || ""
+        }, { is_expert_referent: true }),
+        ...selectedParticipants
+      ];
+    } else {
+      selectedParticipants = selectedParticipants.map(item => String(item.user_id) === expertId ? { ...item, is_expert_referent: true } : item);
+    }
     const evaluationType = normalizeEvaluationFormType(payload.evaluation_type || payload.audio_type || "venta");
     let session = {
       ...existing,
@@ -1049,7 +1081,14 @@ export const gasHandlers = {
     const session = sessions.find(item => normalizeId(item.id) === id);
     if (!session) throw new Error("No se encontro la calibracion.");
     const nextStatus = normalizeCalibrationStatus(payload.status);
-    if (nextStatus === "live") validateCalibrationCanStart({ ...session, participants: (await readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY)).filter(item => normalizeId(item.calibration_session_id) === id) });
+    if (nextStatus === "live") {
+      let sessionParticipants = (await readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY)).filter(item => normalizeId(item.calibration_session_id) === id);
+      const expertId = String(session.expert_referent_id || "").trim();
+      if (expertId && !sessionParticipants.some(item => String(item.user_id || "") === expertId)) {
+        sessionParticipants = [buildCalibrationParticipantRecord(id, { usuario: expertId, nombre: session.expert_referent_name || expertId, rol: "referente_experto" }, { is_expert_referent: true }), ...sessionParticipants];
+      }
+      validateCalibrationCanStart({ ...session, participants: sessionParticipants });
+    }
     let resultsPayload = null;
     if (nextStatus === "closed_results") {
       resultsPayload = await recomputeCalibrationResults(id);
@@ -1076,7 +1115,7 @@ export const gasHandlers = {
     if (status !== "live") throw new Error("Solo se puede enviar una evaluacion cuando la calibracion esta En vivo.");
     const participants = await readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY);
     const userId = String(currentUser.usuario || "").trim();
-    const isExpert = String(session.expert_referent_id || "") === userId || getRole(currentUser) === "referente_experto";
+    const isExpert = String(session.expert_referent_id || "") === userId;
     const assigned = participants.find(item => normalizeId(item.calibration_session_id) === sessionId && String(item.user_id) === userId);
     if (!isExpert && !assigned && !canManageCalibration(currentUser)) throw new Error("No estas asignado a esta calibracion.");
     const evaluations = await readCalibrationCollection(CALIBRATION_EVALUATIONS_KEY);
