@@ -8285,7 +8285,7 @@ function normalizeCalibrationStatus(value){
   if (["programada","scheduled"].includes(normalized)) return "scheduled";
   if (["en vivo","live"].includes(normalized)) return "live";
   if (["finalizada","finalized"].includes(normalized)) return "finalized";
-  if (["cerrada con resultados","closed","closed results","closed results"].includes(normalized) || normalized === "closed results") return "closed_results";
+  if (["cerrada con resultados","closed","closed results","closed_results"].includes(normalized)) return "closed_results";
   if (["anulada","annulled","cancelled","canceled"].includes(normalized)) return "annulled";
   return "draft";
 }
@@ -8342,20 +8342,23 @@ function buildCalibrationDashboardRows(sessions){
     return (session.participants || []).map(participant => {
       const evaluation = evaluationsByUser.get(String(participant.user_id || "")) || null;
       const result = resultsByUser.get(String(participant.user_id || "")) || null;
+      const isExpert = String(participant.user_id || "") === String(session.expert_referent_id || "") || Boolean(participant.is_expert_referent);
+      const status = normalizeCalibrationStatus(session.status);
       return {
         id: `${session.id}_${participant.user_id}`,
         session_id: session.id,
         session_title: session.title || "Calibracion sin nombre",
-        session_status: normalizeCalibrationStatus(session.status),
+        session_status: status,
         user_id: participant.user_id,
         user_name: participant.user_name || participant.nombre || participant.user_id || "-",
         role: participant.role || "",
         area: participant.area || "",
+        is_expert_referent: isExpert,
         participation_status: participant.participation_status || (evaluation?.submitted ? "submitted" : "pending"),
         submitted_at: participant.submitted_at || evaluation?.submitted_at || "",
         total_score: evaluation?.total_score,
         affinity_percentage: result?.affinity_percentage,
-        calibration_level: result?.calibration_level || (normalizeCalibrationStatus(session.status) === "closed_results" ? "Sin resultado" : "Pendiente de cierre"),
+        calibration_level: isExpert ? "Patron oficial" : result?.calibration_level || (status === "closed_results" ? "Sin envio / sin resultado" : "Pendiente de cierre"),
         main_differences: result?.main_differences || []
       };
     });
@@ -8598,7 +8601,7 @@ function CalibrationModule({currentUser,users,notify}){
         ["Pendientes",metrics.pendingCount],
         ["Afinidad prom.",resultsOpen ? `${metrics.avgAffinity.toFixed(1)}%` : "Oculto"]
       ].map(([label,value])=>h("div",{key:label},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",fontWeight:800,letterSpacing:"0.1em",marginBottom:5}},label),h("div",{style:{fontSize:13,color:"#fff",fontWeight:800}},value)))),
-      h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},h("button",{style:{...BTN("p"),padding:"9px 12px"},onClick:()=>setActiveSession(session)},status==="live" ? "INGRESAR A SALA" : "VER DETALLE"),canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>{setEditingSession(session);setModalOpen(true);}},"EDITAR"),canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"scheduled")},"PROGRAMAR"),canManage && ["draft","scheduled"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"live")},"INICIAR"),canManage && status==="live" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"finalized")},"FINALIZAR"),canManage && ["finalized","live"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"closed_results")},"CERRAR CON RESULTADOS"),canManage && status!=="annulled" && h("button",{style:{...BTN("out"),padding:"9px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>changeStatus(session,"annulled")},"ANULAR"),resultsOpen && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>exportReport(session)},"DESCARGAR REPORTE"))
+      h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},h("button",{style:{...BTN("p"),padding:"9px 12px"},onClick:()=>setActiveSession(session)},status==="live" ? "INGRESAR A SALA" : "VER DETALLE"),canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>{setEditingSession(session);setModalOpen(true);}},"EDITAR"),canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"scheduled")},"PROGRAMAR"),canManage && ["draft","scheduled"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"live")},"INICIAR"),canManage && status==="live" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"finalized")},"FINALIZAR"),canManage && !["closed_results","annulled"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"closed_results")},"CERRAR CON RESULTADOS"),canManage && status!=="annulled" && h("button",{style:{...BTN("out"),padding:"9px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>changeStatus(session,"annulled")},"ANULAR"),resultsOpen && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>exportReport(session)},"DESCARGAR REPORTE"))
     );
   };
   const renderStatusRows = () => Object.entries(dashboard.byStatus || {}).map(([label,rows]) =>
@@ -8673,7 +8676,7 @@ function CalibrationModule({currentUser,users,notify}){
       h("div",null,h("strong",{style:{color:"#fff"}},item.user_name),h("div",{style:{color:"#8b92a5",marginTop:4}},item.session_title)),
       h("div",null,ROL_LABEL[item.role] || item.role || "-"),
       h("div",{style:{color:item.participation_status==="submitted"?"#19C37D":"#F59E0B",fontWeight:900}},item.participation_status==="submitted" ? "Enviado" : "Pendiente"),
-      h("div",null,item.affinity_percentage != null ? `${item.affinity_percentage}%` : "-"),
+      h("div",null,item.is_expert_referent ? "Patron" : item.affinity_percentage != null ? `${item.affinity_percentage}%` : "-"),
       h("div",null,item.calibration_level || "-")
     )) : h("div",{style:{color:"#8b92a5"}},"Aun no hay participantes asignados a calibraciones.")
   );

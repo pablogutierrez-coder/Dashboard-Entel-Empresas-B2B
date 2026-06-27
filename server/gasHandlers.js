@@ -662,6 +662,7 @@ function normalizeCalibrationStatus(value) {
     finalized: "finalized",
     "cerrada con resultados": "closed_results",
     closed: "closed_results",
+    "closed results": "closed_results",
     closed_results: "closed_results",
     anulada: "annulled",
     annullada: "annulled",
@@ -900,9 +901,10 @@ async function recomputeCalibrationResults(sessionId) {
   if (!session) throw new Error("No se encontro la calibracion.");
   const evaluations = await readCalibrationCollection(CALIBRATION_EVALUATIONS_KEY);
   const sessionEvaluations = evaluations.filter(item => normalizeId(item.calibration_session_id) === normalizeId(sessionId) && item.submitted);
-  const expert = sessionEvaluations.find(item => item.is_expert_referent);
+  const expertId = String(session.expert_referent_id || "").trim();
+  const expert = sessionEvaluations.find(item => item.is_expert_referent || String(item.user_id || "") === expertId);
   if (!expert) throw new Error("No se puede cerrar la calibracion: falta la evaluacion del Referente Experto.");
-  const participants = sessionEvaluations.filter(item => !item.is_expert_referent);
+  const participants = sessionEvaluations.filter(item => !item.is_expert_referent && String(item.user_id || "") !== expertId);
   const comparisons = participants.map(item => compareCalibrationEvaluation(session, expert, item));
   const results = comparisons.map(item => item.result).sort((a, b) => b.affinity_percentage - a.affinity_percentage);
   results.forEach((item, index) => { item.ranking_position = index + 1; });
