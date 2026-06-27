@@ -8563,25 +8563,90 @@ function CalibrationEvaluationRoom({session,currentUser,onSubmit,notify,onBack})
 
 function CalibrationDetailView({session,currentUser,onBack,onEnterRoom,onChangeStatus,onExportReport}){
   const [tab,setTab] = useState("overview");
-  const [selectedParticipantId,setSelectedParticipantId] = useState("");
   const status = normalizeCalibrationStatus(session?.status);
   const metrics = getCalibrationSessionMetrics(session);
   const dashboard = buildCalibrationDashboardRows([session]);
   const canManage = canManageCalibrationModule(currentUser);
   const expert = (session?.evaluations || []).find(item => item.is_expert_referent || String(item.user_id || "") === String(session?.expert_referent_id || ""));
   const participantRows = (dashboard.participantRows || []).filter(item => !item.is_expert_referent);
-  const ranked = dashboard.ranked || [];
+  const sessionResults = [...(session?.results || [])].sort((a,b)=>Number(b.affinity_percentage || 0)-Number(a.affinity_percentage || 0));
+  const ranked = sessionResults;
   const topParticipant = ranked[0] || null;
   const lowParticipant = ranked.length ? ranked[ranked.length - 1] : null;
-  const selectedParticipant = participantRows.find(item => String(item.user_id) === String(selectedParticipantId)) || participantRows.find(item => item.affinity_percentage != null) || participantRows[0] || null;
-  const comparisonRows = (dashboard.comparisonRows || []).filter(row => !selectedParticipant || String(row.participant_user_id) === String(selectedParticipant.user_id));
-  const matchCount = comparisonRows.filter(row => row.match_status === "coincide").length;
-  const mismatchCount = comparisonRows.filter(row => row.match_status && row.match_status !== "coincide").length;
+  const allComparisonRows = (session?.comparisonRows || dashboard.comparisonRows || []).map(row => ({...row,match_status:row.match_status || "parcial"}));
+  const totalMatchCount = allComparisonRows.filter(row => row.match_status === "coincide").length;
+  const totalMismatchCount = allComparisonRows.filter(row => row.match_status && row.match_status !== "coincide").length;
+  const areaChartRows = Object.entries(grp(sessionResults, item => item.area || "Sin area"))
+    .map(([label,rows]) => ({label,value:averageNumeric(rows.map(row => Number(row.affinity_percentage))) || 0,count:rows.length}))
+    .sort((a,b)=>b.value-a.value);
+  const participantChartRows = ranked.map(item => ({label:item.user_name || item.user_id || "-",value:Number(item.affinity_percentage || 0),caption:item.calibration_level || "-"}));
+  const descalibratedRows = Object.entries(grp(allComparisonRows.filter(row => row.match_status !== "coincide"), row => row.subitem_name || row.item_name || "Criterio sin nombre"))
+    .map(([label,rows]) => ({label,count:rows.length,weight:averageNumeric(rows.map(row => Number(row.weight))) || 0,participants:[...new Set(rows.map(row => row.participant_user_name).filter(Boolean))]}))
+    .sort((a,b)=>b.count-a.count);
+  const comparisonGroups = Object.entries(grp(allComparisonRows, row => row.subitem_id || row.subitem_name || row.id))
+    .map(([key,rows]) => {
+      const first = rows[0] || {};
+      const orderedRows = [...rows].sort((a,b)=>String(a.participant_user_name || "").localeCompare(String(b.participant_user_name || "")));
+      const mismatches = orderedRows.filter(row => row.match_status !== "coincide").length;
+      return {key,rows:orderedRows,first,mismatches};
+    })
+    .sort((a,b)=>b.mismatches-a.mismatches);
   const renderTabs = () => h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",margin:"18px 0"}},
     [["overview","Resumen"],["results","Resultados"],["compare","Comparativo visual"]].map(([key,label]) =>
       h("button",{key,style:{...BTN(tab===key?"p":"out"),padding:"10px 13px"},onClick:()=>setTab(key)},label)
     )
   );
+  const renderBarList = (title, subtitle, rows, opts={}) => {
+    const maxValue = Math.max(1,...(rows || []).map(row => Number(row.value || row.count || 0)));
+    return h("div",{style:{...CARD,padding:18}},
+      h("h3",{style:{color:"#fff",margin:"0 0 5px"}},title),
+      subtitle && h("div",{style:{fontSize:12,color:"#9fb0d8",marginBottom:16}},subtitle),
+      rows?.length ? h("div",{style:{display:"flex",flexDirection:"column",gap:12}},
+        rows.slice(0,8).map((row,index) => {
+          const value = Number(row.value ?? row.count ?? 0);
+          const pct = Math.max(4, value / maxValue * 100);
+          const color = opts.color || (index === 0 ? "#19C37D" : index === rows.length - 1 ? THEME.accent : THEME.primary);
+          return h("div",{key:`${row.label}_${index}`},
+            h("div",{style:{display:"flex",justifyContent:"space-between",gap:12,alignItems:"baseline",marginBottom:6}},
+              h("div",{style:{fontSize:12,color:"#fff",fontWeight:900,whiteSpace:"normal"}},row.label),
+              h("div",{style:{fontSize:16,color,fontWeight:900}},opts.format ? opts.format(value,row) : `${value.toFixed(1)}%`)
+            ),
+            h("div",{style:{height:10,borderRadius:999,background:"rgba(255,255,255,0.06)",overflow:"hidden"}},
+              h("div",{style:{height:"100%",width:`${pct}%`,borderRadius:999,background:`linear-gradient(90deg, ${color}, ${THEME.accent})`}})
+            ),
+            row.caption && h("div",{style:{fontSize:11,color:"#8b92a5",marginTop:4}},row.caption)
+          );
+        })
+      ) : h("div",{style:{color:"#8b92a5",fontSize:13}},"Aun no hay datos suficientes para este grafico.")
+    );
+  };
+  const renderPareto = () => {
+    const total = descalibratedRows.reduce((sum,row)=>sum+Number(row.count || 0),0);
+    let cumulative = 0;
+    const rows = descalibratedRows.slice(0,8).map(row => {
+      cumulative += Number(row.count || 0);
+      return {...row,cumulativePct:total ? cumulative / total * 100 : 0};
+    });
+    return h("div",{style:{...CARD,padding:18}},
+      h("h3",{style:{color:"#fff",margin:"0 0 5px"}},"Pareto de atributos descalibrados"),
+      h("div",{style:{fontSize:12,color:"#9fb0d8",marginBottom:16}},"Criterios con mas diferencias frente al Referente Experto."),
+      rows.length ? h("div",{style:{display:"flex",flexDirection:"column",gap:12}},
+        rows.map((row,index) => {
+          const barPct = Math.max(5,row.count / Math.max(1,rows[0].count) * 100);
+          return h("div",{key:`pareto_${row.label}_${index}`},
+            h("div",{style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 70px 82px",gap:10,alignItems:"center",marginBottom:6}},
+              h("div",{style:{fontSize:12,color:"#fff",fontWeight:900}},row.label),
+              h("div",{style:{color:THEME.accent,fontWeight:900,textAlign:"right"}},row.count," dif."),
+              h("div",{style:{color:"#22D3EE",fontWeight:900,textAlign:"right"}},row.cumulativePct.toFixed(0),"% acum.")
+            ),
+            h("div",{style:{height:10,borderRadius:999,background:"rgba(255,255,255,0.06)",overflow:"hidden"}},
+              h("div",{style:{height:"100%",width:`${barPct}%`,borderRadius:999,background:`linear-gradient(90deg, ${THEME.accent}, #FF6B7A)`}})
+            )
+          );
+        })
+      ) : h("div",{style:{color:"#8b92a5",fontSize:13}},"No hay diferencias registradas contra el referente.")
+    );
+  };
   const renderCallData = () => h("div",{style:{...CARD,marginBottom:18}},
     h("h3",{style:{color:"#fff",marginTop:0}},"Datos de la calibracion"),
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}},[
@@ -8604,6 +8669,11 @@ function CalibrationDetailView({session,currentUser,onBack,onEnterRoom,onChangeS
       h(ImprovementKpiCard,{label:"Afinidad promedio",value:`${metrics.avgAffinity.toFixed(1)}%`,caption:metrics.hasResults ? "Resultados generados" : "Aun sin resultados",color:THEME.accent})
     ),
     renderCallData(),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:18,marginBottom:18}},
+      renderBarList("Afinidad por area","Promedio de afinidad de cada area contra el patron oficial.",areaChartRows,{color:"#22D3EE",format:value=>`${value.toFixed(1)}%`}),
+      renderBarList("Ranking de participantes","Quien esta mas calibrado y quien requiere ajuste.",participantChartRows,{format:value=>`${value.toFixed(1)}%`}),
+      renderPareto()
+    ),
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:18}},
       h("div",{style:CARD},
         h("h3",{style:{color:"#fff",marginTop:0}},"Persona mas calibrada"),
@@ -8632,40 +8702,45 @@ function CalibrationDetailView({session,currentUser,onBack,onEnterRoom,onChangeS
   );
   const renderCompare = () => h("div",null,
     h("div",{style:{...CARD,padding:16,marginBottom:18}},
-      h("div",{style:{display:"grid",gridTemplateColumns:"minmax(240px,360px) repeat(3,1fr)",gap:14,alignItems:"end"}},
-        h("div",null,
-          h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:800,marginBottom:8}},"Participante a comparar"),
-          h("select",{style:SEL,value:selectedParticipant?.user_id || "",onChange:ev=>setSelectedParticipantId(ev.target.value)},
-            participantRows.map(item=>h("option",{key:item.user_id,value:item.user_id},item.user_name))
-          )
-        ),
-        h(ImprovementKpiCard,{label:"Afinidad",value:selectedParticipant?.affinity_percentage != null ? `${selectedParticipant.affinity_percentage}%` : "-",caption:selectedParticipant?.calibration_level || "Sin resultado",color:THEME.accent}),
-        h(ImprovementKpiCard,{label:"Coincidencias",value:matchCount,caption:"Respuestas alineadas",color:"#19C37D"}),
-        h(ImprovementKpiCard,{label:"Diferencias",value:mismatchCount,caption:"Criterios a revisar",color:"#FF6B7A"})
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14,alignItems:"stretch"}},
+        h(ImprovementKpiCard,{label:"Participantes comparados",value:ranked.length || participantRows.filter(item=>item.participation_status==="submitted").length,caption:"Contra el patron oficial",color:THEME.primary}),
+        h(ImprovementKpiCard,{label:"Coincidencias totales",value:totalMatchCount,caption:"Respuestas alineadas",color:"#19C37D"}),
+        h(ImprovementKpiCard,{label:"Diferencias totales",value:totalMismatchCount,caption:"Criterios a revisar",color:"#FF6B7A"}),
+        h(ImprovementKpiCard,{label:"Atributos con alerta",value:descalibratedRows.length,caption:"Con al menos una diferencia",color:THEME.accent})
       )
     ),
-    comparisonRows.length ? h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:14}},
-      comparisonRows.map(row => {
-        const ok = row.match_status === "coincide";
-        return h("div",{key:row.id,style:{...CARD,padding:16,borderTop:`4px solid ${ok ? "#19C37D" : "#FF6B7A"}`}},
-          h("div",{style:{fontSize:13,color:"#fff",fontWeight:900,marginBottom:6}},row.subitem_name || row.item_name || "Criterio"),
-          h("div",{style:{fontSize:11,color:"#8b92a5",marginBottom:12}},row.item_name || "-"," - Peso ",Number(row.weight || 0).toFixed(1),"%"),
-          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+    comparisonGroups.length ? h("div",{style:{display:"flex",flexDirection:"column",gap:14}},
+      comparisonGroups.map(group => {
+        const first = group.first || {};
+        const hasMismatch = group.mismatches > 0;
+        return h("div",{key:group.key,style:{...CARD,padding:16,borderTop:`4px solid ${hasMismatch ? "#FF6B7A" : "#19C37D"}`}},
+          h("div",{style:{display:"grid",gridTemplateColumns:"minmax(240px,1fr) minmax(170px,230px)",gap:14,alignItems:"start",marginBottom:14}},
+            h("div",null,
+              h("div",{style:{fontSize:15,color:"#fff",fontWeight:900,marginBottom:5}},first.subitem_name || first.item_name || "Criterio"),
+              h("div",{style:{fontSize:12,color:"#9fb0d8"}},first.item_name || "-"," - Peso ",Number(first.weight || 0).toFixed(1),"%")
+            ),
             h("div",{style:{padding:12,borderRadius:12,background:"rgba(34,211,238,0.08)",border:"1px solid rgba(34,211,238,0.24)"}},
               h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:900,letterSpacing:"0.1em",textTransform:"uppercase"}},"Referente Experto"),
-              h("div",{style:{fontSize:18,color:"#22D3EE",fontWeight:900,marginTop:8}},row.expert_response || "-"),
-              h("div",{style:{fontSize:12,color:"#9fb0d8",marginTop:5}},`${Number(row.expert_score || 0).toFixed(1)} pts`)
-            ),
-            h("div",{style:{padding:12,borderRadius:12,background:ok ? "rgba(25,195,125,0.08)" : "rgba(255,77,90,0.08)",border:`1px solid ${ok ? "rgba(25,195,125,0.24)" : "rgba(255,77,90,0.28)"}`}},
-              h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:900,letterSpacing:"0.1em",textTransform:"uppercase"}},selectedParticipant?.user_name || "Participante"),
-              h("div",{style:{fontSize:18,color:ok ? "#19C37D" : "#FF6B7A",fontWeight:900,marginTop:8}},row.participant_response || "-"),
-              h("div",{style:{fontSize:12,color:"#9fb0d8",marginTop:5}},`${Number(row.participant_score || 0).toFixed(1)} pts`)
+              h("div",{style:{fontSize:20,color:"#22D3EE",fontWeight:900,marginTop:8}},first.expert_response || "-"),
+              h("div",{style:{fontSize:12,color:"#9fb0d8",marginTop:5}},`${Number(first.expert_score || 0).toFixed(1)} pts`)
             )
           ),
-          h("div",{style:{marginTop:12,color:ok ? "#19C37D" : "#FF6B7A",fontWeight:900}},ok ? "Coincide con el referente" : "No coincide con el referente")
+          h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:10}},
+            group.rows.map(row => {
+              const ok = row.match_status === "coincide";
+              const partial = row.match_status === "parcial";
+              const color = ok ? "#19C37D" : partial ? "#F59E0B" : "#FF6B7A";
+              return h("div",{key:row.id,style:{padding:12,borderRadius:12,background:ok ? "rgba(25,195,125,0.08)" : partial ? "rgba(245,158,11,0.08)" : "rgba(255,77,90,0.08)",border:`1px solid ${ok ? "rgba(25,195,125,0.24)" : partial ? "rgba(245,158,11,0.26)" : "rgba(255,77,90,0.30)"}`}},
+                h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:900,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:7}},row.participant_user_name || "Participante"),
+                h("div",{style:{fontSize:18,color,fontWeight:900}},row.participant_response || "-"),
+                h("div",{style:{fontSize:12,color:"#9fb0d8",marginTop:5}},`${Number(row.participant_score || 0).toFixed(1)} pts`),
+                h("div",{style:{fontSize:12,color,fontWeight:900,marginTop:8}},ok ? "Coincide" : partial ? "Parcial" : "No coincide")
+              );
+            })
+          )
         );
       })
-    ) : h("div",{style:CARD},h("div",{style:{color:"#8b92a5"}},"Cierra la calibracion con evaluacion patron y al menos un participante enviado para ver el comparativo visual."))
+    ) : h("div",{style:CARD},h("div",{style:{color:"#8b92a5"}},"Cuando exista evaluacion patron y al menos una respuesta enviada, aqui veras todos los participantes contra el Referente Experto."))
   );
   return h("div",null,
     h("div",{style:{display:"flex",justifyContent:"space-between",gap:16,alignItems:"flex-start",marginBottom:18}},

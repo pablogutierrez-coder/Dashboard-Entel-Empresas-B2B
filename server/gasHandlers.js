@@ -923,6 +923,30 @@ async function recomputeCalibrationResults(sessionId) {
   return { results, comparisonRows: comparisons.flatMap(item => item.comparisonRows) };
 }
 
+function buildTransientCalibrationResults(session, sessionEvaluations, savedResults, savedComparisonRows) {
+  const expertId = String(session.expert_referent_id || "").trim();
+  const expert = (sessionEvaluations || []).find(item => item.submitted && (item.is_expert_referent || String(item.user_id || "") === expertId));
+  if (!expert) return { results: savedResults || [], comparisonRows: savedComparisonRows || [] };
+  if ((savedResults || []).length && (savedComparisonRows || []).length) {
+    return { results: savedResults, comparisonRows: savedComparisonRows };
+  }
+  const participantEvaluations = (sessionEvaluations || []).filter(item => (
+    item.submitted &&
+    !item.is_expert_referent &&
+    String(item.user_id || "") !== expertId
+  ));
+  const comparisons = participantEvaluations.map(item => compareCalibrationEvaluation(session, expert, item));
+  const transientResults = comparisons
+    .map(item => ({ ...item.result, transient: true }))
+    .sort((a, b) => Number(b.affinity_percentage || 0) - Number(a.affinity_percentage || 0));
+  transientResults.forEach((item, index) => { item.ranking_position = index + 1; });
+  const transientComparisonRows = comparisons.flatMap(item => item.comparisonRows.map(row => ({ ...row, transient: true })));
+  return {
+    results: (savedResults || []).length ? savedResults : transientResults,
+    comparisonRows: (savedComparisonRows || []).length ? savedComparisonRows : transientComparisonRows
+  };
+}
+
 export const gasHandlers = {
   async getData(key) {
     return await readSharedRecord(key);
@@ -973,13 +997,17 @@ export const gasHandlers = {
         } else {
           sessionParticipants = sessionParticipants.map(item => String(item.user_id || "") === expertId ? { ...item, is_expert_referent: true } : item);
         }
+        const sessionEvaluations = evaluations.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id));
+        const savedResults = results.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id));
+        const savedComparisonRows = comparisonRows.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id));
+        const analytics = buildTransientCalibrationResults(session, sessionEvaluations, savedResults, savedComparisonRows);
         return {
           ...session,
           participants: sessionParticipants,
-          evaluations: evaluations.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id)),
+          evaluations: sessionEvaluations,
           evaluationItems: evaluationItems.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id)),
-          results: results.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id)),
-          comparisonRows: comparisonRows.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id)),
+          results: analytics.results,
+          comparisonRows: analytics.comparisonRows,
           logs: logs.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id))
         };
       })
