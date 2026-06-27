@@ -8311,24 +8311,63 @@ function getCalibrationSessionMetrics(session){
   const expertSubmitted = evaluations.some(item => item.is_expert_referent && item.submitted);
   const results = session?.results || [];
   const avgAffinity = averageNumeric(results.map(item => Number(item.affinity_percentage)));
+  const status = normalizeCalibrationStatus(session?.status);
   return {
     participantsCount: participants.length,
     submittedCount: submitted.filter(item => !item.is_expert_referent).length,
     pendingCount: Math.max(0, participants.length - submitted.filter(item => !item.is_expert_referent).length),
     expertSubmitted,
-    avgAffinity: avgAffinity || 0
+    avgAffinity: avgAffinity || 0,
+    hasResults: results.length > 0,
+    canShowResults: status === "closed_results" && results.length > 0
   };
 }
 
 function buildCalibrationDashboardRows(sessions){
-  const closed = (sessions || []).filter(session => normalizeCalibrationStatus(session.status) === "closed_results");
-  const results = closed.flatMap(session => session.results || []);
+  const rows = sessions || [];
+  const closed = rows.filter(session => normalizeCalibrationStatus(session.status) === "closed_results");
+  const results = rows.flatMap(session => normalizeCalibrationStatus(session.status) === "closed_results" ? (session.results || []) : []);
   const avgAffinity = averageNumeric(results.map(item => Number(item.affinity_percentage))) || 0;
-  const byStatus = grp(sessions || [], session => CALIBRATION_STATUS_LABEL[normalizeCalibrationStatus(session.status)] || "Borrador");
+  const byStatus = grp(rows, session => CALIBRATION_STATUS_LABEL[normalizeCalibrationStatus(session.status)] || "Borrador");
   const byArea = Object.entries(grp(results, item => item.area || "Sin area")).map(([label,rows]) => ({label,value:averageNumeric(rows.map(row => Number(row.affinity_percentage))) || 0}));
   const byRole = Object.entries(grp(results, item => ROL_LABEL[item.role] || item.role || "Sin rol")).map(([label,rows]) => ({label,value:averageNumeric(rows.map(row => Number(row.affinity_percentage))) || 0}));
   const ranked = [...results].sort((a,b)=>Number(b.affinity_percentage || 0)-Number(a.affinity_percentage || 0));
-  return {closed,results,avgAffinity,byStatus,byArea,byRole,ranked};
+  const evaluations = rows.flatMap(session => session.evaluations || []);
+  const participantRows = rows.flatMap(session => {
+    const evaluationsByUser = new Map((session.evaluations || []).map(item => [String(item.user_id || ""), item]));
+    const resultsByUser = new Map((session.results || []).map(item => [String(item.user_id || ""), item]));
+    return (session.participants || []).map(participant => {
+      const evaluation = evaluationsByUser.get(String(participant.user_id || "")) || null;
+      const result = resultsByUser.get(String(participant.user_id || "")) || null;
+      return {
+        id: `${session.id}_${participant.user_id}`,
+        session_id: session.id,
+        session_title: session.title || "Calibracion sin nombre",
+        session_status: normalizeCalibrationStatus(session.status),
+        user_id: participant.user_id,
+        user_name: participant.user_name || participant.nombre || participant.user_id || "-",
+        role: participant.role || "",
+        area: participant.area || "",
+        participation_status: participant.participation_status || (evaluation?.submitted ? "submitted" : "pending"),
+        submitted_at: participant.submitted_at || evaluation?.submitted_at || "",
+        total_score: evaluation?.total_score,
+        affinity_percentage: result?.affinity_percentage,
+        calibration_level: result?.calibration_level || (normalizeCalibrationStatus(session.status) === "closed_results" ? "Sin resultado" : "Pendiente de cierre"),
+        main_differences: result?.main_differences || []
+      };
+    });
+  });
+  const expertRows = rows.map(session => ({
+    id: `${session.id}_${session.expert_referent_id || "expert"}`,
+    session_id: session.id,
+    session_title: session.title || "Calibracion sin nombre",
+    expert_referent_id: session.expert_referent_id || "",
+    expert_referent_name: session.expert_referent_name || "-",
+    status: normalizeCalibrationStatus(session.status),
+    submitted: (session.evaluations || []).some(item => item.is_expert_referent && item.submitted)
+  }));
+  const comparisonRows = rows.flatMap(session => (session.comparisonRows || []).map(row => ({...row,sessionTitle:session.title || "Calibracion sin nombre",sessionStatus:normalizeCalibrationStatus(session.status)})));
+  return {closed,results,avgAffinity,byStatus,byArea,byRole,ranked,evaluations,participantRows,expertRows,comparisonRows};
 }
 
 function CalibrationSessionModal({isOpen,onClose,currentUser,users,onSave,notify,editingSession}){
@@ -8556,14 +8595,85 @@ function CalibrationModule({currentUser,users,notify}){
       h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},h("button",{style:{...BTN("p"),padding:"9px 12px"},onClick:()=>setActiveSession(session)},status==="live" ? "INGRESAR A SALA" : "VER DETALLE"),canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>{setEditingSession(session);setModalOpen(true);}},"EDITAR"),canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"scheduled")},"PROGRAMAR"),canManage && ["draft","scheduled"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"live")},"INICIAR"),canManage && status==="live" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"finalized")},"FINALIZAR"),canManage && ["finalized","live"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"closed_results")},"CERRAR CON RESULTADOS"),canManage && status!=="annulled" && h("button",{style:{...BTN("out"),padding:"9px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>changeStatus(session,"annulled")},"ANULAR"),resultsOpen && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>exportReport(session)},"DESCARGAR REPORTE"))
     );
   };
+  const renderStatusRows = () => Object.entries(dashboard.byStatus || {}).map(([label,rows]) =>
+    h("div",{key:label,style:{display:"flex",justifyContent:"space-between",gap:12,padding:"10px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3"}},
+      h("span",null,label),
+      h("strong",null,rows.length)
+    )
+  );
+  const renderDashboard = () => h("div",null,
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14,marginBottom:18}},
+      h(ImprovementKpiCard,{label:"Total calibraciones",value:sessions.length,caption:"Registros del modulo",color:THEME.primary}),
+      h(ImprovementKpiCard,{label:"En vivo / programadas",value:sessions.filter(session=>["live","scheduled"].includes(normalizeCalibrationStatus(session.status))).length,caption:"Salas activas o listas",color:THEME.violet}),
+      h(ImprovementKpiCard,{label:"Cerradas",value:dashboard.closed.length,caption:"Con resultados",color:"#19C37D"}),
+      h(ImprovementKpiCard,{label:"Respuestas enviadas",value:dashboard.evaluations.filter(item=>item.submitted && !item.is_expert_referent).length,caption:"Participantes que enviaron",color:THEME.primary}),
+      h(ImprovementKpiCard,{label:"Afinidad promedio",value:`${dashboard.avgAffinity.toFixed(1)}%`,caption:dashboard.results.length ? "Promedio general cerrado" : "Sin cierres con resultados",color:THEME.accent})
+    ),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:18}},
+      h("div",{style:CARD},
+        h("h3",{style:{color:"#fff",marginTop:0}},"Calibraciones por estado"),
+        renderStatusRows().length ? renderStatusRows() : h("div",{style:{color:"#8b92a5"}},"Aun no hay calibraciones registradas.")
+      ),
+      h("div",{style:CARD},
+        h("h3",{style:{color:"#fff",marginTop:0}},"Participantes mas calibrados"),
+        dashboard.ranked.length ? dashboard.ranked.slice(0,8).map(item=>h("div",{key:item.id,style:{display:"flex",justifyContent:"space-between",padding:"10px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3"}},h("span",null,item.user_name),h("strong",null,item.affinity_percentage,"%"))) : h("div",{style:{color:"#8b92a5"}},"Los rankings apareceran cuando cierres calibraciones con resultados.")
+      ),
+      h("div",{style:CARD},
+        h("h3",{style:{color:"#fff",marginTop:0}},"Participantes menos calibrados"),
+        dashboard.ranked.length ? dashboard.ranked.slice(-8).reverse().map(item=>h("div",{key:item.id,style:{display:"flex",justifyContent:"space-between",padding:"10px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3"}},h("span",null,item.user_name),h("strong",null,item.affinity_percentage,"%"))) : h("div",{style:{color:"#8b92a5"}},"Los rankings apareceran cuando cierres calibraciones con resultados.")
+      ),
+      h("div",{style:CARD},
+        h("h3",{style:{color:"#fff",marginTop:0}},"Ultimas calibraciones creadas"),
+        sessions.slice(0,8).map(session => {
+          const metrics = getCalibrationSessionMetrics(session);
+          return h("div",{key:session.id,style:{display:"grid",gridTemplateColumns:"1fr 130px 120px",gap:12,padding:"10px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3",fontSize:12}},
+            h("div",null,h("strong",{style:{color:"#fff"}},session.title || "Calibracion sin nombre"),h("div",{style:{color:"#8b92a5",marginTop:4}},session.campaign_name || "-", " / ", session.evaluated_agent_name || "-")),
+            h("div",null,CALIBRATION_STATUS_LABEL[normalizeCalibrationStatus(session.status)]),
+            h("div",null,metrics.submittedCount,"/",metrics.participantsCount," enviados")
+          );
+        })
+      )
+    )
+  );
+  const renderComparison = () => h("div",{style:CARD},
+    h("h3",{style:{color:"#fff",marginTop:0}},"Comparativo uno a uno de respuestas"),
+    dashboard.comparisonRows.length ? dashboard.comparisonRows.slice(0,300).map(row=>h("div",{key:row.id,style:{display:"grid",gridTemplateColumns:"1.2fr 1fr 1fr 1fr 110px",gap:10,padding:"11px 0",borderTop:"1px solid rgba(255,255,255,0.05)",fontSize:12,color:"#dbe4f3"}},
+      h("div",null,row.sessionTitle),
+      h("div",null,row.subitem_name),
+      h("div",null,"Experto: ",row.expert_response || "-"),
+      h("div",null,row.participant_user_name || "-",": ",row.participant_response || "-"),
+      h("div",{style:{color:row.match_status==="coincide"?"#19C37D":"#FF6B7A",fontWeight:900}},row.match_status || "-")
+    )) : h("div",{style:{color:"#8b92a5",lineHeight:1.7}},"Aun no hay comparativos generados. Cierra una calibracion con la evaluacion del Referente Experto y al menos una evaluacion participante para ver el detalle uno a uno.")
+  );
+  const renderParticipantResults = () => h("div",{style:CARD},
+    h("h3",{style:{color:"#fff",marginTop:0}},"Resultados por participante"),
+    dashboard.participantRows.length ? dashboard.participantRows.map(item=>h("div",{key:item.id,style:{display:"grid",gridTemplateColumns:"1.2fr 1fr 110px 120px 1fr",gap:12,padding:"12px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3",fontSize:12}},
+      h("div",null,h("strong",{style:{color:"#fff"}},item.user_name),h("div",{style:{color:"#8b92a5",marginTop:4}},item.session_title)),
+      h("div",null,ROL_LABEL[item.role] || item.role || "-"),
+      h("div",{style:{color:item.participation_status==="submitted"?"#19C37D":"#F59E0B",fontWeight:900}},item.participation_status==="submitted" ? "Enviado" : "Pendiente"),
+      h("div",null,item.affinity_percentage != null ? `${item.affinity_percentage}%` : "-"),
+      h("div",null,item.calibration_level || "-")
+    )) : h("div",{style:{color:"#8b92a5"}},"Aun no hay participantes asignados a calibraciones.")
+  );
+  const renderExperts = () => h("div",{style:CARD},
+    h("h3",{style:{color:"#fff",marginTop:0}},"Configuracion de referentes expertos"),
+    h("div",{style:{color:"#9fb0d8",lineHeight:1.7,marginBottom:14}},"Crea usuarios con rol Referente Experto desde Gestion de Usuarios. Su evaluacion se toma como patron oficial."),
+    (users || []).filter(user=>user.rol==="referente_experto").map(user=>h("div",{key:user.usuario,style:{padding:"12px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#fff",fontWeight:800}},user.nombre," - ",user.usuario)),
+    h("h3",{style:{color:"#fff",marginTop:22}},"Referentes asignados en calibraciones"),
+    dashboard.expertRows.length ? dashboard.expertRows.map(item=>h("div",{key:item.id,style:{display:"grid",gridTemplateColumns:"1fr 1fr 150px",gap:12,padding:"12px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3",fontSize:12}},
+      h("div",null,item.session_title),
+      h("div",null,item.expert_referent_name || "-"),
+      h("div",{style:{color:item.submitted?"#19C37D":"#F59E0B",fontWeight:900}},item.submitted ? "Patron enviado" : "Pendiente")
+    )) : h("div",{style:{color:"#8b92a5"}},"Aun no hay referentes asignados a calibraciones.")
+  );
   return h(Fragment,null,
     h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:28}},h("div",null,h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.35em",fontFamily:THEME.displayFont,marginBottom:10}},"QUALITY CALIBRATION"),h("h1",{style:{fontSize:38,color:"#fff",margin:"0 0 8px"}},"Calibracion de Calidad"),h("div",{style:{color:"#9fb0d8",lineHeight:1.7}},"Modulo independiente para comparar criterios contra el Referente Experto.")),canManageCalibrationModule(currentUser) && h("button",{style:{...BTN("pink"),padding:"12px 16px"},onClick:()=>{setEditingSession(null);setModalOpen(true);}},I("plus",14,"#fff"),"NUEVA CALIBRACION")),
     h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}},[["live","Calibraciones en vivo"],["history","Historial"],["dashboard","Dashboard"],["compare","Comparativo uno a uno"],["participants","Resultados por participante"],["experts","Referentes expertos"]].map(([key,label])=>h("button",{key,style:{...BTN(tab===key?"p":"out"),padding:"10px 13px"},onClick:()=>setTab(key)},label))),
     loading ? h("div",{style:CARD},"Cargando calibraciones...") :
-      tab==="dashboard" ? h("div",null,h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14,marginBottom:18}},h(ImprovementKpiCard,{label:"Total calibraciones",value:sessions.length,caption:"Registros del modulo",color:THEME.primary}),h(ImprovementKpiCard,{label:"Cerradas",value:dashboard.closed.length,caption:"Con resultados",color:"#19C37D"}),h(ImprovementKpiCard,{label:"Afinidad promedio",value:`${dashboard.avgAffinity.toFixed(1)}%`,caption:"Promedio general",color:THEME.accent})),h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18}},h("div",{style:CARD},h("h3",{style:{color:"#fff"}},"Participantes mas calibrados"),dashboard.ranked.slice(0,8).map(item=>h("div",{key:item.id,style:{display:"flex",justifyContent:"space-between",padding:"10px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3"}},h("span",null,item.user_name),h("strong",null,item.affinity_percentage,"%")))),h("div",{style:CARD},h("h3",{style:{color:"#fff"}},"Participantes menos calibrados"),dashboard.ranked.slice(-8).reverse().map(item=>h("div",{key:item.id,style:{display:"flex",justifyContent:"space-between",padding:"10px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3"}},h("span",null,item.user_name),h("strong",null,item.affinity_percentage,"%")))))) :
-      tab==="compare" ? h("div",{style:CARD},h("h3",{style:{color:"#fff",marginTop:0}},"Comparativo uno a uno de respuestas"),sessions.flatMap(session=>(session.comparisonRows || []).map(row=>({...row,sessionTitle:session.title}))).slice(0,200).map(row=>h("div",{key:row.id,style:{display:"grid",gridTemplateColumns:"1.2fr 1fr 1fr 1fr 110px",gap:10,padding:"11px 0",borderTop:"1px solid rgba(255,255,255,0.05)",fontSize:12,color:"#dbe4f3"}},h("div",null,row.sessionTitle),h("div",null,row.subitem_name),h("div",null,"Experto: ",row.expert_response),h("div",null,row.participant_user_name,": ",row.participant_response),h("div",{style:{color:row.match_status==="coincide"?"#19C37D":"#FF6B7A",fontWeight:900}},row.match_status)))) :
-      tab==="participants" ? h("div",{style:CARD},h("h3",{style:{color:"#fff",marginTop:0}},"Resultados por participante"),dashboard.ranked.map(item=>h("div",{key:item.id,style:{display:"grid",gridTemplateColumns:"1fr 120px 120px 1fr",gap:12,padding:"12px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#dbe4f3"}},h("div",null,item.user_name),h("div",null,item.affinity_percentage,"%"),h("div",null,item.calibration_level),h("div",null,(item.main_differences || []).join(", ") || "-")))) :
-      tab==="experts" ? h("div",{style:CARD},h("h3",{style:{color:"#fff",marginTop:0}},"Configuracion de referentes expertos"),h("div",{style:{color:"#9fb0d8",lineHeight:1.7}},"Crea usuarios con rol Referente Experto desde Gestion de Usuarios. Su evaluacion se toma como patron oficial."),(users || []).filter(user=>user.rol==="referente_experto").map(user=>h("div",{key:user.usuario,style:{padding:"12px 0",borderTop:"1px solid rgba(255,255,255,0.05)",color:"#fff",fontWeight:800}},user.nombre," - ",user.usuario))) :
+      tab==="dashboard" ? renderDashboard() :
+      tab==="compare" ? renderComparison() :
+      tab==="participants" ? renderParticipantResults() :
+      tab==="experts" ? renderExperts() :
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:16}},sessions.filter(session=>tab==="history" ? true : ["scheduled","live","finalized"].includes(normalizeCalibrationStatus(session.status))).map(renderSessionCard)),
     h(CalibrationSessionModal,{isOpen:modalOpen,onClose:()=>{setModalOpen(false);setEditingSession(null);reload();},currentUser,users,onSave:saveSession,notify,editingSession})
   );
