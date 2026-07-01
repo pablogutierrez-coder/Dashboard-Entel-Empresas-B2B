@@ -190,7 +190,7 @@ function getEmergencyUsers(){
 }
 
 async function runBackendFunction(functionName, args) {
-  const response = await fetch(`/api/gas/${encodeURIComponent(functionName)}`, {
+  const response = await fetch(`/api/rpc/${encodeURIComponent(functionName)}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: args || [] }),
@@ -220,7 +220,7 @@ function runGoogleScript(functionName, ...args) {
     google.script.run
       .withSuccessHandler(resolve)
       .withFailureHandler(error => {
-        const message = error?.message || error?.details || String(error || "Error desconocido de Apps Script.");
+        const message = error?.message || error?.details || String(error || "Error desconocido del backend.");
         reject(new Error(message));
       })[functionName](...args);
   });
@@ -360,7 +360,7 @@ async function withRetryAsync(fn, options){
 async function stoSet(k, v, shared) {
   try {
     const valueToStore = JSON.stringify(v);
-    console.log("Guardando en GAS (shared=" + shared + "):", k, valueToStore.length, "chars");
+    console.log("Guardando en backend (shared=" + shared + "):", k, valueToStore.length, "chars");
     await runGoogleScript("saveData", k, valueToStore, shared);
     return true;
   } catch (err) {
@@ -371,7 +371,7 @@ async function stoSet(k, v, shared) {
 
 async function stoGet(k, shared) {
   try {
-    console.log("Cargando de GAS (shared=" + shared + "):", k);
+    console.log("Cargando de backend (shared=" + shared + "):", k);
     const r = await runGoogleScript("getData", k, shared);
     if (r && r.value) {
       return JSON.parse(r.value);
@@ -2127,7 +2127,7 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
       return;
     }
     if (!Array.isArray(users) || users.length === 0) {
-      setErr("No se cargaron usuarios desde la base. Ejecuta diagnosticarUsuarios() en Apps Script para validar users_v1.");
+      setErr("No se cargaron usuarios desde Firebase. Valida el endpoint /api/rpc/listUsers y la coleccion users_v1.");
       console.warn("[Login diagnostico] users vacio o invalido", users);
       return;
     }
@@ -7896,10 +7896,10 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       ...pendingAudioFiles.map(file => ({file,kind:"evaluation_audio",timeoutMs:180000,logStart:"[NETWORK_DRIVE_AUDIO_START]",logError:"[NETWORK_DRIVE_AUDIO_ERROR]"}))
     ];
     try {
-      console.info("[NETWORK_DRIVE_START]", {service:"AppsScript/Drive",method:"google.script.run",idEvaluacion:savedEvaluation.id,asesor:savedEvaluation.asesorNombre || payload.asesorNombre,imageCount:pendingEvidenceFiles.length,audioCount:pendingAudioFiles.length});
+      console.info("[NETWORK_DRIVE_START]", {service:"Backend/Drive",method:"/api/rpc",idEvaluacion:savedEvaluation.id,asesor:savedEvaluation.asesorNombre || payload.asesorNombre,imageCount:pendingEvidenceFiles.length,audioCount:pendingAudioFiles.length});
       const uploadResults = await Promise.allSettled(fileJobs.map(async job => {
         const fileStartedAt = getSaveTimerNow();
-        console.info(job.logStart, {service:"AppsScript/Drive",method:"google.script.run",idEvaluacion:savedEvaluation.id,asesor:savedEvaluation.asesorNombre || payload.asesorNombre,fileName:job.file.name,fileType:job.file.type,fileSize:job.file.size});
+        console.info(job.logStart, {service:"Backend/Drive",method:"/api/rpc",idEvaluacion:savedEvaluation.id,asesor:savedEvaluation.asesorNombre || payload.asesorNombre,fileName:job.file.name,fileType:job.file.type,fileSize:job.file.size});
         try {
           const attachment = await prepareEvaluationUploadAttachment(job.file,job.kind);
           const result = await uploadEvaluationAttachmentEntry({
@@ -7912,7 +7912,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
           logSaveSpeed(job.kind === "evaluation_audio" ? "[SAVE_SPEED_AUDIO_UPLOAD_DONE]" : "[SAVE_SPEED_IMAGE_UPLOAD_DONE]",fileStartedAt,{idEvaluacion:savedEvaluation.id,fileName:job.file.name,phase:"drive_complete"});
           return result;
         } catch (error) {
-          console.error(job.logError,{service:"AppsScript/Drive",method:"google.script.run",idEvaluacion:savedEvaluation.id,asesor:savedEvaluation.asesorNombre || payload.asesorNombre,fileName:job.file.name,fileSize:job.file.size,...getNetworkErrorDetails(error)});
+          console.error(job.logError,{service:"Backend/Drive",method:"/api/rpc",idEvaluacion:savedEvaluation.id,asesor:savedEvaluation.asesorNombre || payload.asesorNombre,fileName:job.file.name,fileSize:job.file.size,...getNetworkErrorDetails(error)});
           throw error;
         }
       }));
@@ -8055,8 +8055,8 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
         hasImage: pendingEvidenceFiles.length > 0
       });
       let savedEvaluation = null;
-      console.info("[NETWORK_SAVE_START]",{step:"primary_save",service:"AppsScript/Firebase",method:"google.script.run",idEvaluacion:payload.idEvaluacion,asesor:payload.asesorNombre,hasImage:pendingEvidenceFiles.length > 0,hasAudio:pendingAudioFiles.length > 0,imageSize:pendingEvidenceFiles.reduce((sum,file)=>sum+(file.size||0),0),audioSize:pendingAudioFiles.reduce((sum,file)=>sum+(file.size||0),0)});
-      console.info("[NETWORK_FIREBASE_START]",{service:"AppsScript/Firebase",method:"google.script.run",idEvaluacion:payload.idEvaluacion,asesor:payload.asesorNombre});
+      console.info("[NETWORK_SAVE_START]",{step:"primary_save",service:"Backend/Firebase",method:"/api/rpc",idEvaluacion:payload.idEvaluacion,asesor:payload.asesorNombre,hasImage:pendingEvidenceFiles.length > 0,hasAudio:pendingAudioFiles.length > 0,imageSize:pendingEvidenceFiles.reduce((sum,file)=>sum+(file.size||0),0),audioSize:pendingAudioFiles.reduce((sum,file)=>sum+(file.size||0),0)});
+      console.info("[NETWORK_FIREBASE_START]",{service:"Backend/Firebase",method:"/api/rpc",idEvaluacion:payload.idEvaluacion,asesor:payload.asesorNombre});
       logSaveSpeed("[SAVE_SPEED_FIREBASE_START]", saveStartedAt, {asesor: payload.asesorNombre});
       console.info("[SAVE_STEP_2_FIREBASE_START]", {asesor: payload.asesorNombre});
       if (currentEvaluation?.id) {
@@ -8084,7 +8084,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
         idEvaluacion: savedEvaluation.id,
         asesor: savedEvaluation.asesorNombre
       });
-      console.info("[NETWORK_FIREBASE_SUCCESS]",{service:"AppsScript/Firebase",method:"google.script.run",idEvaluacion:savedEvaluation.id,asesor:savedEvaluation.asesorNombre});
+      console.info("[NETWORK_FIREBASE_SUCCESS]",{service:"Backend/Firebase",method:"/api/rpc",idEvaluacion:savedEvaluation.id,asesor:savedEvaluation.asesorNombre});
       if (hasPendingAttachments) {
         console.info("[SAVE_STEP_3_ATTACHMENTS_START]", {
           idEvaluacion: savedEvaluation.id,
@@ -8118,7 +8118,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       console.info("[NETWORK_SAVE_COMPLETE]",{step:"primary_firebase_save",service:"AppsScript/Firebase",idEvaluacion:savedEvaluation?.id || "",asesor:savedEvaluation?.asesorNombre || payload.asesorNombre,attachmentsPending:hasPendingAttachments});
     }catch(err){
       const networkDetails = getNetworkErrorDetails(err);
-      console.error("[NETWORK_FIREBASE_ERROR]",{service:"AppsScript/Firebase",method:"google.script.run",idEvaluacion:currentEvaluation?.id || "",asesor:form.asesorNombre,...networkDetails});
+      console.error("[NETWORK_FIREBASE_ERROR]",{service:"Backend/Firebase",method:"/api/rpc",idEvaluacion:currentEvaluation?.id || "",asesor:form.asesorNombre,...networkDetails});
       console.error("[SAVE_GENERAL_ERROR]", {message:err?.message || String(err), stack:err?.stack || ""});
       const userMessage = isRetryableNetworkError(err)
         ? "No se pudo registrar la evaluacion por un problema de conexion. Intenta nuevamente."

@@ -148,12 +148,12 @@ app.get("/api/drive/files/:fileId/content", async (req, res, next) => {
   }
 });
 
-app.post("/api/gas/:functionName", async (req, res, next) => {
+async function handleRpcRequest(req, res, next) {
   try {
     const functionName = req.params.functionName;
     const handler = gasHandlers[functionName];
     if (!handler) {
-      res.status(404).json({ ok: false, error: `Funcion no migrada fuera de Apps Script: ${functionName}` });
+      res.status(404).json({ ok: false, error: `Funcion no disponible en backend Node: ${functionName}` });
       return;
     }
     const result = await handler(...(req.body?.args || []));
@@ -161,7 +161,10 @@ app.post("/api/gas/:functionName", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+}
+
+app.post("/api/rpc/:functionName", handleRpcRequest);
+app.post("/api/gas/:functionName", handleRpcRequest);
 
 app.use(express.static(publicDir));
 app.get("*", (_req, res) => {
