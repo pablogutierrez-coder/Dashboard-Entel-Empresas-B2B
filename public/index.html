@@ -180,10 +180,41 @@ function normalizeUsersList(users) {
   return [...byLogin.values()];
 }
 
+function canUseEmergencyUser(){
+  const host = String(window?.location?.hostname || "").toLowerCase();
+  return window?.location?.protocol === "file:" || host === "localhost" || host === "127.0.0.1";
+}
+
+function getEmergencyUsers(){
+  return [{nombre:"Pablo", usuario:"Pablo.gutierrez", password:"3100", rol:"admin"}];
+}
+
+async function runBackendFunction(functionName, args) {
+  const response = await fetch(`/api/gas/${encodeURIComponent(functionName)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ args: args || [] }),
+    cache: "no-store"
+  });
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_error) {
+    payload = null;
+  }
+  if (!response.ok || payload?.ok === false) {
+    const message = payload?.error || `Backend ${functionName}: HTTP ${response.status}`;
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
+  return payload?.result;
+}
+
 function runGoogleScript(functionName, ...args) {
   return new Promise((resolve, reject) => {
     if (typeof google === "undefined") {
-      reject(new Error("Entorno de Google Apps Script no detectado."));
+      runBackendFunction(functionName, args).then(resolve).catch(reject);
       return;
     }
     google.script.run
@@ -419,14 +450,23 @@ async function saveUsers(users){
   }
 }
 
-async function loadUsers(){
+async function loadUsers(options = {}){
   try{
     let data = null;
-    try {
-      data = await runGoogleScript("listUsers");
-    } catch (serverErr) {
-      console.warn("No se pudo cargar usuarios con listUsers, se usara getData:", serverErr);
-      data = await stoGet("users_v1", false);
+    if (options.preferBackend || typeof google === "undefined") {
+      try {
+        data = await runBackendFunction("listUsers", []);
+      } catch (backendErr) {
+        console.warn("No se pudo cargar usuarios con backend listUsers, se usara getData:", backendErr);
+      }
+    }
+    if (!Array.isArray(data) || !data.length) {
+      try {
+        data = await runGoogleScript("listUsers");
+      } catch (serverErr) {
+        console.warn("No se pudo cargar usuarios con listUsers, se usara getData:", serverErr);
+        data = await stoGet("users_v1", false);
+      }
     }
     if (!Array.isArray(data) || !data.length) {
       data = await directFirebaseReadShared("users_v1");
@@ -434,12 +474,11 @@ async function loadUsers(){
     if (data && Array.isArray(data) && data.length > 0) {
       return normalizeUsersList(data);
     }
-    const defaultUsers = [{nombre:"Pablo", usuario:"Pablo.gutierrez", password:"3100", rol:"admin"}];
-    console.warn("No se recibieron usuarios persistidos; se usara usuario local de emergencia sin sobrescribir Firebase.");
-    return defaultUsers;
+    console.warn("No se recibieron usuarios persistidos.");
+    return canUseEmergencyUser() ? getEmergencyUsers() : [];
   }catch(err){
     console.error("Error cargando usuarios:", err);
-    return [{nombre:"Pablo", usuario:"Pablo.gutierrez", password:"3100", rol:"admin"}];
+    return canUseEmergencyUser() ? getEmergencyUsers() : [];
   }
 }
 
@@ -4707,7 +4746,7 @@ function App(){
   const agregarUsuario = async(nuevoUsuario) => {
     const normalizedNewUser = normalizeUserRecord(nuevoUsuario);
     if (!normalizedNewUser) return false;
-    const latestUsers = await loadUsers().catch(() => []);
+    const latestUsers = await loadUsers({preferBackend:true}).catch(() => []);
     const sourceUsers = normalizeUsersList([...(latestUsers || []), ...(users || [])]);
     if (sourceUsers.some(user => normalizeLoginKey(user.usuario) === normalizeLoginKey(normalizedNewUser.usuario))) {
       notify("e","Ese usuario ya existe en la base.");
@@ -4736,7 +4775,7 @@ function App(){
   };
 
   const eliminarUsuario = async(usuario) => {
-    const latestUsers = await loadUsers().catch(() => users);
+    const latestUsers = await loadUsers({preferBackend:true}).catch(() => users);
     const normalizedUserKey = normalizeLoginKey(usuario);
     const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
     const userToDelete = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
@@ -4758,7 +4797,7 @@ function App(){
 
   const actualizarEstadoUsuario = async(usuario, estado) => {
     const nextStatus = normalizeProfileStatus(estado || "activo");
-    const latestUsers = await loadUsers().catch(() => users);
+    const latestUsers = await loadUsers({preferBackend:true}).catch(() => users);
     const normalizedUserKey = normalizeLoginKey(usuario);
     const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
     const targetUser = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
@@ -4791,17 +4830,18 @@ function App(){
     const normalizedUserKey = normalizeLoginKey(usuario);
     const nextPassword = String(nuevaContrasena || "").trim();
     if (!normalizedUserKey || !nextPassword) return false;
-    const latestUsers = await loadUsers().catch(() => users);
+    const latestUsers = await loadUsers({preferBackend:true}).catch(() => users);
     const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
     const targetUser = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
     if (!targetUser) {
       notify("e","No se encontro el usuario para resetear contrasena.");
       return false;
     }
-    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, password: nextPassword} : u);
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, password: nextPassword, updatedAt:new Date().toISOString()} : u);
     const saved = await saveUsers(updated);
-    if (saved === false) return false;
+    if (saved === false) { notify("e","No se pudo guardar la nueva contrasena en la base."); return false; }
     setUsers(updated);
+    notify("s","Contrasena reseteada correctamente.");
     return true;
   };
 
@@ -5946,7 +5986,7 @@ function App(){
       try {
         setAppLoading(true);
         setBootstrapError("");
-        const loadedUsers = await withTimeout(loadUsers(), 12000, "Carga de usuarios");
+        const loadedUsers = await withTimeout(loadUsers({preferBackend:true}), 25000, "Carga de usuarios");
         console.info("[Usuarios diagnostico]", {
           usuariosCargados: Array.isArray(loadedUsers) ? loadedUsers.length : 0,
           muestra: (Array.isArray(loadedUsers) ? loadedUsers : []).slice(0, 20).map(u => ({
@@ -5956,7 +5996,7 @@ function App(){
             estado: String(u?.estado || "").trim()
           }))
         });
-        setUsers(Array.isArray(loadedUsers) && loadedUsers.length ? loadedUsers : [{nombre:"Pablo", usuario:"Pablo.gutierrez", password:"3100", rol:"admin"}]);
+        setUsers(Array.isArray(loadedUsers) && loadedUsers.length ? loadedUsers : (canUseEmergencyUser() ? getEmergencyUsers() : []));
         setAppLoading(false);
         loadImprovementCoreData("precarga_independiente")
           .then(coreData => {
@@ -5979,7 +6019,7 @@ function App(){
       } catch (err) {
         const message = err?.message || "No se pudo cargar usuarios.";
         setBootstrapError(message);
-        setUsers([{nombre:"Pablo", usuario:"Pablo.gutierrez", password:"3100", rol:"admin"}]);
+        setUsers(prev => Array.isArray(prev) && prev.length ? prev : (canUseEmergencyUser() ? getEmergencyUsers() : []));
         setAppLoading(false);
         console.error("[Usuarios fatal]", err);
       }
@@ -6171,7 +6211,7 @@ function App(){
   };
 
   const eliminarUsuario = async(usuario) => {
-    const latestUsers = await loadUsers().catch(() => users);
+    const latestUsers = await loadUsers({preferBackend:true}).catch(() => users);
     const normalizedUserKey = normalizeLoginKey(usuario);
     const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
     const userToDelete = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
@@ -6193,7 +6233,7 @@ function App(){
 
   const actualizarEstadoUsuario = async(usuario, estado) => {
     const nextStatus = normalizeProfileStatus(estado || "activo");
-    const latestUsers = await loadUsers().catch(() => users);
+    const latestUsers = await loadUsers({preferBackend:true}).catch(() => users);
     const normalizedUserKey = normalizeLoginKey(usuario);
     const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
     const targetUser = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
@@ -6233,10 +6273,11 @@ function App(){
       notify("e","No se encontro el usuario para resetear contrasena.");
       return false;
     }
-    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, password: nextPassword} : u);
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, password: nextPassword, updatedAt:new Date().toISOString()} : u);
     const saved = await saveUsers(updated);
-    if (saved === false) return false;
+    if (saved === false) { notify("e","No se pudo guardar la nueva contrasena en la base."); return false; }
     setUsers(updated);
+    notify("s","Contrasena reseteada correctamente.");
     return true;
   };
 
