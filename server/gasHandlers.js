@@ -37,6 +37,8 @@ const CALIBRATION_RESULTS_KEY = "calibration_results";
 const CALIBRATION_COMPARISON_KEY = "calibration_response_comparison";
 const CALIBRATION_ACTIVITY_LOGS_KEY = "calibration_activity_logs";
 const evaluationWriteLocks = new Map();
+const firebaseReadCache = new Map();
+const CACHE_TTL_MS = 15000;
 
 const ROLE_LABELS = {
   admin: "Administrador",
@@ -67,6 +69,24 @@ function normalizeText(value) {
     .replace(/_/g, " ")
     .trim()
     .toLowerCase();
+}
+
+async function readCachedSharedJson(key, fallback = [], ttlMs = CACHE_TTL_MS) {
+  const now = Date.now();
+  const cached = firebaseReadCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.value;
+  const value = await readSharedJson(key, fallback);
+  firebaseReadCache.set(key, { value, expiresAt: now + ttlMs });
+  return value;
+}
+
+function invalidateFirebaseCache(...keys) {
+  const cleanKeys = keys.flat().filter(Boolean).map(String);
+  if (!cleanKeys.length) {
+    firebaseReadCache.clear();
+    return;
+  }
+  cleanKeys.forEach(key => firebaseReadCache.delete(key));
 }
 
 function getRole(user) {
@@ -132,12 +152,13 @@ function enrichCommunicationForUser(communication, user) {
 }
 
 async function readCommunications() {
-  const records = await readSharedJson(COMMUNICATIONS_KEY, []);
+  const records = await readCachedSharedJson(COMMUNICATIONS_KEY, []);
   return Array.isArray(records) ? records : [];
 }
 
 async function writeCommunications(records) {
   await writeSharedRecord(COMMUNICATIONS_KEY, Array.isArray(records) ? records : []);
+  invalidateFirebaseCache(COMMUNICATIONS_KEY);
 }
 
 function sortCommunications(records) {
@@ -259,12 +280,13 @@ function upsertById(records, record) {
 }
 
 async function readFeedbackRecords() {
-  const records = await readSharedJson(FEEDBACK_KEY, []);
+  const records = await readCachedSharedJson(FEEDBACK_KEY, []);
   return Array.isArray(records) ? records : [];
 }
 
 async function writeFeedbackRecords(records) {
   await writeSharedRecord(FEEDBACK_KEY, Array.isArray(records) ? records : []);
+  invalidateFirebaseCache(FEEDBACK_KEY);
 }
 
 function sortFeedbackRecords(records) {
@@ -593,9 +615,9 @@ async function withEvaluationWriteLock(id, task) {
 
 async function readEvaluationRecordsFromFirebase(options = {}) {
   const records = [];
-  const deletedIds = new Set((await readSharedJson(DELETED_EVALUATIONS_KEY, []) || []).map(item => normalizeId(item?.id || item?.idEvaluacion || item)).filter(Boolean));
+  const deletedIds = new Set((await readCachedSharedJson(DELETED_EVALUATIONS_KEY, []) || []).map(item => normalizeId(item?.id || item?.idEvaluacion || item)).filter(Boolean));
   const isDeleted = record => deletedIds.has(normalizeId(record?.id || record?.idEvaluacion));
-  const compact = await readSharedJson(EVALUATIONS_KEY, []);
+  const compact = await readCachedSharedJson(EVALUATIONS_KEY, []);
   if (Array.isArray(compact) && compact.length) {
     return compact
       .filter(record => !isDeleted(record))
@@ -606,7 +628,7 @@ async function readEvaluationRecordsFromFirebase(options = {}) {
   if (!options.includeDetailFallback) return [];
   const detailKeys = await listSharedKeys("evaluation_record_");
   for (const key of detailKeys) {
-    const detail = await readSharedJson(key, null);
+    const detail = await readCachedSharedJson(key, null);
     if (detail && typeof detail === "object") records.push(detail);
   }
 
@@ -644,8 +666,9 @@ async function persistEvaluation(record) {
     updatedAt: nowIso()
   };
   await writeSharedRecord(getEvaluationRecordKey(id), normalized);
-  const compact = await readSharedJson(EVALUATIONS_KEY, []);
+  const compact = await readCachedSharedJson(EVALUATIONS_KEY, []);
   await writeSharedRecord(EVALUATIONS_KEY, upsertById(compact, normalized));
+  invalidateFirebaseCache(EVALUATIONS_KEY, getEvaluationRecordKey(id));
   return normalized;
 }
 
@@ -695,12 +718,13 @@ function getUserCalibrationArea(user = {}) {
 }
 
 async function readCalibrationCollection(key) {
-  const value = await readSharedJson(key, []);
+  const value = await readCachedSharedJson(key, []);
   return Array.isArray(value) ? value : [];
 }
 
 async function writeCalibrationCollection(key, records) {
   await writeSharedRecord(key, Array.isArray(records) ? records : []);
+  invalidateFirebaseCache(key);
 }
 
 async function addCalibrationLog(sessionId, user, actionType, description) {
@@ -953,12 +977,14 @@ export const gasHandlers = {
   },
 
   async listUsers() {
-    const users = await readSharedJson("users_v1", []);
+    const users = await readCachedSharedJson("users_v1", []);
     return Array.isArray(users) ? users : [];
   },
 
   async saveData(key, value) {
-    return await writeSharedRecord(key, String(value || ""));
+    const result = await writeSharedRecord(key, String(value || ""));
+    invalidateFirebaseCache(key);
+    return result;
   },
 
   async deleteData(key) {
@@ -1206,15 +1232,15 @@ export const gasHandlers = {
       communications,
       chatMessages
     ] = await Promise.all([
-      readSharedJson("users_v1", []),
-      readSharedJson("snapshots_shared", []),
-      readSharedJson("staffing", []),
-      readSharedJson(FEEDBACK_KEY, []),
+      readCachedSharedJson("users_v1", []),
+      readCachedSharedJson("snapshots_shared", []),
+      readCachedSharedJson("staffing", []),
+      readCachedSharedJson(FEEDBACK_KEY, []),
       readEvaluationRecordsFromFirebase(),
-      readSharedJson("notip_records_v1", []),
-      readSharedJson("legend_concepts_v1", []),
-      readSharedJson(COMMUNICATIONS_KEY, []),
-      readSharedJson("internal_chat_v1", [])
+      readCachedSharedJson("notip_records_v1", []),
+      readCachedSharedJson("legend_concepts_v1", []),
+      readCachedSharedJson(COMMUNICATIONS_KEY, []),
+      readCachedSharedJson("internal_chat_v1", [])
     ]);
     const result = {
       ok: true,
@@ -1242,6 +1268,122 @@ export const gasHandlers = {
       chatMessages: result.chatMessages.length
     };
     return result;
+  },
+
+  async getImprovementDashboardDataFast() {
+    const [
+      historico,
+      staffing,
+      feedbackRecords,
+      evaluationRecords,
+      noTipificationRecords,
+      legendConcepts
+    ] = await Promise.all([
+      readCachedSharedJson("snapshots_shared", []),
+      readCachedSharedJson("staffing", []),
+      readCachedSharedJson(FEEDBACK_KEY, []),
+      readEvaluationRecordsFromFirebase(),
+      readCachedSharedJson("notip_records_v1", []),
+      readCachedSharedJson("legend_concepts_v1", [])
+    ]);
+    const result = {
+      ok: true,
+      source: "local_node_firebase_fast",
+      historico: Array.isArray(historico) ? historico : [],
+      staffing: Array.isArray(staffing) ? staffing : [],
+      feedbackRecords: Array.isArray(feedbackRecords) ? feedbackRecords : [],
+      evaluationRecords: Array.isArray(evaluationRecords) ? evaluationRecords : [],
+      noTipificationRecords: Array.isArray(noTipificationRecords) ? noTipificationRecords : [],
+      legendConcepts: Array.isArray(legendConcepts) ? legendConcepts : [],
+      errors: {}
+    };
+    result.counts = {
+      historico: result.historico.length,
+      staffing: result.staffing.length,
+      feedbackRecords: result.feedbackRecords.length,
+      evaluationRecords: result.evaluationRecords.length,
+      noTipificationRecords: result.noTipificationRecords.length,
+      legendConcepts: result.legendConcepts.length
+    };
+    return result;
+  },
+
+  async validateDatabaseHealth() {
+    const startedAt = Date.now();
+    const [
+      users,
+      historico,
+      staffing,
+      feedbackRecords,
+      evaluationRecords,
+      noTipificationRecords,
+      legendConcepts,
+      communications,
+      chatMessages,
+      calibrationSessions,
+      calibrationParticipants,
+      calibrationEvaluations,
+      calibrationEvaluationItems,
+      calibrationResults,
+      calibrationComparisonRows,
+      calibrationLogs
+    ] = await Promise.all([
+      readCachedSharedJson("users_v1", []),
+      readCachedSharedJson("snapshots_shared", []),
+      readCachedSharedJson("staffing", []),
+      readCachedSharedJson(FEEDBACK_KEY, []),
+      readEvaluationRecordsFromFirebase(),
+      readCachedSharedJson("notip_records_v1", []),
+      readCachedSharedJson("legend_concepts_v1", []),
+      readCachedSharedJson(COMMUNICATIONS_KEY, []),
+      readCachedSharedJson("internal_chat_v1", []),
+      readCalibrationCollection(CALIBRATION_SESSIONS_KEY),
+      readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY),
+      readCalibrationCollection(CALIBRATION_EVALUATIONS_KEY),
+      readCalibrationCollection(CALIBRATION_EVALUATION_ITEMS_KEY),
+      readCalibrationCollection(CALIBRATION_RESULTS_KEY),
+      readCalibrationCollection(CALIBRATION_COMPARISON_KEY),
+      readCalibrationCollection(CALIBRATION_ACTIVITY_LOGS_KEY)
+    ]);
+    const counts = {
+      users: Array.isArray(users) ? users.length : 0,
+      historico: Array.isArray(historico) ? historico.length : 0,
+      staffing: Array.isArray(staffing) ? staffing.length : 0,
+      feedbackRecords: Array.isArray(feedbackRecords) ? feedbackRecords.length : 0,
+      evaluationRecords: Array.isArray(evaluationRecords) ? evaluationRecords.length : 0,
+      noTipificationRecords: Array.isArray(noTipificationRecords) ? noTipificationRecords.length : 0,
+      legendConcepts: Array.isArray(legendConcepts) ? legendConcepts.length : 0,
+      communications: Array.isArray(communications) ? communications.length : 0,
+      chatMessages: Array.isArray(chatMessages) ? chatMessages.length : 0,
+      calibrationSessions: Array.isArray(calibrationSessions) ? calibrationSessions.length : 0,
+      calibrationParticipants: Array.isArray(calibrationParticipants) ? calibrationParticipants.length : 0,
+      calibrationEvaluations: Array.isArray(calibrationEvaluations) ? calibrationEvaluations.length : 0,
+      calibrationEvaluationItems: Array.isArray(calibrationEvaluationItems) ? calibrationEvaluationItems.length : 0,
+      calibrationResults: Array.isArray(calibrationResults) ? calibrationResults.length : 0,
+      calibrationComparisonRows: Array.isArray(calibrationComparisonRows) ? calibrationComparisonRows.length : 0,
+      calibrationLogs: Array.isArray(calibrationLogs) ? calibrationLogs.length : 0
+    };
+    return {
+      ok: true,
+      source: "firebase_realtime_database",
+      elapsedMs: Date.now() - startedAt,
+      counts
+    };
+  },
+
+  async listNoTipificationRecords() {
+    const records = await readCachedSharedJson("notip_records_v1", []);
+    return Array.isArray(records) ? records : [];
+  },
+
+  async listLegendConcepts() {
+    const records = await readCachedSharedJson("legend_concepts_v1", []);
+    return Array.isArray(records) ? records : [];
+  },
+
+  async listInternalChatMessages() {
+    const records = await readCachedSharedJson("internal_chat_v1", []);
+    return Array.isArray(records) ? records : [];
   },
 
   async listCommunications(payload = {}) {
@@ -1661,10 +1803,10 @@ export const gasHandlers = {
   },
 
   async getEvaluationRecordDetail(id) {
-    const deletedIds = new Set((await readSharedJson(DELETED_EVALUATIONS_KEY, []) || []).map(item => normalizeId(item?.id || item?.idEvaluacion || item)).filter(Boolean));
+    const deletedIds = new Set((await readCachedSharedJson(DELETED_EVALUATIONS_KEY, []) || []).map(item => normalizeId(item?.id || item?.idEvaluacion || item)).filter(Boolean));
     if (deletedIds.has(normalizeId(id))) return null;
     const key = getEvaluationRecordKey(id);
-    const detail = await readSharedJson(key, null);
+    const detail = await readCachedSharedJson(key, null);
     if (detail) return await enrichEvaluationWithDirectDriveFolder(normalizeEvaluationRecordForRuntime(detail));
     const records = await readEvaluationRecordsFromFirebase({ includeDetailFallback: false });
     const record = records.find(item => normalizeId(item?.id || item?.idEvaluacion) === normalizeId(id)) || null;
@@ -1722,11 +1864,11 @@ export const gasHandlers = {
     requireRoles(currentUser, ["admin"], "Solo administradores pueden borrar evaluaciones.");
     const id = normalizeId(payload.idEvaluacion || payload.id);
     if (!id) throw new Error("No se puede borrar una evaluacion sin id.");
-    const compact = await readSharedJson(EVALUATIONS_KEY, []);
+    const compact = await readCachedSharedJson(EVALUATIONS_KEY, []);
     const nextCompact = Array.isArray(compact)
       ? compact.filter(item => normalizeId(item?.id || item?.idEvaluacion) !== id)
       : [];
-    const deleted = await readSharedJson(DELETED_EVALUATIONS_KEY, []);
+    const deleted = await readCachedSharedJson(DELETED_EVALUATIONS_KEY, []);
     const deletedList = Array.isArray(deleted) ? deleted : [];
     const deletedExists = deletedList.some(item => normalizeId(item?.id || item?.idEvaluacion || item) === id);
     const nextDeleted = deletedExists
@@ -1735,6 +1877,7 @@ export const gasHandlers = {
     await deleteSharedRecord(getEvaluationRecordKey(id));
     await writeSharedRecord(EVALUATIONS_KEY, nextCompact);
     await writeSharedRecord(DELETED_EVALUATIONS_KEY, nextDeleted);
+    invalidateFirebaseCache(EVALUATIONS_KEY, DELETED_EVALUATIONS_KEY, getEvaluationRecordKey(id));
     return { ok: true, id };
   },
 
