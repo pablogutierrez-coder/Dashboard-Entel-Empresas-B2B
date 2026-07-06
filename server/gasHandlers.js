@@ -29,6 +29,7 @@ const EVALUATIONS_KEY = "evaluations_v1";
 const DELETED_EVALUATIONS_KEY = "deleted_evaluations_v1";
 const COMMUNICATIONS_KEY = "communications_v1";
 const FEEDBACK_KEY = "feedback_records_v2";
+const OPERATIONAL_INCIDENTS_KEY = "operational_incidents_v1";
 const CALIBRATION_SESSIONS_KEY = "calibration_sessions";
 const CALIBRATION_PARTICIPANTS_KEY = "calibration_participants";
 const CALIBRATION_EVALUATIONS_KEY = "calibration_evaluations";
@@ -1229,6 +1230,7 @@ export const gasHandlers = {
       evaluationRecords,
       noTipificationRecords,
       legendConcepts,
+      operationalIncidents,
       communications,
       chatMessages
     ] = await Promise.all([
@@ -1239,6 +1241,7 @@ export const gasHandlers = {
       readEvaluationRecordsFromFirebase(),
       readCachedSharedJson("notip_records_v1", []),
       readCachedSharedJson("legend_concepts_v1", []),
+      readCachedSharedJson(OPERATIONAL_INCIDENTS_KEY, []),
       readCachedSharedJson(COMMUNICATIONS_KEY, []),
       readCachedSharedJson("internal_chat_v1", [])
     ]);
@@ -1252,6 +1255,7 @@ export const gasHandlers = {
       evaluationRecords: Array.isArray(evaluationRecords) ? evaluationRecords : [],
       noTipificationRecords: Array.isArray(noTipificationRecords) ? noTipificationRecords : [],
       legendConcepts: Array.isArray(legendConcepts) ? legendConcepts : [],
+      operationalIncidents: Array.isArray(operationalIncidents) ? operationalIncidents : [],
       communications: Array.isArray(communications) ? sortCommunications(communications) : [],
       chatMessages: Array.isArray(chatMessages) ? chatMessages : [],
       errors: {}
@@ -1264,6 +1268,7 @@ export const gasHandlers = {
       evaluationRecords: result.evaluationRecords.length,
       noTipificationRecords: result.noTipificationRecords.length,
       legendConcepts: result.legendConcepts.length,
+      operationalIncidents: result.operationalIncidents.length,
       communications: result.communications.length,
       chatMessages: result.chatMessages.length
     };
@@ -1318,6 +1323,7 @@ export const gasHandlers = {
       evaluationRecords,
       noTipificationRecords,
       legendConcepts,
+      operationalIncidents,
       communications,
       chatMessages,
       calibrationSessions,
@@ -1335,6 +1341,7 @@ export const gasHandlers = {
       readEvaluationRecordsFromFirebase(),
       readCachedSharedJson("notip_records_v1", []),
       readCachedSharedJson("legend_concepts_v1", []),
+      readCachedSharedJson(OPERATIONAL_INCIDENTS_KEY, []),
       readCachedSharedJson(COMMUNICATIONS_KEY, []),
       readCachedSharedJson("internal_chat_v1", []),
       readCalibrationCollection(CALIBRATION_SESSIONS_KEY),
@@ -1353,6 +1360,7 @@ export const gasHandlers = {
       evaluationRecords: Array.isArray(evaluationRecords) ? evaluationRecords.length : 0,
       noTipificationRecords: Array.isArray(noTipificationRecords) ? noTipificationRecords.length : 0,
       legendConcepts: Array.isArray(legendConcepts) ? legendConcepts.length : 0,
+      operationalIncidents: Array.isArray(operationalIncidents) ? operationalIncidents.length : 0,
       communications: Array.isArray(communications) ? communications.length : 0,
       chatMessages: Array.isArray(chatMessages) ? chatMessages.length : 0,
       calibrationSessions: Array.isArray(calibrationSessions) ? calibrationSessions.length : 0,
@@ -1374,6 +1382,42 @@ export const gasHandlers = {
   async listNoTipificationRecords() {
     const records = await readCachedSharedJson("notip_records_v1", []);
     return Array.isArray(records) ? records : [];
+  },
+
+  async listOperationalIncidents() {
+    const records = await readCachedSharedJson(OPERATIONAL_INCIDENTS_KEY, []);
+    return Array.isArray(records) ? records : [];
+  },
+
+  async saveOperationalIncident(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    requireRoles(currentUser, ["admin", "analista", "supervisor", "formador"], "No tienes permisos para registrar incidencias operativas.");
+    const advisorName = String(payload.advisor_name || payload.advisorName || payload.asesorNombre || payload.asesor || "").trim();
+    if (!advisorName) throw new Error("El asesor o ejecutivo relacionado es obligatorio.");
+    const observation = String(payload.observation || payload.observacion || "").trim()
+      || "No se encuentra audio disponible en inConcert para realizar la evaluación de calidad. Se registra la incidencia operativa 'No conectado' para seguimiento correspondiente.";
+    const now = nowIso();
+    const records = await readCachedSharedJson(OPERATIONAL_INCIDENTS_KEY, []);
+    const record = {
+      id: normalizeId(payload.id || generateNumericId()),
+      advisor_id: String(payload.advisor_id || payload.advisorUser || "").trim(),
+      advisor_name: advisorName,
+      monitor_id: String(currentUser.usuario || payload.monitor_id || "").trim(),
+      monitor_name: String(currentUser.nombre || payload.monitor_name || "").trim(),
+      campaign_id: String(payload.campaign_id || "").trim(),
+      campaign_name: String(payload.campaign_name || payload.campaignName || payload.campana || "").trim(),
+      call_id: String(payload.call_id || payload.callId || payload.case_id || payload.caseId || "").trim(),
+      incident_type: "No conectado",
+      incident_category: "Incidencia operativa",
+      observation,
+      status: "Registrado",
+      created_at: payload.created_at || now,
+      updated_at: now
+    };
+    const nextRecords = [record, ...(Array.isArray(records) ? records : [])];
+    await writeSharedRecord(OPERATIONAL_INCIDENTS_KEY, nextRecords);
+    invalidateFirebaseCache(OPERATIONAL_INCIDENTS_KEY);
+    return record;
   },
 
   async listLegendConcepts() {
