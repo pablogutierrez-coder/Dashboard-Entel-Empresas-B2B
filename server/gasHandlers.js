@@ -1384,6 +1384,45 @@ export const gasHandlers = {
     return Array.isArray(records) ? records : [];
   },
 
+  async saveNoTipificationRecord(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    requireRoles(currentUser, ["admin", "analista", "supervisor", "formador"], "No tienes permisos para registrar no tipificacion.");
+    const advisorName = String(payload.asesorNombre || payload.advisorName || payload.asesor || "").trim();
+    if (!advisorName) throw new Error("El asesor es obligatorio.");
+    const phoneNumber = String(payload.phoneNumber || payload.phone_number || payload.telefono || "").trim();
+    if (!phoneNumber) throw new Error("El numero de telefono es obligatorio.");
+    const callDateTime = payload.callDateTime || payload.call_date_time || payload.fechaLlamada || "";
+    if (!String(callDateTime || "").trim()) throw new Error("La fecha y hora de la llamada es obligatoria.");
+    const callDuration = String(payload.callDuration || payload.call_duration || payload.duracion || "").trim();
+    if (!callDuration) throw new Error("La duracion de la llamada es obligatoria.");
+    const now = nowIso();
+    const records = await readCachedSharedJson("notip_records_v1", []);
+    const record = {
+      id: normalizeId(payload.id || generateNumericId()),
+      asesorNombre: advisorName,
+      advisorUser: String(payload.advisorUser || payload.advisor_id || "").trim(),
+      supervisor: String(payload.supervisor || "").trim(),
+      coordinador: String(payload.coordinador || "").trim(),
+      antiguedad: Number(payload.antiguedad || 0) || 0,
+      fechaIngreso: String(payload.fechaIngreso || "").trim(),
+      managementTypeRuc: String(payload.managementTypeRuc || payload.campaign_name || payload.campana || "").trim(),
+      phoneNumber,
+      callDateTime: new Date(callDateTime).toString() === "Invalid Date" ? callDateTime : new Date(callDateTime).toISOString(),
+      callDuration,
+      incidentType: "No tipificacion",
+      incidentCategory: "Incidencia operativa",
+      status: "Registrado",
+      createdBy: String(currentUser.usuario || "").trim(),
+      createdByName: String(currentUser.nombre || "").trim(),
+      createdAt: payload.createdAt || now,
+      updatedAt: now
+    };
+    const nextRecords = [record, ...(Array.isArray(records) ? records : [])];
+    await writeSharedRecord("notip_records_v1", nextRecords);
+    invalidateFirebaseCache("notip_records_v1");
+    return record;
+  },
+
   async listOperationalIncidents() {
     const records = await readCachedSharedJson(OPERATIONAL_INCIDENTS_KEY, []);
     return Array.isArray(records) ? records : [];

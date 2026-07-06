@@ -6676,7 +6676,7 @@ function App(){
           view==="legend" && h(LegendCenter,{concepts:legendConcepts,onRefresh:reloadLegend}),
           view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords,staffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
           view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords,evaluationRecords,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing}),
-          view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:operationalIncidents,currentUser,advisorOptions,staffing,onSave:guardarIncidenciaOperativa,notify}),
+          view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:operationalIncidents,noTipificationRecords,currentUser,advisorOptions,staffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,notify}),
           view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users,notify}),
           view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing,setStaffing,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords,feedbackRecords,currentUser}),
           view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,onResetPassword:resetearContrasenaUsuario,notify,staffing})
@@ -7650,6 +7650,7 @@ function applyImprovementFilters(dataset, filters){
 }
 
 const NO_CONNECTED_OBSERVATION = "No se encuentra audio disponible en inConcert para realizar la evaluacion de calidad. Se registra la incidencia operativa 'No conectado' para seguimiento correspondiente.";
+const NO_TIPIFICATION_OBSERVATION = "La llamada no cuenta con tipificacion registrada para seguimiento operativo.";
 
 function normalizeOperationalIncident(record){
   return {
@@ -7669,6 +7670,32 @@ function normalizeOperationalIncident(record){
   };
 }
 
+function normalizeNoTipificationIncident(record){
+  const advisorName = record?.asesorNombre || record?.advisorName || record?.asesor || "";
+  const monitorName = record?.createdByName || record?.monitorName || record?.monitor || "";
+  const phoneNumber = String(record?.phoneNumber || record?.telefono || "").trim();
+  const duration = String(record?.callDuration || record?.duracion || "").trim();
+  const observationParts = [];
+  if (phoneNumber) observationParts.push(`Telefono: ${phoneNumber}`);
+  if (duration) observationParts.push(`Duracion: ${duration}`);
+  return {
+    id: String(record?.id || "").trim(),
+    advisorName: normalizeName(advisorName),
+    advisorId: String(record?.advisorUser || record?.advisor_id || "").trim(),
+    monitorName: normalizeName(monitorName),
+    monitorId: String(record?.createdBy || record?.monitor_id || "").trim(),
+    campaignName: String(record?.managementTypeRuc || record?.campaign_name || record?.campana || "").trim(),
+    callId: phoneNumber,
+    incidentType: "No tipificacion",
+    incidentCategory: "Incidencia operativa",
+    observation: observationParts.join(" - ") || NO_TIPIFICATION_OBSERVATION,
+    status: String(record?.status || record?.estado || "Registrado").trim(),
+    createdAt: record?.callDateTime || record?.createdAt || record?.created_at || "",
+    updatedAt: record?.updatedAt || record?.updated_at || "",
+    source: "notip_records_v1"
+  };
+}
+
 function getOperationalIncidentDateLabel(value){
   const date = parseAppDate(value);
   if (!date) return "Sin fecha";
@@ -7685,15 +7712,15 @@ function buildOperationalIncidentChartConfig(title, rows, keyFn, label){
   ]);
 }
 
-function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,staffing,onSave,notify}){
-  const [form,setForm] = useState({advisorName:"",campaignName:"",callId:"",incidentType:"No conectado",observation:NO_CONNECTED_OBSERVATION});
+function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,staffing,onSave,onSaveNoTipification,notify}){
+  const [form,setForm] = useState({advisorName:"",campaignName:"",callId:"",incidentType:"No conectado",observation:NO_CONNECTED_OBSERVATION,phoneNumber:"",callDateTime:toDatetimeLocalValue(),callDuration:""});
   const [isSaving,setIsSaving] = useState(false);
   const [saveNotice,setSaveNotice] = useState(null);
   const availableAdvisors = Array.isArray(advisorOptions) ? advisorOptions : [];
 
   useEffect(() => {
     if (!isOpen) return;
-    setForm({advisorName:"",campaignName:"",callId:"",incidentType:"No conectado",observation:NO_CONNECTED_OBSERVATION});
+    setForm({advisorName:"",campaignName:"",callId:"",incidentType:"No conectado",observation:NO_CONNECTED_OBSERVATION,phoneNumber:"",callDateTime:toDatetimeLocalValue(),callDuration:""});
     setIsSaving(false);
     setSaveNotice(null);
   }, [isOpen]);
@@ -7701,7 +7728,13 @@ function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,sta
   if (!isOpen) return null;
 
   const updateForm = patch => {
-    setForm(prev => ({...prev,...patch}));
+    setForm(prev => {
+      const next = {...prev,...patch};
+      if (Object.prototype.hasOwnProperty.call(patch,"incidentType")) {
+        next.observation = patch.incidentType === "No tipificacion" ? NO_TIPIFICATION_OBSERVATION : NO_CONNECTED_OBSERVATION;
+      }
+      return next;
+    });
     setSaveNotice(null);
   };
 
@@ -7714,19 +7747,51 @@ function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,sta
     try{
       setIsSaving(true);
       const profile = (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(form.advisorName)) || null;
-      const saved = await onSave({
-        advisor_name: form.advisorName,
-        advisor_id: profile?.usuarioAsignado || "",
-        campaign_name: form.campaignName,
-        call_id: form.callId,
-        incident_type: "No conectado",
-        incident_category: "Incidencia operativa",
-        observation: form.observation || NO_CONNECTED_OBSERVATION,
-        status: "Registrado",
-        currentUser
-      });
+      let saved = null;
+      if (form.incidentType === "No tipificacion") {
+        if (!String(form.phoneNumber || "").trim()) {
+          notify("e","El numero de telefono es obligatorio.");
+          setIsSaving(false);
+          return;
+        }
+        if (!String(form.callDateTime || "").trim()) {
+          notify("e","La fecha y hora de la llamada es obligatoria.");
+          setIsSaving(false);
+          return;
+        }
+        if (!String(form.callDuration || "").trim()) {
+          notify("e","La duracion de la llamada es obligatoria.");
+          setIsSaving(false);
+          return;
+        }
+        saved = await onSaveNoTipification({
+          asesorNombre: form.advisorName,
+          advisorUser: profile?.usuarioAsignado || "",
+          supervisor: profile?.supervisor || "",
+          coordinador: profile?.coordinador || "",
+          antiguedad: profile?.antiguedad || 0,
+          fechaIngreso: profile?.fechaIngreso || "",
+          managementTypeRuc: form.campaignName || profile?.tipoGestionRuc || "",
+          phoneNumber: form.phoneNumber,
+          callDateTime: new Date(form.callDateTime).toISOString(),
+          callDuration: form.callDuration,
+          currentUser
+        });
+      } else {
+        saved = await onSave({
+          advisor_name: form.advisorName,
+          advisor_id: profile?.usuarioAsignado || "",
+          campaign_name: form.campaignName,
+          call_id: form.callId,
+          incident_type: "No conectado",
+          incident_category: "Incidencia operativa",
+          observation: form.observation || NO_CONNECTED_OBSERVATION,
+          status: "Registrado",
+          currentUser
+        });
+      }
       if (!saved) throw new Error("No se pudo guardar la incidencia operativa.");
-      setSaveNotice({type:"success",message:"Incidencia registrada correctamente: No conectado."});
+      setSaveNotice({type:"success",message:`Incidencia registrada correctamente: ${form.incidentType}.`});
       setTimeout(() => onClose(), 800);
     }catch(err){
       const message = err?.message || "No se pudo guardar la incidencia operativa.";
@@ -7750,8 +7815,14 @@ function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,sta
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:16,marginBottom:18}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Asesor / ejecutivo"),h("select",{style:SEL,value:form.advisorName,onChange:ev=>updateForm({advisorName:ev.target.value})},h("option",{value:""},"Selecciona un asesor"),availableAdvisors.map(name=>h("option",{key:name,value:name},name)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Campana"),h("input",{style:INP,value:form.campaignName,onChange:ev=>updateForm({campaignName:ev.target.value}),placeholder:"Ej: Empresas B2B"})),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Codigo de llamada / caso"),h("input",{style:INP,value:form.callId,onChange:ev=>updateForm({callId:ev.target.value}),placeholder:"ID llamada, gestion o caso"})),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Tipo de incidencia"),h("input",{style:INP,value:"No conectado",disabled:true}))
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Tipo de incidencia"),h("select",{style:SEL,value:form.incidentType,onChange:ev=>updateForm({incidentType:ev.target.value})},h("option",{value:"No conectado"},"No conectado"),h("option",{value:"No tipificacion"},"No tipificacion"))),
+        form.incidentType === "No conectado"
+          ? h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Codigo de llamada / caso"),h("input",{style:INP,value:form.callId,onChange:ev=>updateForm({callId:ev.target.value}),placeholder:"ID llamada, gestion o caso"}))
+          : h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Numero de telefono"),h("input",{style:INP,value:form.phoneNumber,onChange:ev=>updateForm({phoneNumber:ev.target.value}),placeholder:"Ej: 987654321"}))
+      ),
+      form.incidentType === "No tipificacion" && h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:16,marginBottom:18}},
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Fecha y hora de llamada"),h("input",{type:"datetime-local",style:INP,value:form.callDateTime,onChange:ev=>updateForm({callDateTime:ev.target.value})})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Duracion de llamada"),h("input",{style:INP,value:form.callDuration,onChange:ev=>updateForm({callDuration:ev.target.value}),placeholder:"Ej: 05:32 o 5 min 32 seg"}))
       ),
       h("div",{style:{marginBottom:22}},
         h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Observacion"),
@@ -7765,14 +7836,18 @@ function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,sta
   );
 }
 
-function OperationalIncidentsCenter({records,currentUser,advisorOptions,staffing,onSave,notify}){
+function OperationalIncidentsCenter({records,noTipificationRecords,currentUser,advisorOptions,staffing,onSave,onSaveNoTipification,notify}){
   const [modalOpen,setModalOpen] = useState(false);
-  const [filters,setFilters] = useState({dateFrom:"",dateTo:"",monitor:"all",advisor:"all",campaign:"all",status:"all"});
-  const rows = useMemo(() => (Array.isArray(records) ? records : []).map(normalizeOperationalIncident).filter(row => normalizeComparableValue(row.incidentType) === "no conectado"), [records]);
+  const [filters,setFilters] = useState({dateFrom:"",dateTo:"",monitor:"all",advisor:"all",campaign:"all",type:"all",status:"all"});
+  const rows = useMemo(() => [
+    ...(Array.isArray(records) ? records : []).map(normalizeOperationalIncident),
+    ...(Array.isArray(noTipificationRecords) ? noTipificationRecords : []).map(normalizeNoTipificationIncident)
+  ].filter(row => ["no conectado","no tipificacion"].includes(normalizeComparableValue(row.incidentType))), [records,noTipificationRecords]);
   const options = useMemo(() => ({
     monitors: uniqueSortedValues(rows.map(row => row.monitorName)),
     advisors: uniqueSortedValues(rows.map(row => row.advisorName)),
     campaigns: uniqueSortedValues(rows.map(row => row.campaignName)),
+    types: uniqueSortedValues(rows.map(row => row.incidentType)),
     statuses: uniqueSortedValues(rows.map(row => row.status))
   }), [rows]);
   const filteredRows = useMemo(() => rows.filter(row => {
@@ -7780,20 +7855,22 @@ function OperationalIncidentsCenter({records,currentUser,advisorOptions,staffing
     if (filters.monitor !== "all" && row.monitorName !== filters.monitor) return false;
     if (filters.advisor !== "all" && row.advisorName !== filters.advisor) return false;
     if (filters.campaign !== "all" && row.campaignName !== filters.campaign) return false;
+    if (filters.type !== "all" && row.incidentType !== filters.type) return false;
     if (filters.status !== "all" && row.status !== filters.status) return false;
     return true;
   }).sort((a,b)=>getDateMs(b.createdAt)-getDateMs(a.createdAt)), [rows,filters]);
-  const byDateConfig = useMemo(() => buildOperationalIncidentChartConfig("No conectado por fecha", filteredRows, row => getOperationalIncidentDateLabel(row.createdAt), "No conectado"), [filteredRows]);
-  const byAdvisorConfig = useMemo(() => buildOperationalIncidentChartConfig("No conectado por asesor", filteredRows, row => row.advisorName || "Sin asesor", "Incidencias"), [filteredRows]);
-  const byMonitorConfig = useMemo(() => buildOperationalIncidentChartConfig("No conectado por monitor", filteredRows, row => row.monitorName || "Sin monitor", "Incidencias"), [filteredRows]);
-  const byCampaignConfig = useMemo(() => buildOperationalIncidentChartConfig("No conectado por campana", filteredRows, row => row.campaignName || "Sin campana", "Incidencias"), [filteredRows]);
+  const byDateConfig = useMemo(() => buildOperationalIncidentChartConfig("Incidencias por fecha", filteredRows, row => getOperationalIncidentDateLabel(row.createdAt), "Incidencias"), [filteredRows]);
+  const byAdvisorConfig = useMemo(() => buildOperationalIncidentChartConfig("Incidencias por asesor", filteredRows, row => row.advisorName || "Sin asesor", "Incidencias"), [filteredRows]);
+  const byMonitorConfig = useMemo(() => buildOperationalIncidentChartConfig("Incidencias por monitor", filteredRows, row => row.monitorName || "Sin monitor", "Incidencias"), [filteredRows]);
+  const byCampaignConfig = useMemo(() => buildOperationalIncidentChartConfig("Incidencias por campana", filteredRows, row => row.campaignName || "Sin campana", "Incidencias"), [filteredRows]);
+  const byTypeConfig = useMemo(() => buildOperationalIncidentChartConfig("Incidencias por tipo", filteredRows, row => row.incidentType || "Sin tipo", "Incidencias"), [filteredRows]);
 
   return h("div",null,
     h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:28}},
       h("div",null,
         h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.35em",fontFamily:THEME.displayFont,marginBottom:10}},"OPERACION"),
         h("h1",{style:{fontSize:38,color:"#fff",margin:"0 0 8px"}},"Incidencias operativas"),
-        h("div",{style:{color:"#9fb0d8",lineHeight:1.7,maxWidth:820}},"Registra y analiza incidencias No conectado fuera de la ficha de calidad. No generan puntaje, no afectan promedio y no cuentan como evaluacion completada.")
+        h("div",{style:{color:"#9fb0d8",lineHeight:1.7,maxWidth:820}},"Registra y analiza No conectado y No tipificacion fuera de la ficha de calidad. No generan puntaje, no afectan promedio y no cuentan como evaluacion completada.")
       ),
       h("button",{style:{...BTN("pink"),padding:"12px 16px"},onClick:()=>setModalOpen(true)},I("alert",14,"#fff"),"REGISTRAR INCIDENCIA")
     ),
@@ -7804,25 +7881,29 @@ function OperationalIncidentsCenter({records,currentUser,advisorOptions,staffing
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:7}},"Monitor"),h("select",{style:SEL,value:filters.monitor,onChange:ev=>setFilters({...filters,monitor:ev.target.value})},h("option",{value:"all"},"Todos"),options.monitors.map(value=>h("option",{key:value,value},value)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:7}},"Asesor"),h("select",{style:SEL,value:filters.advisor,onChange:ev=>setFilters({...filters,advisor:ev.target.value})},h("option",{value:"all"},"Todos"),options.advisors.map(value=>h("option",{key:value,value},value)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:7}},"Campana"),h("select",{style:SEL,value:filters.campaign,onChange:ev=>setFilters({...filters,campaign:ev.target.value})},h("option",{value:"all"},"Todas"),options.campaigns.map(value=>h("option",{key:value,value},value)))),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:7}},"Tipo"),h("select",{style:SEL,value:filters.type,onChange:ev=>setFilters({...filters,type:ev.target.value})},h("option",{value:"all"},"Todos"),options.types.map(value=>h("option",{key:value,value},value)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:7}},"Estado"),h("select",{style:SEL,value:filters.status,onChange:ev=>setFilters({...filters,status:ev.target.value})},h("option",{value:"all"},"Todos"),options.statuses.map(value=>h("option",{key:value,value},value))))
       )
     ),
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16,marginBottom:20}},
-      h(ImprovementKpiCard,{label:"No conectado",value:filteredRows.length,caption:"Incidencias operativas filtradas",color:THEME.accent}),
+      h(ImprovementKpiCard,{label:"Incidencias",value:filteredRows.length,caption:"Registros operativos filtrados",color:THEME.accent}),
+      h(ImprovementKpiCard,{label:"No conectado",value:filteredRows.filter(row=>normalizeComparableValue(row.incidentType)==="no conectado").length,caption:"Sin audio para auditar",color:THEME.primary}),
+      h(ImprovementKpiCard,{label:"No tipificacion",value:filteredRows.filter(row=>normalizeComparableValue(row.incidentType)==="no tipificacion").length,caption:"Llamadas sin tipificacion",color:"#FFB000"}),
       h(ImprovementKpiCard,{label:"Asesores impactados",value:new Set(filteredRows.map(row=>row.advisorName).filter(Boolean)).size,caption:"No afecta promedio de calidad",color:THEME.primary}),
       h(ImprovementKpiCard,{label:"Monitores",value:new Set(filteredRows.map(row=>row.monitorName).filter(Boolean)).size,caption:"Usuarios que registraron",color:"#19C37D"})
     ),
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(360px,1fr))",gap:20,marginBottom:20}},
-      h(AnalyticsChart,{title:"Cantidad por fecha",subtitle:"Volumen de incidencias No conectado por fecha de registro.",config:byDateConfig,height:280,emptyMessage:"No hay incidencias No conectado para el periodo seleccionado."}),
-      h(AnalyticsChart,{title:"Cantidad por asesor",subtitle:"Asesores con incidencias No conectado registradas.",config:byAdvisorConfig,height:280,emptyMessage:"No hay asesores para graficar."}),
+      h(AnalyticsChart,{title:"Cantidad por tipo",subtitle:"Distribucion entre No conectado y No tipificacion.",config:byTypeConfig,height:280,emptyMessage:"No hay incidencias para graficar."}),
+      h(AnalyticsChart,{title:"Cantidad por fecha",subtitle:"Volumen de incidencias por fecha de registro.",config:byDateConfig,height:280,emptyMessage:"No hay incidencias para el periodo seleccionado."}),
+      h(AnalyticsChart,{title:"Cantidad por asesor",subtitle:"Asesores con incidencias operativas registradas.",config:byAdvisorConfig,height:280,emptyMessage:"No hay asesores para graficar."}),
       h(AnalyticsChart,{title:"Cantidad por monitor",subtitle:"Monitores que registraron incidencias operativas.",config:byMonitorConfig,height:280,emptyMessage:"No hay monitores para graficar."}),
-      h(AnalyticsChart,{title:"Cantidad por campana",subtitle:"Distribucion de No conectado por campana.",config:byCampaignConfig,height:280,emptyMessage:"No hay campanas para graficar."})
+      h(AnalyticsChart,{title:"Cantidad por campana",subtitle:"Distribucion de incidencias por campana.",config:byCampaignConfig,height:280,emptyMessage:"No hay campanas para graficar."})
     ),
     h("div",{style:CARD},
       h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,marginBottom:14}},
         h("div",null,h("div",{style:{fontSize:12,color:"#fff",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em",fontFamily:THEME.displayFont}},"Listado de incidencias operativas"),h("div",{style:{fontSize:11,color:"#8b92a5",marginTop:6}},`${filteredRows.length} registro(s) filtrados`))
       ),
-      h(SimpleDataTable,{rows:filteredRows,emptyMessage:"No hay incidencias operativas No conectado registradas.",columns:[
+      h(SimpleDataTable,{rows:filteredRows,emptyMessage:"No hay incidencias operativas registradas.",columns:[
         {key:"createdAt",label:"Fecha",render:row=>formatFeedbackDate(row.createdAt)},
         {key:"monitorName",label:"Monitor",bold:true},
         {key:"advisorName",label:"Asesor",bold:true},
@@ -7832,7 +7913,7 @@ function OperationalIncidentsCenter({records,currentUser,advisorOptions,staffing
         {key:"status",label:"Estado",render:row=>h("span",{style:{color:"#19C37D",fontWeight:900}},row.status || "Registrado")}
       ]})
     ),
-    h(OperationalIncidentModal,{isOpen:modalOpen,onClose:()=>setModalOpen(false),currentUser,advisorOptions,staffing,onSave,notify})
+    h(OperationalIncidentModal,{isOpen:modalOpen,onClose:()=>setModalOpen(false),currentUser,advisorOptions,staffing,onSave,onSaveNoTipification,notify})
   );
 }
 
