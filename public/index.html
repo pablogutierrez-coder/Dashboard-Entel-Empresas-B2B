@@ -136,11 +136,39 @@ function isStaffingActive(item) {
   return !isInactiveProfileStatus(item?.estado || item?.status || item?.estadoDotacion || "activo");
 }
 
+const DEFAULT_USER_PASSWORD = "123456";
+const PASSWORD_MAX_AGE_DAYS = 30;
+
+function normalizeBooleanFlag(value) {
+  if (value === true) return true;
+  return ["true", "1", "si", "yes", "y"].includes(String(value || "").trim().toLowerCase());
+}
+
+function isAdminUser(user) {
+  return String(user?.rol || "").trim().toLowerCase() === "admin";
+}
+
+function getPasswordDateMs(user) {
+  const value = user?.passwordChangedAt || user?.passwordUpdatedAt || user?.lastPasswordChangeAt || user?.updatedPasswordAt || "";
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function getPasswordChangeReason(user) {
+  if (!user || isAdminUser(user)) return "";
+  if (normalizeBooleanFlag(user.mustChangePassword || user.forcePasswordChange || user.requirePasswordChange)) return "first_login";
+  const changedAtMs = getPasswordDateMs(user);
+  if (!changedAtMs) return "expired";
+  const ageDays = (Date.now() - changedAtMs) / 86400000;
+  return ageDays >= PASSWORD_MAX_AGE_DAYS ? "expired" : "";
+}
+
 function normalizeUserRecord(user) {
   if (!user || typeof user !== "object") return null;
   const usuario = cleanUsername(user.usuario || user.user || user.username);
   if (!usuario) return null;
   const rol = String(user.rol || user.role || "analista").trim().toLowerCase();
+  const passwordChangedAt = user.passwordChangedAt || user.passwordUpdatedAt || user.lastPasswordChangeAt || user.updatedPasswordAt || "";
   return {
     ...user,
     id: user.id || usuario,
@@ -153,7 +181,9 @@ function normalizeUserRecord(user) {
     area: String(user.area || "").trim(),
     campaign: String(user.campaign || user.campana || "").trim(),
     supervisorId: String(user.supervisorId || user.supervisorUser || "").trim(),
-    estado: normalizeProfileStatus(user.estado || "activo")
+    estado: normalizeProfileStatus(user.estado || "activo"),
+    mustChangePassword: normalizeBooleanFlag(user.mustChangePassword || user.forcePasswordChange || user.requirePasswordChange),
+    passwordChangedAt: passwordChangedAt ? String(passwordChangedAt).trim() : ""
   };
 }
 
@@ -174,7 +204,9 @@ function normalizeUsersList(users) {
       area: normalized.area || existing.area || "",
       campaign: normalized.campaign || existing.campaign || "",
       supervisorId: normalized.supervisorId || existing.supervisorId || "",
-      estado: normalized.estado || existing.estado || "activo"
+      estado: normalized.estado || existing.estado || "activo",
+      mustChangePassword: normalized.mustChangePassword,
+      passwordChangedAt: normalized.passwordChangedAt || existing.passwordChangedAt || ""
     });
   });
   return [...byLogin.values()];
@@ -2184,7 +2216,11 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
         if (isInactiveProfileStatus(status)) {
           setErr("Este usuario esta inactivo. Solicita activacion al administrador.");
         } else {
-          onLogin(found);
+          onLogin({
+            ...found,
+            passwordChangeReason: getPasswordChangeReason(found),
+            passwordChangeRequired: Boolean(getPasswordChangeReason(found))
+          });
         }
       }
       else {
@@ -2239,8 +2275,80 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
   );
 }
 
+function PasswordChangeModal({currentUser,onChangePassword}) {
+  const [nextPassword,setNextPassword] = useState("");
+  const [confirmPassword,setConfirmPassword] = useState("");
+  const [showPassword,setShowPassword] = useState(false);
+  const [saving,setSaving] = useState(false);
+  const [err,setErr] = useState("");
+  const reason = currentUser?.passwordChangeReason === "expired"
+    ? "Tu contrasena supero los 30 dias de vigencia. Debes actualizarla para continuar."
+    : "Por seguridad, debes cambiar la contrasena por defecto antes de continuar.";
+
+  const submit = async() => {
+    if (saving) return;
+    setErr("");
+    const cleanNext = String(nextPassword || "").trim();
+    if (cleanNext.length < 6) {
+      setErr("La nueva contrasena debe tener al menos 6 caracteres.");
+      return;
+    }
+    if (cleanNext === DEFAULT_USER_PASSWORD) {
+      setErr("No puedes usar la contrasena por defecto.");
+      return;
+    }
+    if (cleanNext === String(currentUser?.password || "").trim()) {
+      setErr("La nueva contrasena debe ser distinta a la actual.");
+      return;
+    }
+    if (cleanNext !== String(confirmPassword || "").trim()) {
+      setErr("Las contrasenas no coinciden.");
+      return;
+    }
+    try{
+      setSaving(true);
+      const ok = await onChangePassword(cleanNext);
+      if (ok === false) throw new Error("No se pudo actualizar la contrasena.");
+    }catch(error){
+      setErr(error?.message || "No se pudo actualizar la contrasena.");
+    }finally{
+      setSaving(false);
+    }
+  };
+
+  return h("div",{style:{position:"fixed",inset:0,background:"rgba(11,11,18,0.96)",backdropFilter:"blur(8px)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+    h("div",{style:{width:"100%",maxWidth:520,background:"linear-gradient(180deg, rgba(18,19,29,0.98) 0%, rgba(22,12,40,0.98) 100%)",border:`1px solid ${THEME.border}`,borderRadius:22,padding:30,boxShadow:THEME.glowViolet}},
+      h("div",{style:{display:"flex",alignItems:"center",gap:14,marginBottom:18}},
+        h("div",{style:{width:48,height:48,borderRadius:14,background:THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center"}},I("lock",22,"#fff")),
+        h("div",null,
+          h("div",{style:{fontSize:22,fontWeight:900,color:"#fff",marginBottom:4}},"Cambia tu contrasena"),
+          h("div",{style:{fontSize:12,color:"#9fb0d8",lineHeight:1.5}},reason)
+        )
+      ),
+      h("div",{style:{fontSize:12,color:"#8b92a5",marginBottom:18,lineHeight:1.6}},
+        "Usuario: ", h("strong",{style:{color:"#fff"}},currentUser?.usuario || "-")
+      ),
+      h("div",{style:{display:"grid",gap:14,marginBottom:18}},
+        h("div",null,
+          h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.12em",fontWeight:800,marginBottom:8}},"Nueva contrasena"),
+          h("div",{style:{position:"relative"}},
+            h("input",{type:showPassword ? "text" : "password",style:{...INP,paddingRight:44},value:nextPassword,onChange:ev=>setNextPassword(ev.target.value),onKeyDown:ev=>ev.key==="Enter"&&submit(),autoFocus:true}),
+            h("button",{style:{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:0,cursor:"pointer",padding:4},onClick:()=>setShowPassword(prev=>!prev)},I("eye",16,THEME.muted))
+          )
+        ),
+        h("div",null,
+          h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.12em",fontWeight:800,marginBottom:8}},"Confirmar contrasena"),
+          h("input",{type:showPassword ? "text" : "password",style:INP,value:confirmPassword,onChange:ev=>setConfirmPassword(ev.target.value),onKeyDown:ev=>ev.key==="Enter"&&submit()})
+        )
+      ),
+      err && h("div",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.34)",borderRadius:12,padding:"11px 13px",fontSize:12,color:THEME.accent,marginBottom:16,fontWeight:700}},err),
+      h("button",{style:{...BTN("pink"),width:"100%",justifyContent:"center",padding:"14px 18px",opacity:saving?0.65:1},disabled:saving,onClick:submit},saving ? "ACTUALIZANDO..." : "ACTUALIZAR CONTRASENA")
+    )
+  );
+}
+
 function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPassword,notify,staffing}){
-  const [form,setForm] = useState({nombre:"",usuario:"",password:"",rol:"analista",assessorName:"",correo:"",area:"",campaign:"",supervisorId:"",estado:"activo"});
+  const [form,setForm] = useState({nombre:"",usuario:"",rol:"analista",assessorName:"",correo:"",area:"",campaign:"",supervisorId:"",estado:"activo"});
   const [err,setErr] = useState("");
   const [openMenuUser,setOpenMenuUser] = useState("");
   const staffingAdvisorOptions = useMemo(() => getStaffingAdvisorOptions(staffing), [staffing]);
@@ -2250,7 +2358,6 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPas
     if (!form.nombre.trim() && form.rol !== "asesor") { setErr("El nombre es requerido."); return; }
     const cleanedUser = cleanUsername(form.usuario);
     if (!cleanedUser) { setErr("El usuario es requerido."); return; }
-    if (!form.password.trim()) { setErr("La contrasena es requerida."); return; }
     if (normalizeUsersList(users).find(u => normalizeLoginKey(u.usuario) === normalizeLoginKey(cleanedUser))) { setErr("Ese usuario ya existe."); return; }
     const normalizedAssessor = normalizeName(form.assessorName);
     if (form.rol === "asesor") {
@@ -2263,12 +2370,14 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPas
       id: Date.now(),
       nombre:form.rol === "asesor" ? normalizedAssessor : form.nombre.trim(),
       usuario:cleanedUser,
-      password:form.password.trim(),
+      password:DEFAULT_USER_PASSWORD,
       correo:String(form.correo||"").trim(),
       area:String(form.area||"").trim(),
       campaign:String(form.campaign||"").trim(),
       supervisorId:String(form.supervisorId||"").trim(),
       estado:String(form.estado||"activo").trim(),
+      mustChangePassword:form.rol !== "admin",
+      passwordChangedAt:"",
       assessorName:form.rol === "asesor" ? normalizedAssessor : ""
     });
     const ok = await onAddUser(normalizedUser);
@@ -2276,7 +2385,7 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPas
       setErr("No se pudo guardar el usuario.");
       return;
     }
-    setForm({nombre:"",usuario:"",password:"",rol:"analista",assessorName:"",correo:"",area:"",campaign:"",supervisorId:"",estado:"activo"});
+    setForm({nombre:"",usuario:"",rol:"analista",assessorName:"",correo:"",area:"",campaign:"",supervisorId:"",estado:"activo"});
     notify("s","Usuario creado exitosamente.");
   };
 
@@ -2299,7 +2408,7 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPas
     }
     const ok = await onResetPassword?.(usr, String(nextPassword).trim());
     if (ok !== false) {
-      notify("s","Contrasena actualizada.");
+      notify("s","Contrasena actualizada. El usuario debera cambiarla al ingresar.");
       setOpenMenuUser("");
       return;
     }
@@ -2312,13 +2421,14 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPas
       h("span",{style:{fontSize:12,color:"#8b92a5"}},"Exclusivo para Administradores")
     ),
     h("div",{style:{...CARD,borderTop: `4px solid ${THEME.accent}`}},
-      h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:20,display:"flex",alignItems:"center",gap:8}}, I("useradd",14,"#8b92a5"), "Crear nuevo usuario"),
+      h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:10,display:"flex",alignItems:"center",gap:8}}, I("useradd",14,"#8b92a5"), "Crear nuevo usuario"),
+      h("div",{style:{fontSize:12,color:"#9fb0d8",marginBottom:20,lineHeight:1.6}},"La contrasena inicial sera 123456. En el primer ingreso el usuario debera cambiarla obligatoriamente."),
       h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Nombre completo"),h("input",{style:INP,placeholder:"Ej: Ana Flores",value:form.nombre,onChange:ev => setForm({...form,nombre:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Usuario"),h("input",{style:INP,placeholder:"Ej: ana.flores",value:form.usuario,onChange:ev => setForm({...form,usuario:ev.target.value})}))
       ),
       h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}},
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Contrasena"),h("input",{type:"password",style:INP,placeholder:"******",value:form.password,onChange:ev => setForm({...form,password:ev.target.value})})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Contrasena inicial"),h("input",{style:INP,value:DEFAULT_USER_PASSWORD,disabled:true})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Rol"),h("select",{style:SEL,value:form.rol,onChange:ev => setForm({...form,rol:ev.target.value,assessorName:ev.target.value === "asesor" ? form.assessorName : ""})},h("option",{value:"analista"},"Analista"),h("option",{value:"formador"},"Formador"),h("option",{value:"supervisor"},"Supervisor"),h("option",{value:"referente_experto"},"Referente Experto"),h("option",{value:"asesor"},"Asesor"),h("option",{value:"admin"},"Administrador")))
       ),
       h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}},
@@ -4859,11 +4969,35 @@ function App(){
       notify("e","No se encontro el usuario para resetear contrasena.");
       return false;
     }
-    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, password: nextPassword, updatedAt:new Date().toISOString()} : u);
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, password: nextPassword, mustChangePassword:!isAdminUser(u), passwordChangedAt:"", updatedAt:new Date().toISOString()} : u);
     const saved = await saveUsers(updated);
     if (saved === false) { notify("e","No se pudo guardar la nueva contrasena en la base."); return false; }
     setUsers(updated);
     notify("s","Contrasena reseteada correctamente.");
+    return true;
+  };
+
+  const cambiarContrasenaActual = async(nuevaContrasena) => {
+    if (!currentUser?.usuario) return false;
+    const normalizedUserKey = normalizeLoginKey(currentUser.usuario);
+    const nextPassword = String(nuevaContrasena || "").trim();
+    if (!normalizedUserKey || !nextPassword) return false;
+    const latestUsers = await loadUsers().catch(() => users);
+    const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
+    const now = new Date().toISOString();
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey
+      ? {...u, password:nextPassword, mustChangePassword:false, passwordChangedAt:now, updatedAt:now}
+      : u
+    );
+    const saved = await saveUsers(updated);
+    if (saved === false) {
+      notify("e","No se pudo actualizar la contrasena.");
+      return false;
+    }
+    const updatedUser = updated.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+    setUsers(updated);
+    setCurrentUser({...currentUser,...updatedUser,passwordChangeRequired:false,passwordChangeReason:""});
+    notify("s","Contrasena actualizada correctamente.");
     return true;
   };
 
@@ -6305,11 +6439,35 @@ function App(){
       notify("e","No se encontro el usuario para resetear contrasena.");
       return false;
     }
-    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, password: nextPassword, updatedAt:new Date().toISOString()} : u);
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, password: nextPassword, mustChangePassword:!isAdminUser(u), passwordChangedAt:"", updatedAt:new Date().toISOString()} : u);
     const saved = await saveUsers(updated);
     if (saved === false) { notify("e","No se pudo guardar la nueva contrasena en la base."); return false; }
     setUsers(updated);
     notify("s","Contrasena reseteada correctamente.");
+    return true;
+  };
+
+  const cambiarContrasenaActual = async(nuevaContrasena) => {
+    if (!currentUser?.usuario) return false;
+    const normalizedUserKey = normalizeLoginKey(currentUser.usuario);
+    const nextPassword = String(nuevaContrasena || "").trim();
+    if (!normalizedUserKey || !nextPassword) return false;
+    const latestUsers = await loadUsers().catch(() => users);
+    const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
+    const now = new Date().toISOString();
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey
+      ? {...u, password:nextPassword, mustChangePassword:false, passwordChangedAt:now, updatedAt:now}
+      : u
+    );
+    const saved = await saveUsers(updated);
+    if (saved === false) {
+      notify("e","No se pudo actualizar la contrasena.");
+      return false;
+    }
+    const updatedUser = updated.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+    setUsers(updated);
+    setCurrentUser({...currentUser,...updatedUser,passwordChangeRequired:false,passwordChangeReason:""});
+    notify("s","Contrasena actualizada correctamente.");
     return true;
   };
 
@@ -6686,6 +6844,7 @@ function App(){
     toast && h("div",{style:{position:"fixed",bottom:112,right:30,background:toast.type==="s"?THEME.primary:THEME.accent,color:THEME.white,padding:"16px 24px",borderRadius:14,fontSize:13,fontWeight:800,boxShadow:"0 10px 30px rgba(0,0,0,0.3)",zIndex:2000,letterSpacing:"0.08em",fontFamily:THEME.displayFont}},toast.msg),
     h(TigerChatWidget,{currentUser,messages:chatMessages,isOpen:chatOpen,onToggle:()=>setChatOpen(prev=>!prev),onSendMessage:sendInternalChatMessage,sending:chatSending}),
     h(UserManualModal,{isOpen:manualOpen,currentUser,onClose:()=>setManualOpen(false)}),
+    currentUser?.passwordChangeRequired && !isAdminUser(currentUser) && h(PasswordChangeModal,{currentUser,onChangePassword:cambiarContrasenaActual}),
     h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor:feedbackModalAssessor || "",notify}),
     h(NoTipificationModal,{isOpen:!!selectedNoTipificationEntry,onClose:closeNoTipificationModal,entryContext:selectedNoTipificationEntry,currentUser,onSave:guardarNoTipificacion,notify}),
     h(EvaluationModal,{isOpen:!!selectedEvaluationFeedback,onClose:closeEvaluationModal,feedbackRecord:selectedEvaluationFeedback,evaluationRecord:editingEvaluation,currentUser,onSave:guardarEvaluacion,onUpdate:actualizarEvaluacion,notify}),
