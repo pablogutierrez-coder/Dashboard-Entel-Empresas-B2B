@@ -681,6 +681,10 @@ async function saveCalibrationSessionEntry(payload){
   return await runGoogleScriptWithTimeout("saveCalibrationSession", [payload], 60000);
 }
 
+async function deleteCalibrationSessionEntry(payload){
+  return await runGoogleScriptWithTimeout("deleteCalibrationSession", [payload], 45000);
+}
+
 async function updateCalibrationStatusEntry(payload){
   return await runGoogleScriptWithTimeout("updateCalibrationStatus", [payload], 45000);
 }
@@ -1083,6 +1087,15 @@ function parseAppDate(value){
   }
   const parsed = new Date(text);
   return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+async function deleteFeedbackEntry(payload){
+  try{
+    return await runGoogleScript("deleteFeedbackRecord", payload);
+  }catch(err){
+    console.error("Error eliminando feedback:", err);
+    throw err;
+  }
 }
 
 function toDate(v){
@@ -3545,6 +3558,7 @@ function App(){
   const [chatSending,setChatSending] = useState(false);
   const [manualOpen,setManualOpen] = useState(false);
   const [feedbackModalAssessor,setFeedbackModalAssessor] = useState(null);
+  const [editingFeedbackRecord,setEditingFeedbackRecord] = useState(null);
   const [view,setView] = useState("home");
   const [toast,setToast] = useState(null);
   const [raw,setRaw] = useState([]);
@@ -4317,7 +4331,7 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
   );
 }
 
-function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor,notify}){
+function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor,editingRecord,notify}){
   const initialSupervisor = ((advisorProfiles || []).find(profile => profile.advisorName === normalizeName(defaultAssessor)) || {})?.supervisor || "";
   const [form,setForm] = useState({assessor:defaultAssessor || "",supervisorName:initialSupervisor,supervisorUser:"",tipoGestion:String(currentUser?.rol||"").trim().toLowerCase()==="formador" ? "Refuerzo" : "Feedback",clasificacionFeedback:"",tipoRefuerzo:"",campaign:"",meetingType:"Presencial",feedbackDate:toDatetimeLocalValue(),resultadoGeneral:"",feedbackText:"",observacionGeneral:"",compromisoMejora:"",scheduledMeetingAt:"",notificationEmail:"",meetingLink:""});
   const [audioFile,setAudioFile] = useState(null);
@@ -4327,12 +4341,29 @@ function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisor
   useEffect(() => {
     if (isOpen) {
       const defaultSupervisor = ((advisorProfiles || []).find(profile => profile.advisorName === normalizeName(defaultAssessor)) || {})?.supervisor || "";
-      setForm({assessor:defaultAssessor || "",supervisorName:defaultSupervisor,supervisorUser:"",tipoGestion:String(currentUser?.rol||"").trim().toLowerCase()==="formador" ? "Refuerzo" : "Feedback",clasificacionFeedback:"",tipoRefuerzo:"",campaign:"",meetingType:"Presencial",feedbackDate:toDatetimeLocalValue(),resultadoGeneral:"",feedbackText:"",observacionGeneral:"",compromisoMejora:"",scheduledMeetingAt:"",notificationEmail:"",meetingLink:""});
+      setForm(editingRecord ? {
+        assessor: editingRecord.asesorNombre || editingRecord.assessor || "",
+        supervisorName: editingRecord.supervisorName || editingRecord.supervisor || defaultSupervisor,
+        supervisorUser: editingRecord.supervisorUser || "",
+        tipoGestion: editingRecord.tipoGestion || editingRecord.feedbackCategory || "Feedback",
+        clasificacionFeedback: editingRecord.clasificacionFeedback || "",
+        tipoRefuerzo: editingRecord.tipoRefuerzo || "",
+        campaign: editingRecord.campaign || "",
+        meetingType: editingRecord.meetingType || "Presencial",
+        feedbackDate: toDatetimeLocalValue(editingRecord.feedbackDate || editingRecord.createdAt),
+        resultadoGeneral: editingRecord.resultadoGeneral || "",
+        feedbackText: editingRecord.feedbackText || "",
+        observacionGeneral: editingRecord.observacionGeneral || "",
+        compromisoMejora: editingRecord.compromisoMejora || "",
+        scheduledMeetingAt: editingRecord.scheduledMeetingAt ? toDatetimeLocalValue(editingRecord.scheduledMeetingAt) : "",
+        notificationEmail: editingRecord.notificationEmail || "",
+        meetingLink: editingRecord.meetingLink || ""
+      } : {assessor:defaultAssessor || "",supervisorName:defaultSupervisor,supervisorUser:"",tipoGestion:String(currentUser?.rol||"").trim().toLowerCase()==="formador" ? "Refuerzo" : "Feedback",clasificacionFeedback:"",tipoRefuerzo:"",campaign:"",meetingType:"Presencial",feedbackDate:toDatetimeLocalValue(),resultadoGeneral:"",feedbackText:"",observacionGeneral:"",compromisoMejora:"",scheduledMeetingAt:"",notificationEmail:"",meetingLink:""});
       setAudioFile(null);
       setDocFile(null);
       setSaving(false);
     }
-  }, [isOpen, defaultAssessor, currentUser, advisorProfiles]);
+  }, [isOpen, defaultAssessor, currentUser, advisorProfiles, editingRecord]);
 
   if (!isOpen) return null;
 
@@ -4360,6 +4391,7 @@ function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisor
     try{
       const attachments = (await Promise.all([prepareAttachment(audioFile,"audio"),prepareAttachment(docFile,"document")])).filter(Boolean);
       const payload = {
+        id: editingRecord?.id || undefined,
         assessor: form.assessor.trim().toUpperCase(),
         asesorNombre: form.assessor.trim().toUpperCase(),
         authorName: currentUser.nombre,
@@ -4397,7 +4429,7 @@ function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisor
   return h("div",{style:{position:"fixed",inset:0,background:"rgba(11,17,33,0.92)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1200,padding:20}},
     h("div",{style:{background:"linear-gradient(180deg, rgba(18,19,29,0.98) 0%, rgba(22,12,40,0.98) 100%)",border: `1px solid ${THEME.border}`,borderRadius:20,padding:28,width:"100%",maxWidth:860,maxHeight:"92vh",overflowY:"auto",boxShadow:THEME.glowViolet}},
       h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24}},
-        h("div",null,h("div",{style:{fontSize:20,fontWeight:800,color:"#fff",marginBottom:6}},"Crear feedback"),h("div",{style:{fontSize:12,color:"#8b92a5"}},"Formulario con tipo de gestion, clasificacion y compromiso de mejora")),
+        h("div",null,h("div",{style:{fontSize:20,fontWeight:800,color:"#fff",marginBottom:6}},editingRecord ? "Corregir feedback" : "Crear feedback"),h("div",{style:{fontSize:12,color:"#8b92a5"}},editingRecord ? "Actualiza los datos sin perder adjuntos, validaciones ni conversación." : "Formulario con tipo de gestion, clasificacion y compromiso de mejora")),
         h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:onClose},"CERRAR")
       ),
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16,marginBottom:16}},
@@ -4440,12 +4472,12 @@ function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisor
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Audio"),h("input",{type:"file",accept:"audio/*",style:inputFileStyle,onChange:ev=>setAudioFile(ev.target.files?.[0] || null)}),audioFile && h("div",{style:{fontSize:11,color:"#8b92a5",marginTop:8}},audioFile.name)),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Documento"),h("input",{type:"file",accept:".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain",style:inputFileStyle,onChange:ev=>setDocFile(ev.target.files?.[0] || null)}),docFile && h("div",{style:{fontSize:11,color:"#8b92a5",marginTop:8}},docFile.name))
       ),
-      h("div",{style:{display:"flex",gap:16,justifyContent:"flex-end"}},h("button",{style:{...BTN("s"),justifyContent:"center"},onClick:onClose,disabled:saving},"CANCELAR"),h("button",{style:{...BTN("pink"),justifyContent:"center"},onClick:save,disabled:saving},saving ? "GUARDANDO..." : "GUARDAR FEEDBACK"))
+      h("div",{style:{display:"flex",gap:16,justifyContent:"flex-end"}},h("button",{style:{...BTN("s"),justifyContent:"center"},onClick:onClose,disabled:saving},"CANCELAR"),h("button",{style:{...BTN("pink"),justifyContent:"center"},onClick:save,disabled:saving},saving ? "GUARDANDO..." : editingRecord ? "GUARDAR CAMBIOS" : "GUARDAR FEEDBACK"))
     )
   );
 }
 
-function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpenEvaluation,onOpenPreview,advisorOptions,currentUser,notify,staffing}){
+function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onEditFeedback,onDeleteFeedback,onOpenEvaluation,onOpenPreview,advisorOptions,currentUser,notify,staffing}){
   const [filters,setFilters] = useState({dateFrom:"",dateTo:"",advisor:"all",author:"all",management:"all",classification:"all",status:"all",search:""});
   const role = String(currentUser?.rol||"").trim().toLowerCase();
 
@@ -4603,6 +4635,8 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onOpen
                 h("td",{style:{padding:"14px 16px"}},
                   h("div",{style:{display:"flex",flexWrap:"wrap",gap:8}},
                     h("button",{style:{...BTN("s"),padding:"8px 12px"},onClick:()=>onOpenPreview(record)},"VER FICHA"),
+                    ["admin","analista"].includes(role) && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onEditFeedback(record)},"EDITAR"),
+                    role === "admin" && h("button",{style:{...BTN("out"),padding:"8px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>onDeleteFeedback(record)},"ELIMINAR"),
                     canFillEvaluation(currentUser) && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onOpenEvaluation(record)},evaluation ? "EDITAR EVAL." : "REGISTRAR EVAL.")
                   )
                 )
@@ -5097,7 +5131,7 @@ function App(){
       return null;
     }
     await reloadFeedbackRecords();
-    notify("s","Feedback registrado correctamente.");
+    notify("s",payload?.id ? "Feedback actualizado correctamente." : "Feedback registrado correctamente.");
     if (view !== "feedback") setView("feedback");
     return saved;
   };
@@ -6130,6 +6164,7 @@ function App(){
   const [chatSending,setChatSending] = useState(false);
   const [manualOpen,setManualOpen] = useState(false);
   const [feedbackModalAssessor,setFeedbackModalAssessor] = useState(null);
+  const [editingFeedbackRecord,setEditingFeedbackRecord] = useState(null);
   const [selectedPreviewFeedback,setSelectedPreviewFeedback] = useState(null);
   const [selectedEvaluationFeedback,setSelectedEvaluationFeedback] = useState(null);
   const [selectedEvaluationRecord,setSelectedEvaluationRecord] = useState(null);
@@ -6584,7 +6619,7 @@ function App(){
       return null;
     }
     await reloadFeedbackRecords();
-    notify("s","Feedback registrado correctamente.");
+    notify("s",payload?.id ? "Feedback actualizado correctamente." : "Feedback registrado correctamente.");
     if (view !== "feedback") setView("feedback");
     return saved;
   };
@@ -6704,7 +6739,28 @@ function App(){
     }
     setFeedbackModalAssessor(assessor || "");
   };
-  const closeFeedbackModal = () => setFeedbackModalAssessor(null);
+  const editFeedback = record => {
+    setEditingFeedbackRecord(record);
+    setFeedbackModalAssessor(record?.asesorNombre || record?.assessor || "");
+  };
+  const closeFeedbackModal = () => {
+    setFeedbackModalAssessor(null);
+    setEditingFeedbackRecord(null);
+  };
+  const eliminarFeedback = async record => {
+    if (!record?.id) return false;
+    if (!confirm("Eliminar esta ficha de feedback? Esta accion no se puede deshacer.")) return false;
+    try{
+      await deleteFeedbackEntry({id:record.id,currentUser});
+      await reloadFeedbackRecords();
+      if (Number(selectedPreviewFeedback?.id) === Number(record.id)) setSelectedPreviewFeedback(null);
+      notify("s","Feedback eliminado correctamente.");
+      return true;
+    }catch(err){
+      notify("e",err?.message || "No se pudo eliminar el feedback.");
+      return false;
+    }
+  };
 
   const openEvaluationModal = (feedbackRecord, evaluationRecord = null) => {
     const advisorName = feedbackRecord?.asesorNombre || feedbackRecord?.advisorName || feedbackRecord?.assessor || feedbackRecord?.asesor || "";
@@ -6833,7 +6889,7 @@ function App(){
           view==="notifications" && h(NotificationCenter,{currentUser,notifications,onRefresh:reloadNotifications,onOpenNotificationTarget:openNotificationTarget}),
           view==="legend" && h(LegendCenter,{concepts:legendConcepts,onRefresh:reloadLegend}),
           view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords,staffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
-          view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords,evaluationRecords,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing}),
+          view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords,evaluationRecords,onOpenFeedback:openFeedbackModal,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing}),
           view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:operationalIncidents,noTipificationRecords,currentUser,advisorOptions,staffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,notify}),
           view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users,notify}),
           view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing,setStaffing,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords,feedbackRecords,currentUser}),
@@ -6845,7 +6901,7 @@ function App(){
     h(TigerChatWidget,{currentUser,messages:chatMessages,isOpen:chatOpen,onToggle:()=>setChatOpen(prev=>!prev),onSendMessage:sendInternalChatMessage,sending:chatSending}),
     h(UserManualModal,{isOpen:manualOpen,currentUser,onClose:()=>setManualOpen(false)}),
     currentUser?.passwordChangeRequired && !isAdminUser(currentUser) && h(PasswordChangeModal,{currentUser,onChangePassword:cambiarContrasenaActual}),
-    h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor:feedbackModalAssessor || "",notify}),
+    h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor:feedbackModalAssessor || "",editingRecord:editingFeedbackRecord,notify}),
     h(NoTipificationModal,{isOpen:!!selectedNoTipificationEntry,onClose:closeNoTipificationModal,entryContext:selectedNoTipificationEntry,currentUser,onSave:guardarNoTipificacion,notify}),
     h(EvaluationModal,{isOpen:!!selectedEvaluationFeedback,onClose:closeEvaluationModal,feedbackRecord:selectedEvaluationFeedback,evaluationRecord:editingEvaluation,currentUser,onSave:guardarEvaluacion,onUpdate:actualizarEvaluacion,notify}),
     h(EvaluationHistoryModal,{advisorName:selectedEvaluationHistoryAdvisor,evaluations:evaluationRecords,evaluationsLoading,feedbackRecords,noTipificationRecords,currentUser,onClose:closeEvaluationHistory,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,onDeleteEvaluation:eliminarEvaluacion}),
@@ -9297,6 +9353,17 @@ function CalibrationModule({currentUser,users,notify}){
   const sessions = getCalibrationVisibleSessions(data.sessions || [], currentUser);
   const saveSession = async(payload) => { const saved = await saveCalibrationSessionEntry(payload); await reload(); return saved; };
   const changeStatus = async(session,status) => { try{ await updateCalibrationStatusEntry({id:session.id,status,currentUser}); notify("s","Estado actualizado."); await reload(); }catch(err){ notify("e",err?.message || "No se pudo actualizar el estado."); } };
+  const deleteSession = async session => {
+    if (!confirm(`Eliminar la calibracion "${session.title || "Sin nombre"}" y todos sus resultados? Esta accion no se puede deshacer.`)) return;
+    try{
+      await deleteCalibrationSessionEntry({id:session.id,currentUser});
+      if (detailSession?.id === session.id) setDetailSession(null);
+      await reload();
+      notify("s","Calibracion eliminada correctamente.");
+    }catch(err){
+      notify("e",err?.message || "No se pudo eliminar la calibracion.");
+    }
+  };
   const submitEvaluation = async(payload) => { const saved = await submitCalibrationEvaluationEntry(payload); await reload(); return saved; };
   if (roomSession) {
     const refreshed = sessions.find(item => item.id === roomSession.id) || roomSession;
@@ -9328,12 +9395,13 @@ function CalibrationModule({currentUser,users,notify}){
       h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},
         h("button",{style:{...BTN("p"),padding:"9px 12px"},onClick:()=>setDetailSession(session)},"ABRIR CALIBRACION"),
         status==="live" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>setRoomSession(session)},"RESPONDER FICHA"),
-        canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>{setEditingSession(session);setModalOpen(true);}},"EDITAR"),
+        canManage && (!["closed_results","annulled"].includes(status) || String(currentUser?.rol||"").trim().toLowerCase()==="admin") && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>{setEditingSession(session);setModalOpen(true);}},"CORREGIR"),
         canManage && status==="draft" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"scheduled")},"PROGRAMAR"),
         canManage && ["draft","scheduled"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"live")},"INICIAR"),
         canManage && status==="live" && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>changeStatus(session,"finalized")},"FINALIZAR"),
         canManage && !["closed_results","annulled"].includes(status) && h("button",{style:{...BTN("pink"),padding:"9px 12px"},onClick:()=>changeStatus(session,"closed_results")},"CERRAR CON RESULTADOS"),
         canManage && status!=="annulled" && h("button",{style:{...BTN("out"),padding:"9px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>changeStatus(session,"annulled")},"ANULAR"),
+        String(currentUser?.rol||"").trim().toLowerCase()==="admin" && h("button",{style:{...BTN("out"),padding:"9px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>deleteSession(session)},"ELIMINAR"),
         resultsOpen && h("button",{style:{...BTN("s"),padding:"9px 12px"},onClick:()=>exportReport(session)},"DESCARGAR REPORTE")
       )
     );

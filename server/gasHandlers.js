@@ -1058,6 +1058,9 @@ export const gasHandlers = {
     const participants = await readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY);
     const id = normalizeId(payload.id || payload.calibration_session_id) || String(generateNumericId());
     const existing = sessions.find(item => normalizeId(item.id) === id) || {};
+    if (existing.id && ["closed_results", "annulled"].includes(normalizeCalibrationStatus(existing.status)) && getRole(currentUser) !== "admin") {
+      throw new Error("Solo un administrador puede corregir una calibracion cerrada o anulada.");
+    }
     const rawParticipants = Array.isArray(payload.participants) ? payload.participants : [];
     let selectedParticipants = rawParticipants
       .filter(item => item && String(item.user_id || item.usuario || "").trim())
@@ -1127,6 +1130,35 @@ export const gasHandlers = {
     await writeCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY, nextParticipants);
     await addCalibrationLog(id, currentUser, existing.id ? "session_updated" : "session_created", existing.id ? "Se actualizo la calibracion." : "Se creo la calibracion.");
     return { ...session, participants: selectedParticipants };
+  },
+
+  async deleteCalibrationSession(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    requireRoles(currentUser, ["admin"], "Solo un administrador puede eliminar calibraciones.");
+    const id = normalizeId(payload.id || payload.calibration_session_id);
+    if (!id) throw new Error("Id de calibracion requerido.");
+    const collections = await Promise.all([
+      readCalibrationCollection(CALIBRATION_SESSIONS_KEY),
+      readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY),
+      readCalibrationCollection(CALIBRATION_EVALUATIONS_KEY),
+      readCalibrationCollection(CALIBRATION_EVALUATION_ITEMS_KEY),
+      readCalibrationCollection(CALIBRATION_RESULTS_KEY),
+      readCalibrationCollection(CALIBRATION_COMPARISON_KEY),
+      readCalibrationCollection(CALIBRATION_ACTIVITY_LOGS_KEY)
+    ]);
+    const [sessions, participants, evaluations, evaluationItems, results, comparisonRows, logs] = collections;
+    const session = sessions.find(item => normalizeId(item.id) === id);
+    if (!session) throw new Error("No se encontro la calibracion.");
+    await Promise.all([
+      writeCalibrationCollection(CALIBRATION_SESSIONS_KEY, sessions.filter(item => normalizeId(item.id) !== id)),
+      writeCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY, participants.filter(item => normalizeId(item.calibration_session_id) !== id)),
+      writeCalibrationCollection(CALIBRATION_EVALUATIONS_KEY, evaluations.filter(item => normalizeId(item.calibration_session_id) !== id)),
+      writeCalibrationCollection(CALIBRATION_EVALUATION_ITEMS_KEY, evaluationItems.filter(item => normalizeId(item.calibration_session_id) !== id)),
+      writeCalibrationCollection(CALIBRATION_RESULTS_KEY, results.filter(item => normalizeId(item.calibration_session_id) !== id)),
+      writeCalibrationCollection(CALIBRATION_COMPARISON_KEY, comparisonRows.filter(item => normalizeId(item.calibration_session_id) !== id)),
+      writeCalibrationCollection(CALIBRATION_ACTIVITY_LOGS_KEY, logs.filter(item => normalizeId(item.calibration_session_id) !== id))
+    ]);
+    return { ok: true, id, title: session.title || "" };
   },
 
   async updateCalibrationStatus(payload = {}) {
@@ -1654,19 +1686,26 @@ export const gasHandlers = {
     }
 
     const id = Number(payload.id) || generateNumericId();
+    const records = await readFeedbackRecords();
+    const existingIndex = records.findIndex(item => Number(item?.id) === id);
+    const existing = existingIndex >= 0 ? records[existingIndex] : null;
+    if (existing && String(existing.estado || existing.status || "") === "closed" && getRole(currentUser) !== "admin") {
+      throw new Error("Solo un administrador puede corregir un feedback cerrado.");
+    }
     const now = nowIso();
     const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
     const record = {
+      ...(existing || {}),
       ...sanitizeRuntimePayload(payload),
       id,
       asesorId: String(payload.asesorId || payload.advisorUser || assessor).trim(),
       assessor,
       asesorNombre: assessor,
-      auditorId: String(payload.auditorId || currentUser.usuario || "").trim(),
-      auditorNombre: String(payload.authorName || currentUser.nombre || "").trim(),
-      authorName: String(payload.authorName || currentUser.nombre || "").trim(),
-      authorUser: String(payload.authorUser || currentUser.usuario || "").trim(),
-      authorRole: String(payload.authorRole || ROLE_LABELS[getRole(currentUser)] || getRole(currentUser)).trim(),
+      auditorId: String(existing?.auditorId || payload.auditorId || currentUser.usuario || "").trim(),
+      auditorNombre: String(existing?.auditorNombre || payload.authorName || currentUser.nombre || "").trim(),
+      authorName: String(existing?.authorName || payload.authorName || currentUser.nombre || "").trim(),
+      authorUser: String(existing?.authorUser || payload.authorUser || currentUser.usuario || "").trim(),
+      authorRole: String(existing?.authorRole || payload.authorRole || ROLE_LABELS[getRole(currentUser)] || getRole(currentUser)).trim(),
       advisorUser: String(payload.advisorUser || "").trim(),
       supervisorName: String(payload.supervisorName || payload.supervisor || "").trim(),
       supervisor: String(payload.supervisor || payload.supervisorName || "").trim(),
@@ -1686,16 +1725,18 @@ export const gasHandlers = {
       scheduledMeetingAt,
       notificationEmail,
       meetingLink: String(payload.meetingLink || "").trim(),
-      status: normalizeFeedbackStatusForSave(payload.advisorUser),
-      estado: normalizeFeedbackStatusForSave(payload.advisorUser),
-      files: Array.isArray(payload.files) ? payload.files : [],
-      messages: [],
-      createdAt: now,
-      updatedAt: now
+      status: existing?.status || normalizeFeedbackStatusForSave(payload.advisorUser),
+      estado: existing?.estado || normalizeFeedbackStatusForSave(payload.advisorUser),
+      files: Array.isArray(payload.files) ? payload.files : (existing?.files || []),
+      messages: Array.isArray(existing?.messages) ? existing.messages : [],
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      updatedBy: String(currentUser.usuario || "").trim(),
+      updatedByName: String(currentUser.nombre || "").trim()
     };
 
-    const records = await readFeedbackRecords();
-    records.unshift(record);
+    if (existingIndex >= 0) records[existingIndex] = record;
+    else records.unshift(record);
     await writeFeedbackRecords(records);
 
     const storageResult = await uploadAttachmentsWithFirebaseFallback(
@@ -1719,6 +1760,18 @@ export const gasHandlers = {
     else nextRecords.unshift(savedRecord);
     await writeFeedbackRecords(nextRecords);
     return savedRecord;
+  },
+
+  async deleteFeedbackRecord(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    requireRoles(currentUser, ["admin"], "Solo un administrador puede eliminar fichas de feedback.");
+    const id = Number(payload.id);
+    if (!id) throw new Error("El id del feedback es obligatorio.");
+    const records = await readFeedbackRecords();
+    const record = records.find(item => Number(item?.id) === id);
+    if (!record) throw new Error("No se encontro el feedback solicitado.");
+    await writeFeedbackRecords(records.filter(item => Number(item?.id) !== id));
+    return { ok: true, id };
   },
 
   async updateFeedbackRecord(payload = {}) {
