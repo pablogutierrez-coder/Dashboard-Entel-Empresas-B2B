@@ -2181,7 +2181,79 @@ function buildFeedbackPreviewModel(record, evaluation){
   };
 }
 
-function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
+const PLATFORM_OPTIONS = [
+  {
+    id: "entel_b2b",
+    title: "Dashboard B2B",
+    client: "Entel Empresas B2B",
+    description: "Accede al tablero de calidad, feedbacks, calibraciones, incidencias y dotacion del proyecto actual.",
+    status: "Disponible",
+    enabled: true,
+    icon: "bar"
+  },
+  {
+    id: "client_new",
+    title: "Nueva subplataforma",
+    client: "Otro cliente",
+    description: "Espacio preparado para configurar un segundo cliente sin mezclar su operacion con Entel.",
+    status: "Pendiente de configuracion",
+    enabled: false,
+    icon: "db"
+  }
+];
+
+function PlatformSelector({onSelect}){
+  return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"radial-gradient(circle at 50% 18%, rgba(29,43,255,0.18) 0%, transparent 36%), radial-gradient(circle at 80% 10%, rgba(91,31,214,0.16) 0%, transparent 28%), #0B0B12",padding:"28px"}},
+    h("div",{style:{width:"100%",maxWidth:980}},
+      h("div",{style:{textAlign:"center",marginBottom:34}},
+        h("div",{style:{width:64,height:64,borderRadius:18,background:THEME.gradient,display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:18,boxShadow:"0 16px 36px rgba(29,43,255,0.30)"}}, I("bar",30,THEME.white)),
+        h("div",{style:{fontSize:12,color:THEME.primary,letterSpacing:"0.36em",fontFamily:THEME.displayFont,fontWeight:800,textTransform:"uppercase",marginBottom:8}},"AN CALIDAD"),
+        h("h1",{style:{fontSize:42,lineHeight:1.05,color:THEME.text,fontFamily:THEME.displayFont,letterSpacing:"0.05em",textTransform:"uppercase",margin:"0 0 10px"}},"Selecciona tu plataforma"),
+        h("p",{style:{color:"#AFC3FF",fontSize:15,lineHeight:1.7,margin:0}},"Elige el cliente o subplataforma con la que vas a trabajar.")
+      ),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:22}},
+        PLATFORM_OPTIONS.map(platform => h("button",{
+          key:platform.id,
+          type:"button",
+          disabled:!platform.enabled,
+          onClick:()=>platform.enabled && onSelect(platform),
+          style:{
+            ...CARD,
+            marginBottom:0,
+            minHeight:250,
+            textAlign:"left",
+            cursor:platform.enabled ? "pointer" : "not-allowed",
+            opacity:platform.enabled ? 1 : 0.62,
+            borderTop:`4px solid ${platform.enabled ? THEME.primary : "rgba(166,160,184,0.28)"}`,
+            transition:"transform 0.2s ease, border-color 0.2s ease",
+            display:"flex",
+            flexDirection:"column",
+            gap:18
+          }
+        },
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:18}},
+            h("div",{style:{width:52,height:52,borderRadius:16,background:platform.enabled ? THEME.gradient : "rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:platform.enabled ? "0 12px 28px rgba(29,43,255,0.24)" : "none"}}, I(platform.icon,24,platform.enabled ? THEME.white : THEME.muted)),
+            h("span",{style:{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:THEME.displayFont,color:platform.enabled ? "#19C37D" : "#FFC857",background:platform.enabled ? "rgba(25,195,125,0.12)" : "rgba(255,200,87,0.10)",border:`1px solid ${platform.enabled ? "rgba(25,195,125,0.28)" : "rgba(255,200,87,0.28)"}`,borderRadius:999,padding:"8px 10px"}},platform.status)
+          ),
+          h("div",null,
+            h("div",{style:{fontSize:13,color:THEME.primary,fontWeight:800,letterSpacing:"0.20em",fontFamily:THEME.displayFont,textTransform:"uppercase",marginBottom:8}},platform.client),
+            h("div",{style:{fontSize:28,color:THEME.text,fontWeight:800,fontFamily:THEME.displayFont,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:10}},platform.title),
+            h("p",{style:{color:"#AFC3FF",fontSize:13,lineHeight:1.7,margin:0}},platform.description)
+          ),
+          h("div",{style:{marginTop:"auto",display:"flex",justifyContent:"flex-end"}},
+            h("span",{style:{...BTN(platform.enabled ? "p" : "s"),padding:"10px 14px",fontSize:10,cursor:platform.enabled ? "pointer" : "not-allowed"}},platform.enabled ? "INGRESAR" : "PROXIMAMENTE")
+          )
+        ))
+      ),
+      h("div",{style:{marginTop:30,fontSize:12,color:THEME.muted,fontWeight:600,letterSpacing:"0.08em",textAlign:"center"}},
+        "Herramienta desarrollada por ",
+        h("span",{style:{color:THEME.accent}},"IA Learning Solutions")
+      )
+    )
+  );
+}
+
+function LoginScreen({onLogin,users,loadingUsers,bootstrapError,onBack,platform}){
   const [user, setUser] = useState("");
   const [pass, setPass] = useState("");
   const [showP, setShowP] = useState(false);
@@ -2258,10 +2330,11 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
 
   return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"radial-gradient(circle at 50% 18%, rgba(29,43,255,0.18) 0%, transparent 36%), radial-gradient(circle at 80% 10%, rgba(91,31,214,0.16) 0%, transparent 28%), #0B0B12",padding:"20px"}},
     h("div",{style:{width:"100%",maxWidth:430,background:"linear-gradient(180deg, rgba(18,19,29,0.96) 0%, rgba(22,12,40,0.98) 100%)",border: `1px solid ${THEME.border}`,borderRadius:24,padding:"40px 36px",boxShadow:THEME.glowViolet,position:"relative",overflow:"hidden"}},
+      onBack && h("button",{type:"button",style:{position:"absolute",top:18,left:18,...BTN("out"),padding:"8px 10px",fontSize:10},onClick:onBack},"VOLVER"),
       h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:30}},
         h("div",{style:{width:56,height:56,borderRadius:16,background:THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:16,boxShadow:"0 10px 30px rgba(29,43,255,0.28)"}}, I("bar",26,THEME.white)),
         h("div",{style:{fontSize:28,fontWeight:700,color:THEME.text,letterSpacing:"0.06em",fontFamily:THEME.displayFont,textTransform:"uppercase"}},"Calidad B2B"),
-        h("div",{style:{fontSize:10,color:THEME.muted,letterSpacing:"0.2em",textTransform:"uppercase",marginTop:6,fontWeight:600}},"AN CALIDAD")
+        h("div",{style:{fontSize:10,color:THEME.muted,letterSpacing:"0.2em",textTransform:"uppercase",marginTop:6,fontWeight:600}},platform?.client || "AN CALIDAD")
       ),
       h("div",{style:{marginBottom:16}},
         h("div",{style:{fontSize:10,color:THEME.muted,textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:8,fontWeight:700,fontFamily:THEME.displayFont}},"USUARIO"),
@@ -6148,6 +6221,7 @@ function UserManualModal({isOpen,currentUser,onClose}){
 // La implementacion vigente esta definida mas adelante e incluye no tipificacion y evaluaciones OJT.
 function App(){
   const [currentUser,setCurrentUser] = useState(null);
+  const [selectedPlatform,setSelectedPlatform] = useState(null);
   const [users,setUsers] = useState([]);
   const [historico,setHistorico] = useState([]);
   const [staffing,setStaffing] = useState([]);
@@ -6832,7 +6906,8 @@ function App(){
   const previewEvaluation = selectedPreviewFeedback ? getLinkedEvaluation(evaluationRecords, selectedPreviewFeedback.id) : null;
   const editingEvaluation = selectedEvaluationRecord || (selectedEvaluationFeedback ? getLinkedEvaluation(evaluationRecords, selectedEvaluationFeedback.id) : null);
 
-  if (!currentUser) return h(LoginScreen,{onLogin:handleLogin,users,loadingUsers:appLoading,bootstrapError});
+  if (!selectedPlatform) return h(PlatformSelector,{onSelect:setSelectedPlatform});
+  if (!currentUser) return h(LoginScreen,{onLogin:handleLogin,users,loadingUsers:appLoading,bootstrapError,platform:selectedPlatform,onBack:()=>setSelectedPlatform(null)});
 
   return h(Fragment,null,
     h("div",{style:{display:"flex",height:"100vh",background:THEME.bg,overflow:"hidden"}},
