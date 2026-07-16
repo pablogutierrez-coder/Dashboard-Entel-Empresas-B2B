@@ -29,7 +29,8 @@ app.post("/api/ai/dashboard-insights", async (req, res, next) => {
   try {
     res.json(await generateDashboardInsights({
       question: req.body?.question || "",
-      context: req.body?.context || {}
+      context: req.body?.context || {},
+      messages: Array.isArray(req.body?.messages) ? req.body.messages : []
     }));
   } catch (error) {
     next(error);

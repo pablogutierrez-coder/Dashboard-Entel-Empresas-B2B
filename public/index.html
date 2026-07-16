@@ -1025,11 +1025,11 @@ async function saveInternalChatEntry(payload){
   }
 }
 
-async function requestTigerAiInsights({question,context}){
+async function requestTigerAiInsights({question,context,messages}){
   const response = await fetch("/api/ai/dashboard-insights", {
     method:"POST",
     headers:{"content-type":"application/json"},
-    body:JSON.stringify({question:question || "",context:context || {}}),
+    body:JSON.stringify({question:question || "",context:context || {},messages:Array.isArray(messages) ? messages : []}),
     cache:"no-store"
   });
   const payload = await response.json().catch(() => ({}));
@@ -2995,6 +2995,7 @@ function renderAiMarkdown(text){
 function TigerChatWidget({currentUser,messages,isOpen,onToggle,onAskAi,aiLoading}){
   const [question,setQuestion] = useState("");
   const [insight,setInsight] = useState("");
+  const [aiMemory,setAiMemory] = useState([]);
   const [activePrompt,setActivePrompt] = useState("resumen");
   const [copied,setCopied] = useState(false);
   const resultRef = useRef(null);
@@ -3013,16 +3014,24 @@ function TigerChatWidget({currentUser,messages,isOpen,onToggle,onAskAi,aiLoading
   const runAi = async(prompt) => {
     if (!onAskAi || aiLoading) return;
     setActivePrompt(prompt.id);
-    const answer = await onAskAi(prompt.question);
-    if (answer) setInsight(String(answer));
+    const answer = await onAskAi(prompt.question, aiMemory);
+    if (answer) {
+      const cleanAnswer = String(answer);
+      setInsight(cleanAnswer);
+      setAiMemory(prev => [...prev, {role:"user",content:prompt.question}, {role:"assistant",content:cleanAnswer}].slice(-12));
+    }
   };
 
   const askCustom = async() => {
     const text = String(question || "").trim();
     if (!text || !onAskAi || aiLoading) return;
     setActivePrompt("personalizada");
-    const answer = await onAskAi(text);
-    if (answer) setInsight(String(answer));
+    const answer = await onAskAi(text, aiMemory);
+    if (answer) {
+      const cleanAnswer = String(answer);
+      setInsight(cleanAnswer);
+      setAiMemory(prev => [...prev, {role:"user",content:text}, {role:"assistant",content:cleanAnswer}].slice(-12));
+    }
     setQuestion("");
   };
 
@@ -3031,6 +3040,13 @@ function TigerChatWidget({currentUser,messages,isOpen,onToggle,onAskAi,aiLoading
     await navigator.clipboard.writeText(insight);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
+  };
+
+  const resetMemory = () => {
+    setAiMemory([]);
+    setInsight("");
+    setQuestion("");
+    setActivePrompt("resumen");
   };
 
   return h(Fragment,null,
@@ -3063,7 +3079,11 @@ function TigerChatWidget({currentUser,messages,isOpen,onToggle,onAskAi,aiLoading
             ? h("div",{style:{...CARD,padding:18,marginBottom:0}},
                 h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:14}},
                   h("div",{style:{fontSize:11,color:THEME.accent,fontWeight:900,fontFamily:THEME.displayFont,letterSpacing:"0.12em",textTransform:"uppercase"}},"Analisis generado"),
-                  h("button",{style:{...BTN("out"),padding:"8px 10px",fontSize:9},onClick:copyInsight},copied ? "COPIADO" : "COPIAR")
+                  h("div",{style:{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}},
+                    h("span",{style:{fontSize:10,color:"#8b92a5",fontWeight:800}},`${Math.floor(aiMemory.length / 2)} turno(s) en memoria`),
+                    h("button",{style:{...BTN("out"),padding:"8px 10px",fontSize:9},onClick:resetMemory},"REINICIAR"),
+                    h("button",{style:{...BTN("out"),padding:"8px 10px",fontSize:9},onClick:copyInsight},copied ? "COPIADO" : "COPIAR")
+                  )
                 ),
                 renderAiMarkdown(insight)
               )
@@ -5365,11 +5385,11 @@ function App(){
     }
   };
 
-  const askTigerAi = async(question) => {
+  const askTigerAi = async(question, conversationMessages = []) => {
     if (!currentUser?.usuario) return false;
     setChatAiLoading(true);
     try {
-      const result = await requestTigerAiInsights({question,context:{...tigerAiContext,visibleScreen:getVisibleMainScreenContext()}});
+      const result = await requestTigerAiInsights({question,context:{...tigerAiContext,visibleScreen:getVisibleMainScreenContext()},messages:conversationMessages});
       return result.answer || "No pude generar conclusiones en este momento.";
     } catch (err) {
       notify("e",err?.message || "No se pudo generar conclusiones IA.");
@@ -7000,11 +7020,11 @@ function App(){
     }
   };
 
-  const askTigerAi = async(question) => {
+  const askTigerAi = async(question, conversationMessages = []) => {
     if (!currentUser?.usuario) return false;
     setChatAiLoading(true);
     try {
-      const result = await requestTigerAiInsights({question,context:{...tigerAiContext,visibleScreen:getVisibleMainScreenContext()}});
+      const result = await requestTigerAiInsights({question,context:{...tigerAiContext,visibleScreen:getVisibleMainScreenContext()},messages:conversationMessages});
       return result.answer || "No pude generar conclusiones en este momento.";
     } catch (err) {
       notify("e",err?.message || "No se pudo generar conclusiones IA.");
