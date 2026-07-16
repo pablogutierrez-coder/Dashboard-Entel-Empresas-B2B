@@ -54,7 +54,7 @@ const COLLECTIONS = {
 };
 
 const MAX_RECORDS_RETURNED = 40;
-const MAX_RECORD_CHARS = 1800;
+const MAX_RECORD_CHARS = 7000;
 
 function normalizeText(value) {
   return String(value || "")
@@ -186,17 +186,19 @@ export async function executeAiTool(name, args = {}) {
     const requested = Array.isArray(args.collections) && args.collections.length
       ? [...new Set(args.collections.flatMap(resolveCollections))]
       : Object.keys(COLLECTIONS);
-    const sampleLimit = clampLimit(args.sampleLimit, 5);
+    const sampleLimit = Math.min(3, clampLimit(args.sampleLimit, 3));
     const collections = {};
+    const totals = {};
     for (const key of requested) {
       const rows = await readCollection(key);
+      totals[key] = rows.length;
       collections[key] = {
         label: COLLECTIONS[key]?.label || key,
         total: rows.length,
         sample: rows.slice(0, sampleLimit).map(row => compactValue(row))
       };
     }
-    return { ok: true, collections };
+    return { ok: true, totals, collections };
   }
 
   if (name === "search_database_records") {

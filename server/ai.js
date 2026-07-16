@@ -100,6 +100,7 @@ export async function generateDashboardInsights({ question = "", context = {}, m
         "La fuente primaria inicial es context.visibleScreen.text: representa lo visible en la pantalla actual sin el menu lateral.",
         "Si necesitas validar cifras, buscar registros, agrupar datos o responder sobre informacion que no esta visible, usa las herramientas disponibles para consultar Firebase.",
         "Si el resumen global contradice la pantalla visible o los resultados de herramientas, obedece primero los resultados de herramientas y luego la pantalla visible.",
+        "Cuando uses herramientas, revisa primero campos totals, totalRows y totalReturned antes de interpretar muestras. No concluyas que una coleccion no existe solo porque sus muestras fueron resumidas o truncadas.",
         "No inventes cifras ni menciones modulos que no aparezcan en la pantalla visible o en los datos consultados.",
         "Usa formato Markdown con **negritas** en hallazgos, riesgos y acciones clave."
       ].join(" ")
