@@ -1734,6 +1734,28 @@ export const gasHandlers = {
     return Array.isArray(records) ? records : [];
   },
 
+  async saveInternalChatMessage(payload = {}) {
+    const text = String(payload.text || "").trim();
+    if (!text) throw new Error("El mensaje del chat no puede estar vacio.");
+    const now = nowIso();
+    const records = await readCachedSharedJson("internal_chat_v1", []);
+    const record = {
+      id: String(payload.id || `chat_${generateNumericId()}`),
+      text: text.slice(0, 5000),
+      authorName: String(payload.authorName || "Usuario").trim(),
+      authorUser: String(payload.authorUser || "").trim(),
+      authorRole: String(payload.authorRole || "").trim(),
+      createdAt: String(payload.createdAt || now),
+      updatedAt: now
+    };
+    const nextRecords = [record, ...(Array.isArray(records) ? records : [])]
+      .sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))
+      .slice(0, 300);
+    await writeSharedRecord("internal_chat_v1", nextRecords);
+    invalidateFirebaseCache("internal_chat_v1");
+    return record;
+  },
+
   async listCommunications(payload = {}) {
     const currentUser = ensureCurrentUser(payload.currentUser);
     const canManage = canManageCommunications(currentUser);
