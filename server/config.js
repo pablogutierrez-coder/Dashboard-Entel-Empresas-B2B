@@ -9,8 +9,8 @@ export const config = {
   googleCredentials: String(process.env.GOOGLE_APPLICATION_CREDENTIALS || ""),
   googleCredentialsJson: String(process.env.GOOGLE_CREDENTIALS_JSON || ""),
   firebaseStorageBucket: String(process.env.FIREBASE_STORAGE_BUCKET || ""),
-  openaiApiKey: String(process.env.OPENAI_API_KEY || ""),
-  openaiModel: String(process.env.OPENAI_MODEL || "gpt-4.1-mini")
+  groqApiKey: String(process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || ""),
+  groqModel: String(process.env.GROQ_MODEL || process.env.OPENAI_MODEL || "llama-3.3-70b-versatile")
 };
 
 export function requireConfig(name, value) {

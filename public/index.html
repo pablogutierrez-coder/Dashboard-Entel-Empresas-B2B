@@ -5268,7 +5268,7 @@ function App(){
         text:`${intro}${result.answer || "No pude generar conclusiones en este momento."}`,
         authorName:"Tigre IA",
         authorUser:"__tigre_ia__",
-        authorRole:result.mode === "openai" ? "IA de analisis" : "IA pendiente de configurar"
+        authorRole:result.mode === "groq" ? "IA de analisis" : "IA pendiente de configurar"
       });
       await reloadInternalChat();
       return !!saved;
@@ -6911,7 +6911,7 @@ function App(){
         text:`${intro}${result.answer || "No pude generar conclusiones en este momento."}`,
         authorName:"Tigre IA",
         authorUser:"__tigre_ia__",
-        authorRole:result.mode === "openai" ? "IA de analisis" : "IA pendiente de configurar"
+        authorRole:result.mode === "groq" ? "IA de analisis" : "IA pendiente de configurar"
       });
       await reloadInternalChat();
       return !!saved;
