@@ -136,6 +136,7 @@ function getEvaluationScore(row) {
 
 async function getAdvisorScoreRanking(args = {}) {
   const limit = clampLimit(args.limit, 5);
+  const order = normalizeText(args.order || args.direction || "asc") === "desc" ? "desc" : "asc";
   const rows = await readCollection("evaluations");
   const deletedIds = await getDeletedEvaluationIds();
   const groups = new Map();
@@ -173,12 +174,15 @@ async function getAdvisorScoreRanking(args = {}) {
       notaPromedio: Number((item.sumaNotas / item.totalEvaluaciones).toFixed(1)),
       tieneEvaluacionesValidas: item.totalEvaluaciones > 0
     }))
-    .sort((a, b) => a.notaPromedio - b.notaPromedio || b.totalEvaluaciones - a.totalEvaluaciones || a.asesor.localeCompare(b.asesor, "es"))
+    .sort((a, b) => {
+      const scoreSort = order === "desc" ? b.notaPromedio - a.notaPromedio : a.notaPromedio - b.notaPromedio;
+      return scoreSort || b.totalEvaluaciones - a.totalEvaluaciones || a.asesor.localeCompare(b.asesor, "es");
+    })
     .slice(0, limit);
   return {
     ok: true,
     metric: "notaPromedio",
-    order: "asc",
+    order,
     totalEvaluaciones: rows.length,
     evaluacionesExcluidasEliminadas: rows.filter(row => isDeletedEvaluation(row, deletedIds)).length,
     asesoresConNota: groups.size,
@@ -289,6 +293,20 @@ export const aiToolDefinitions = [
         }
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_advisor_score_ranking",
+      description: "Calcula ranking de asesores por nota promedio real usando evaluaciones de calidad en Firebase. Usa order asc para mas bajos y desc para mejores.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: LIMIT_PARAMETER_SCHEMA,
+          order: { type: "string", enum: ["asc", "desc"], description: "asc para mas bajos, desc para mejores." }
+        }
+      }
+    }
   }
 ];
 
@@ -351,6 +369,10 @@ export async function executeAiTool(name, args = {}) {
   }
 
   if (name === "get_lowest_advisors") {
+    return getAdvisorScoreRanking({ ...args, order: "asc" });
+  }
+
+  if (name === "get_advisor_score_ranking") {
     return getAdvisorScoreRanking(args);
   }
 

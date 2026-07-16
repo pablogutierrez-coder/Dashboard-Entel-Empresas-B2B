@@ -1,8 +1,10 @@
 import { config } from "./config.js";
 import { aiToolDefinitions, executeAiTool, truncateToolResult } from "./aiDataTools.js";
+import { IntentRouter, IntentType } from "./intentRouter.js";
 
 const MAX_CONTEXT_CHARS = 1200;
 const MAX_MEMORY_MESSAGES = 5;
+const intentRouter = new IntentRouter();
 
 function truncateText(value, maxLength = MAX_CONTEXT_CHARS) {
   const text = typeof value === "string" ? value : JSON.stringify(value || {});
@@ -76,6 +78,17 @@ function shouldUseLowestAdvisorsFallback(question) {
   return asksForPeople && asksForLowRank;
 }
 
+function shouldUseAdvisorRanking(question) {
+  const text = normalizeAiText(question);
+  return /(asesor|asesores|ejecutivo|ejecutivos|agente|agentes|personal)/.test(text)
+    && /(ranking|top|bottom|mejor|mejores|peor|peores|bajo|bajos|menor|menores|nota|notas|promedio|desempeno|desempeno)/.test(text);
+}
+
+function rankingOrderFromQuestion(question) {
+  const text = normalizeAiText(question);
+  return /(mejor|mejores|alto|altos|mayor|mayores|superior)/.test(text) ? "desc" : "asc";
+}
+
 function extractRequestedLimit(question, fallback = 5) {
   const match = String(question || "").match(/\b(\d{1,2})\b/);
   if (!match) return fallback;
@@ -84,7 +97,7 @@ function extractRequestedLimit(question, fallback = 5) {
   return Math.min(20, parsed);
 }
 
-function formatLowestAdvisorsAnswer(result) {
+function formatAdvisorRankingAnswer(result, order = "asc") {
   const ranking = Array.isArray(result?.ranking) ? result.ranking : [];
   if (!ranking.length) {
     return [
@@ -93,8 +106,9 @@ function formatLowestAdvisorsAnswer(result) {
       "La consulta se hizo directamente a la base de datos, pero no hubo registros con nota calculable."
     ].join("\n");
   }
+  const isBest = order === "desc";
   const lines = [
-    `**Top ${ranking.length} asesores con nota mas baja**`,
+    `**Top ${ranking.length} asesores con nota ${isBest ? "mas alta" : "mas baja"}**`,
     "",
     `Base consultada: **${result.totalEvaluaciones || 0} evaluaciones** y **${result.asesoresConNota || 0} asesores con nota**.`,
     ""
@@ -103,41 +117,190 @@ function formatLowestAdvisorsAnswer(result) {
     lines.push(`${index + 1}. **${item.asesor}** - **${Number(item.notaPromedio || 0).toFixed(1)}%** promedio (${item.totalEvaluaciones} evaluacion(es)).`);
   });
   lines.push("");
-  lines.push("**Lectura rapida:** estos asesores requieren revision prioritaria porque concentran los promedios mas bajos de calidad registrados.");
+  lines.push(isBest
+    ? "**Lectura rapida:** estos asesores concentran los mejores promedios de calidad registrados."
+    : "**Lectura rapida:** estos asesores requieren revision prioritaria porque concentran los promedios mas bajos de calidad registrados.");
+  return lines.join("\n");
+}
+
+function inferCollectionsFromQuestion(question) {
+  const text = normalizeAiText(question);
+  const collections = [];
+  if (/(evaluacion|evaluaciones|calidad|asesor|asesores|supervisor|supervisores|promedio|nota|notas)/.test(text)) collections.push("evaluations");
+  if (/(feedback|feedbacks|retroalimentacion|retroalimentaciones|seguimiento)/.test(text)) collections.push("feedback");
+  if (/(incidencia|incidencias|no conectado|no tipificacion|alerta|alertas)/.test(text)) collections.push("incidents", "no_tipification");
+  if (/(venta|ventas|validacion|validaciones|spd|sph)/.test(text)) collections.push("sales_validations");
+  if (/(calibracion|calibraciones|referente|afinidad)/.test(text)) collections.push("calibration_sessions", "calibration_results");
+  if (/(usuario|usuarios|dotacion|personal)/.test(text)) collections.push("users", "staffing");
+  return [...new Set(collections.length ? collections : ["evaluations", "feedback", "incidents", "sales_validations"])];
+}
+
+function formatDatabaseSummaryAnswer(summary, question) {
+  const totals = summary?.totals || {};
+  const labels = {
+    evaluations: "Evaluaciones",
+    feedback: "Feedbacks",
+    incidents: "Incidencias operativas",
+    no_tipification: "No tipificacion",
+    sales_validations: "Validaciones de ventas",
+    calibration_sessions: "Calibraciones",
+    calibration_results: "Resultados de calibracion",
+    staffing: "Dotacion",
+    users: "Usuarios",
+    communications: "Comunicados"
+  };
+  const lines = ["**Consulta respondida desde Firebase**", ""];
+  Object.entries(totals).forEach(([key, total]) => {
+    lines.push(`- **${labels[key] || key}:** ${total}`);
+  });
+  if (Object.keys(totals).length === 0) lines.push("No encontre registros para la consulta solicitada.");
+  if (question) {
+    lines.push("");
+    lines.push(`Consulta: ${question}`);
+  }
   return lines.join("\n");
 }
 
 async function localDatabaseAnswer(question) {
-  if (shouldUseLowestAdvisorsFallback(question)) {
+  if (shouldUseAdvisorRanking(question) || shouldUseLowestAdvisorsFallback(question)) {
     const limit = extractRequestedLimit(question, 5);
-    const result = await executeAiTool("get_lowest_advisors", { limit });
+    const order = rankingOrderFromQuestion(question);
+    const result = await executeAiTool("get_advisor_score_ranking", { limit, order });
     return {
       ok: true,
       mode: "database_fallback",
-      answer: formatLowestAdvisorsAnswer(result),
+      source: "firebase",
+      intent: IntentType.data,
+      answer: formatAdvisorRankingAnswer(result, order),
       memoryUsed: 0,
-      toolsUsed: [{ name: "get_lowest_advisors", args: { limit } }]
+      toolsUsed: [{ name: "get_advisor_score_ranking", args: { limit, order } }]
     };
   }
-  return null;
+  const collections = inferCollectionsFromQuestion(question);
+  const summary = await executeAiTool("get_database_summary", { collections, sampleLimit: 0 });
+  return {
+    ok: true,
+    mode: "database_fallback",
+    source: "firebase",
+    intent: IntentType.data,
+    answer: formatDatabaseSummaryAnswer(summary, question),
+    memoryUsed: 0,
+    toolsUsed: [{ name: "get_database_summary", args: { collections, sampleLimit: 0 } }]
+  };
 }
 
-function isGroqLimitError(error) {
-  const text = normalizeAiText(error?.message || "");
-  return error?.status === 429 || text.includes("rate limit") || text.includes("tokens per day") || text.includes("tokens per minute");
-}
-
-export async function generateDashboardInsights({ question = "", context = {}, messages = [] }) {
-  const safeQuestion = String(question || "").trim().slice(0, 1200);
-  const memoryMessages = sanitizeConversationMessages(messages);
-  const deterministicAnswer = await localDatabaseAnswer(safeQuestion);
-  if (deterministicAnswer) {
-    return { ...deterministicAnswer, memoryUsed: memoryMessages.length };
+async function buildHybridDataContext(question) {
+  const collections = inferCollectionsFromQuestion(question);
+  const summary = await executeAiTool("get_database_summary", { collections, sampleLimit: 1 });
+  let ranking = null;
+  if (/(asesor|asesores|ejecutivo|ejecutivos|agente|agentes|desempeno|desempeno|nota|notas|promedio|ranking)/.test(normalizeAiText(question))) {
+    ranking = await executeAiTool("get_advisor_score_ranking", { limit: 8, order: "asc" });
   }
+  return { summary, ranking };
+}
+
+function compactHybridPromptData(value) {
+  return truncateText(value, 4200);
+}
+
+async function groqTextAnswer(messages, mode, source, intent, memoryMessages, toolsUsed = []) {
+  const payload = await callGroq(messages);
+  return {
+    ok: true,
+    mode,
+    source,
+    intent,
+    model: config.groqModel,
+    answer: extractGroqText(payload) || "No pude generar una respuesta con la informacion recibida.",
+    memoryUsed: memoryMessages.length,
+    toolsUsed
+  };
+}
+
+async function generateHybridAnswer({ safeQuestion, memoryMessages, context }) {
+  const dataContext = await buildHybridDataContext(safeQuestion);
+  const messages = [
+    {
+      role: "system",
+      content: [
+        "Eres Tigre IA, consultor senior de calidad B2B.",
+        "Recibiras datos compactos ya consultados desde Firebase.",
+        "Genera conclusiones, riesgos, oportunidades y acciones sin inventar cifras.",
+        "Usa Markdown con **negritas** y una estructura ejecutiva."
+      ].join(" ")
+    },
+    {
+      role: "user",
+      content: `Datos Firebase para analizar:\n${compactHybridPromptData(dataContext)}`
+    },
+    ...memoryMessages,
+    {
+      role: "user",
+      content: safeQuestion || "Genera conclusiones ejecutivas con estos datos."
+    }
+  ];
+  try {
+    return await groqTextAnswer(messages, "hybrid", "hybrid", IntentType.hybrid, memoryMessages, [
+      { name: "get_database_summary", args: { collections: inferCollectionsFromQuestion(safeQuestion), sampleLimit: 1 } },
+      ...(dataContext.ranking ? [{ name: "get_advisor_score_ranking", args: { limit: 8, order: "asc" } }] : [])
+    ]);
+  } catch (error) {
+    if (isGroqLimitError(error)) {
+      return {
+        ok: true,
+        mode: "hybrid_rate_limited",
+        source: "firebase",
+        intent: IntentType.hybrid,
+        answer: [
+          "**Groq llego al limite de tokens, pero Firebase respondio correctamente.**",
+          "",
+          formatDatabaseSummaryAnswer(dataContext.summary, safeQuestion)
+        ].join("\n"),
+        memoryUsed: memoryMessages.length,
+        toolsUsed: [{ name: "get_database_summary", args: { collections: inferCollectionsFromQuestion(safeQuestion), sampleLimit: 1 } }]
+      };
+    }
+    throw error;
+  }
+}
+
+async function generateAiOnlyAnswer({ safeQuestion, memoryMessages }) {
+  const messages = [
+    {
+      role: "system",
+      content: "Eres Tigre IA. Responde en espanol claro, util y ejecutivo. Esta consulta no requiere datos de Firebase."
+    },
+    ...memoryMessages,
+    {
+      role: "user",
+      content: safeQuestion
+    }
+  ];
+  try {
+    return await groqTextAnswer(messages, "groq", "ai", IntentType.ai, memoryMessages);
+  } catch (error) {
+    if (isGroqLimitError(error)) {
+      return {
+        ok: true,
+        mode: "groq_rate_limited",
+        source: "ai",
+        intent: IntentType.ai,
+        answer: "**Tigre IA llego al limite temporal de Groq.** Esta consulta requiere IA generativa; intenta nuevamente cuando se libere cuota.",
+        memoryUsed: memoryMessages.length,
+        toolsUsed: []
+      };
+    }
+    throw error;
+  }
+}
+
+async function legacyToolAgentAnswer({ safeQuestion, context, memoryMessages }) {
   if (!config.groqApiKey) {
     return {
       ok: true,
       mode: "local_fallback",
+      source: "firebase",
+      intent: IntentType.data,
       answer: localFallbackInsights(context, safeQuestion),
       memoryUsed: memoryMessages.length,
       toolsUsed: []
@@ -185,6 +348,8 @@ export async function generateDashboardInsights({ question = "", context = {}, m
       return {
         ok: true,
         mode: "groq_rate_limited",
+        source: "ai",
+        intent: IntentType.hybrid,
         answer: "**Tigre IA llego al limite temporal de Groq.** La base de datos sigue disponible, pero esta pregunta necesita generacion IA. Intenta nuevamente cuando se libere cuota o formula una consulta concreta de ranking/conteo para responderla directo desde Firebase.",
         memoryUsed: memoryMessages.length,
         toolsUsed: []
@@ -227,13 +392,15 @@ export async function generateDashboardInsights({ question = "", context = {}, m
       ]);
     } catch (error) {
       if (isGroqLimitError(error)) {
-        const directLowestResult = toolsUsed.find(item => item.name === "get_lowest_advisors");
+        const directLowestResult = toolsUsed.find(item => item.name === "get_lowest_advisors" || item.name === "get_advisor_score_ranking");
         if (directLowestResult) {
-          const result = await executeAiTool("get_lowest_advisors", directLowestResult.args || {});
+          const result = await executeAiTool("get_advisor_score_ranking", directLowestResult.args || {});
           return {
             ok: true,
             mode: "database_fallback",
-            answer: formatLowestAdvisorsAnswer(result),
+            source: "firebase",
+            intent: IntentType.data,
+            answer: formatAdvisorRankingAnswer(result, directLowestResult.args?.order || "asc"),
             memoryUsed: memoryMessages.length,
             toolsUsed
           };
@@ -241,6 +408,8 @@ export async function generateDashboardInsights({ question = "", context = {}, m
         return {
           ok: true,
           mode: "groq_rate_limited",
+          source: "ai",
+          intent: IntentType.hybrid,
           answer: "**Tigre IA consulto Firebase, pero Groq llego al limite antes de redactar la conclusion.** Intenta nuevamente cuando se libere cuota.",
           memoryUsed: memoryMessages.length,
           toolsUsed
@@ -251,6 +420,8 @@ export async function generateDashboardInsights({ question = "", context = {}, m
     return {
       ok: true,
       mode: "groq",
+      source: "ai",
+      intent: IntentType.hybrid,
       model: config.groqModel,
       answer: extractGroqText(finalPayload) || "No pude generar una conclusion con la respuesta recibida.",
       memoryUsed: memoryMessages.length,
@@ -261,10 +432,54 @@ export async function generateDashboardInsights({ question = "", context = {}, m
   return {
     ok: true,
     mode: "groq",
+    source: "ai",
+    intent: IntentType.ai,
     model: config.groqModel,
     answer: extractGroqText(firstPayload) || "No pude generar una conclusion con la respuesta recibida.",
     memoryUsed: memoryMessages.length,
     toolsUsed
   };
+}
+
+async function routeConsultantAnswer({ safeQuestion, context, memoryMessages }) {
+  const intent = intentRouter.detectIntent(safeQuestion);
+  if (intent === IntentType.data) {
+    const answer = await localDatabaseAnswer(safeQuestion);
+    return { ...answer, memoryUsed: memoryMessages.length };
+  }
+  if (intent === IntentType.hybrid) {
+    if (!config.groqApiKey) {
+      const answer = await localDatabaseAnswer(safeQuestion);
+      return { ...answer, mode: "hybrid_firebase_only", source: "firebase", intent, memoryUsed: memoryMessages.length };
+    }
+    return generateHybridAnswer({ safeQuestion, memoryMessages, context });
+  }
+  if (intent === IntentType.ai) {
+    if (!config.groqApiKey) {
+      return {
+        ok: true,
+        mode: "local_fallback",
+        source: "ai",
+        intent,
+        answer: localFallbackInsights(context, safeQuestion),
+        memoryUsed: memoryMessages.length,
+        toolsUsed: []
+      };
+    }
+    return generateAiOnlyAnswer({ safeQuestion, memoryMessages });
+  }
+  return null;
+}
+
+function isGroqLimitError(error) {
+  const text = normalizeAiText(error?.message || "");
+  return error?.status === 429 || text.includes("rate limit") || text.includes("tokens per day") || text.includes("tokens per minute");
+}
+
+export async function generateDashboardInsights({ question = "", context = {}, messages = [] }) {
+  const safeQuestion = String(question || "").trim().slice(0, 1200);
+  const memoryMessages = sanitizeConversationMessages(messages);
+  return routeConsultantAnswer({ safeQuestion, context, memoryMessages })
+    || legacyToolAgentAnswer({ safeQuestion, context, memoryMessages });
 }
 
