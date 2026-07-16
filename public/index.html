@@ -1039,6 +1039,47 @@ async function requestTigerAiInsights({question,context}){
   return payload;
 }
 
+function getVisibleMainScreenContext(){
+  const main = document.querySelector("[data-ai-main-content='true']");
+  if (!main) return {source:"main_content_not_found",text:""};
+  const walker = document.createTreeWalker(main, NodeFilter.SHOW_ELEMENT, {
+    acceptNode(node){
+      const style = window.getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return NodeFilter.FILTER_REJECT;
+      const rect = node.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  const blocks = [];
+  const selectors = "h1,h2,h3,h4,button,label,th,td,p,span,div,input,select,textarea";
+  let node = main;
+  const pushText = element => {
+    if (!element?.matches?.(selectors)) return;
+    const tag = element.tagName.toLowerCase();
+    const text = tag === "input" || tag === "textarea"
+      ? (element.value || element.placeholder || "")
+      : tag === "select"
+        ? (element.selectedOptions?.[0]?.textContent || element.value || "")
+        : element.innerText || element.textContent || "";
+    const clean = String(text || "").replace(/\s+/g," ").trim();
+    if (!clean || clean.length < 2) return;
+    const previous = blocks[blocks.length - 1] || "";
+    if (previous === clean || previous.includes(clean)) return;
+    blocks.push(clean);
+  };
+  pushText(node);
+  while ((node = walker.nextNode())) pushText(node);
+  const text = blocks.join("\n").slice(0, 14000);
+  return {
+    source:"visible_main_content_without_sidebar",
+    url:window.location.href,
+    title:document.title || "",
+    capturedAt:new Date().toISOString(),
+    text
+  };
+}
+
 const ASESORES = ["CARLOS MENDOZA","LUCIA QUISPE","JORGE PAREDES","ANA FLORES","MIGUEL TORRES","SANDRA VEGA","ROBERTO DIAZ","PATRICIA LUNA"];
 const AUDITORES = ["AUDITOR 1","AUDITOR 2","AUDITOR 3"];
 const FACTORES = [
@@ -3955,7 +3996,7 @@ function App(){
           (currentUser.rol === "admin" || currentUser.rol === "analista") && raw.length > 0 && h("button",{style:{marginTop:20,background:"rgba(255,255,255,0.04)",border: `1px solid ${THEME.border}`,color:THEME.muted,width:"100%",padding:"10px",borderRadius:10,fontSize:10,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontFamily:THEME.displayFont,letterSpacing:"0.1em"},onClick:clearData}, I("trash",12,THEME.muted), "LIMPIAR MUESTRA TEMPORAL")
         )
       ),
-      h("div",{style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
+      h("div",{"data-ai-main-content":"true",style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
         h("div",{style:{position:"absolute",top:-150,left:-100,width:600,height:600,background:"radial-gradient(circle, rgba(29,43,255,0.10) 0%, transparent 60%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"absolute",top:120,right:-80,width:420,height:420,background:"radial-gradient(circle, rgba(91,31,214,0.11) 0%, transparent 62%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"relative",zIndex:1,maxWidth:1200,margin:"0 auto"}},
@@ -5328,7 +5369,7 @@ function App(){
     if (!currentUser?.usuario) return false;
     setChatAiLoading(true);
     try {
-      const result = await requestTigerAiInsights({question,context:tigerAiContext});
+      const result = await requestTigerAiInsights({question,context:{...tigerAiContext,visibleScreen:getVisibleMainScreenContext()}});
       return result.answer || "No pude generar conclusiones en este momento.";
     } catch (err) {
       notify("e",err?.message || "No se pudo generar conclusiones IA.");
@@ -5437,7 +5478,7 @@ function App(){
           canImportData(currentUser) && raw.length>0 && h("button",{style:{marginTop:20,background:"rgba(255,255,255,0.04)",border: `1px solid ${THEME.border}`,color:THEME.muted,width:"100%",padding:"10px",borderRadius:10,fontSize:10,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontFamily:THEME.displayFont,letterSpacing:"0.1em"},onClick:clearData},I("trash",12,THEME.muted),"LIMPIAR MUESTRA TEMPORAL")
         )
       ),
-      h("div",{style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
+      h("div",{"data-ai-main-content":"true",style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
         h("div",{style:{position:"absolute",top:-150,left:-100,width:600,height:600,background:"radial-gradient(circle, rgba(29,43,255,0.10) 0%, transparent 60%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"absolute",top:120,right:-80,width:420,height:420,background:"radial-gradient(circle, rgba(91,31,214,0.11) 0%, transparent 62%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"relative",zIndex:1,maxWidth:1200,margin:"0 auto"}},
@@ -6963,7 +7004,7 @@ function App(){
     if (!currentUser?.usuario) return false;
     setChatAiLoading(true);
     try {
-      const result = await requestTigerAiInsights({question,context:tigerAiContext});
+      const result = await requestTigerAiInsights({question,context:{...tigerAiContext,visibleScreen:getVisibleMainScreenContext()}});
       return result.answer || "No pude generar conclusiones en este momento.";
     } catch (err) {
       notify("e",err?.message || "No se pudo generar conclusiones IA.");
@@ -7263,7 +7304,7 @@ function App(){
           ),
         )
       ),
-      h("div",{style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
+      h("div",{"data-ai-main-content":"true",style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
         h("div",{style:{position:"absolute",top:-150,left:-100,width:600,height:600,background:"radial-gradient(circle, rgba(29,43,255,0.10) 0%, transparent 60%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"absolute",top:120,right:-80,width:420,height:420,background:"radial-gradient(circle, rgba(91,31,214,0.11) 0%, transparent 62%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"relative",zIndex:1,maxWidth:1280,margin:"0 auto"}},

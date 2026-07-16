@@ -13,9 +13,19 @@ function extractGroqText(payload) {
 }
 
 function localFallbackInsights(context, question) {
+  const visibleText = String(context?.visibleScreen?.text || "").trim();
+  if (visibleText) {
+    const preview = visibleText.split("\n").filter(Boolean).slice(0, 12).join("\n");
+    return [
+      "Lectura rapida de la pantalla visible:",
+      preview,
+      question ? `Consulta recibida: ${question}` : "",
+      "Para conclusiones IA completas, valida GROQ_API_KEY en Railway."
+    ].filter(Boolean).join("\n");
+  }
   const summary = context?.summary || {};
   const lines = [
-    "No tengo una llave de Groq configurada todavía, pero puedo darte una lectura rápida con los datos disponibles:",
+    "No tengo una llave de Groq configurada todavia, pero puedo darte una lectura rapida con los datos disponibles:",
     `- Evaluaciones visibles: ${summary.evaluations?.total ?? 0}. Promedio: ${summary.evaluations?.averageScore ?? "sin dato"}%.`,
     `- Feedbacks: ${summary.feedback?.total ?? 0}. Pendientes: ${summary.feedback?.pending ?? 0}. Cerrados: ${summary.feedback?.closed ?? 0}.`,
     `- Incidencias operativas: ${summary.operationalIncidents?.total ?? 0}.`,
@@ -48,11 +58,11 @@ export async function generateDashboardInsights({ question = "", context = {} })
       messages: [
         {
           role: "system",
-          content: "Eres Tigre IA, un analista senior de calidad B2B. Responde en español claro, ejecutivo y accionable. Usa solo los datos entregados. Si faltan datos, dilo. Prioriza conclusiones, riesgos, alertas y siguientes acciones. No inventes cifras."
+          content: "Eres Tigre IA, un analista senior de calidad B2B. Responde en espanol claro, ejecutivo y accionable. Usa solo los datos entregados. La fuente primaria es context.visibleScreen.text: representa lo visible en la pantalla actual sin el menu lateral. Si el resumen global contradice la pantalla visible, obedece la pantalla visible. No inventes cifras ni menciones modulos que no aparezcan en la pantalla visible. Usa formato Markdown con **negritas** en hallazgos, riesgos y acciones clave."
         },
         {
           role: "user",
-          content: `Pregunta del usuario: ${safeQuestion || "Genera conclusiones ejecutivas del dashboard actual."}\n\nContexto JSON del dashboard:\n${contextText}`
+          content: `Pregunta del usuario: ${safeQuestion || "Genera conclusiones ejecutivas de la pantalla actual."}\n\nContexto JSON del dashboard. Prioriza visibleScreen.text porque es la lectura de la pantalla actual sin menu lateral:\n${contextText}`
         }
       ],
       temperature: 0.2,
@@ -72,6 +82,7 @@ export async function generateDashboardInsights({ question = "", context = {} })
     ok: true,
     mode: "groq",
     model: config.groqModel,
-    answer: extractGroqText(payload) || "No pude generar una conclusión con la respuesta recibida."
+    answer: extractGroqText(payload) || "No pude generar una conclusion con la respuesta recibida."
   };
 }
+
