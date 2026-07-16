@@ -1039,47 +1039,6 @@ async function requestTigerAiInsights({question,context,messages}){
   return payload;
 }
 
-function getVisibleMainScreenContext(){
-  const main = document.querySelector("[data-ai-main-content='true']");
-  if (!main) return {source:"main_content_not_found",text:""};
-  const walker = document.createTreeWalker(main, NodeFilter.SHOW_ELEMENT, {
-    acceptNode(node){
-      const style = window.getComputedStyle(node);
-      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return NodeFilter.FILTER_REJECT;
-      const rect = node.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return NodeFilter.FILTER_REJECT;
-      return NodeFilter.FILTER_ACCEPT;
-    }
-  });
-  const blocks = [];
-  const selectors = "h1,h2,h3,h4,button,label,th,td,p,span,div,input,select,textarea";
-  let node = main;
-  const pushText = element => {
-    if (!element?.matches?.(selectors)) return;
-    const tag = element.tagName.toLowerCase();
-    const text = tag === "input" || tag === "textarea"
-      ? (element.value || element.placeholder || "")
-      : tag === "select"
-        ? (element.selectedOptions?.[0]?.textContent || element.value || "")
-        : element.innerText || element.textContent || "";
-    const clean = String(text || "").replace(/\s+/g," ").trim();
-    if (!clean || clean.length < 2) return;
-    const previous = blocks[blocks.length - 1] || "";
-    if (previous === clean || previous.includes(clean)) return;
-    blocks.push(clean);
-  };
-  pushText(node);
-  while ((node = walker.nextNode())) pushText(node);
-  const text = blocks.join("\n").slice(0, 14000);
-  return {
-    source:"visible_main_content_without_sidebar",
-    url:window.location.href,
-    title:document.title || "",
-    capturedAt:new Date().toISOString(),
-    text
-  };
-}
-
 const ASESORES = ["CARLOS MENDOZA","LUCIA QUISPE","JORGE PAREDES","ANA FLORES","MIGUEL TORRES","SANDRA VEGA","ROBERTO DIAZ","PATRICIA LUNA"];
 const AUDITORES = ["AUDITOR 1","AUDITOR 2","AUDITOR 3"];
 const FACTORES = [
@@ -3005,10 +2964,10 @@ function TigerChatWidget({currentUser,messages,isOpen,onToggle,onAskAi,aiLoading
   }, [insight]);
 
   const prompts = [
-    {id:"resumen",label:"Resumen ejecutivo",question:"Genera un resumen ejecutivo del dashboard actual. Usa negritas para los hallazgos clave, datos concretos y 3 acciones recomendadas."},
-    {id:"riesgos",label:"Riesgos",question:"Identifica riesgos operativos y de calidad del dashboard actual. Prioriza por impacto y urgencia. Usa negritas en cada riesgo."},
-    {id:"acciones",label:"Acciones",question:"Propón un plan de acción concreto para mejorar los indicadores visibles. Incluye responsables sugeridos, foco y próximos pasos."},
-    {id:"alertas",label:"Alertas",question:"Detecta alertas o anomalías en los datos visibles del dashboard. Explica qué revisar primero y por qué."}
+    {id:"resumen",label:"Resumen ejecutivo",question:"Consulta la base de datos y genera un resumen ejecutivo. Usa negritas para los hallazgos clave, datos concretos y 3 acciones recomendadas."},
+    {id:"riesgos",label:"Riesgos",question:"Consulta la base de datos e identifica riesgos operativos y de calidad. Prioriza por impacto y urgencia. Usa negritas en cada riesgo."},
+    {id:"acciones",label:"Acciones",question:"Consulta la base de datos y propone un plan de acción concreto para mejorar los indicadores. Incluye responsables sugeridos, foco y próximos pasos."},
+    {id:"alertas",label:"Alertas",question:"Consulta la base de datos y detecta alertas o anomalías. Explica qué revisar primero y por qué."}
   ];
 
   const runAi = async(prompt) => {
@@ -3090,7 +3049,7 @@ function TigerChatWidget({currentUser,messages,isOpen,onToggle,onAskAi,aiLoading
             : h("div",{style:{margin:"auto 0",textAlign:"center",padding:"38px 18px",color:"#9aa3bd",fontSize:13,lineHeight:1.8}},
                 h("div",{style:{fontSize:34,marginBottom:12}},TIGER_FACE),
                 h("div",{style:{fontSize:18,fontWeight:900,color:"#fff",marginBottom:8}},"Listo para analizar"),
-                "Elige una accion rapida o escribe una pregunta. La IA usara los datos visibles y cargados del dashboard."
+                "Elige una accion rapida o escribe una pregunta. La IA consultara la base de datos y mantendra el hilo de la conversacion."
               )
       ),
       h("div",{style:{padding:"14px 16px 16px",borderTop:`1px solid ${THEME.border}`,background:"rgba(8,8,14,0.52)"}},
@@ -4016,7 +3975,7 @@ function App(){
           (currentUser.rol === "admin" || currentUser.rol === "analista") && raw.length > 0 && h("button",{style:{marginTop:20,background:"rgba(255,255,255,0.04)",border: `1px solid ${THEME.border}`,color:THEME.muted,width:"100%",padding:"10px",borderRadius:10,fontSize:10,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontFamily:THEME.displayFont,letterSpacing:"0.1em"},onClick:clearData}, I("trash",12,THEME.muted), "LIMPIAR MUESTRA TEMPORAL")
         )
       ),
-      h("div",{"data-ai-main-content":"true",style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
+      h("div",{style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
         h("div",{style:{position:"absolute",top:-150,left:-100,width:600,height:600,background:"radial-gradient(circle, rgba(29,43,255,0.10) 0%, transparent 60%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"absolute",top:120,right:-80,width:420,height:420,background:"radial-gradient(circle, rgba(91,31,214,0.11) 0%, transparent 62%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"relative",zIndex:1,maxWidth:1200,margin:"0 auto"}},
@@ -5389,7 +5348,7 @@ function App(){
     if (!currentUser?.usuario) return false;
     setChatAiLoading(true);
     try {
-      const result = await requestTigerAiInsights({question,context:{...tigerAiContext,visibleScreen:getVisibleMainScreenContext()},messages:conversationMessages});
+      const result = await requestTigerAiInsights({question,context:tigerAiContext,messages:conversationMessages});
       return result.answer || "No pude generar conclusiones en este momento.";
     } catch (err) {
       notify("e",err?.message || "No se pudo generar conclusiones IA.");
@@ -5498,7 +5457,7 @@ function App(){
           canImportData(currentUser) && raw.length>0 && h("button",{style:{marginTop:20,background:"rgba(255,255,255,0.04)",border: `1px solid ${THEME.border}`,color:THEME.muted,width:"100%",padding:"10px",borderRadius:10,fontSize:10,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontFamily:THEME.displayFont,letterSpacing:"0.1em"},onClick:clearData},I("trash",12,THEME.muted),"LIMPIAR MUESTRA TEMPORAL")
         )
       ),
-      h("div",{"data-ai-main-content":"true",style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
+      h("div",{style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
         h("div",{style:{position:"absolute",top:-150,left:-100,width:600,height:600,background:"radial-gradient(circle, rgba(29,43,255,0.10) 0%, transparent 60%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"absolute",top:120,right:-80,width:420,height:420,background:"radial-gradient(circle, rgba(91,31,214,0.11) 0%, transparent 62%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"relative",zIndex:1,maxWidth:1200,margin:"0 auto"}},
@@ -5614,72 +5573,12 @@ function buildTigerAiContext({
   view,currentUser,evaluationRecords,feedbackRecords,noTipificationRecords,
   operationalIncidents,salesValidations,staffing,users,historico
 }){
-  const evaluations = (evaluationRecords || []).filter(item => !item?.deleted && !item?.deletedAt);
-  const evalScores = evaluations.map(item => extractEvaluationPct(item?.resultadoGeneral ?? item?.nota ?? item?.score)).filter(value => value !== null);
-  const feedback = feedbackRecords || [];
-  const incidents = operationalIncidents || [];
-  const sales = (salesValidations || []).filter(item => !item?.deletedAt);
-  const feedbackStatus = topCountsBy(feedback,row => row.status || row.estado || row.resultadoGeneral || "Sin estado",10);
-  const salesAttention = sales.filter(row => {
-    const audio = normalizeComparableValue(row.audioStatus);
-    const result = normalizeComparableValue(row.result);
-    return audio.includes("no se encontro") || audio.includes("vacio") || result.includes("observada") || result.includes("no conforme");
-  });
   return {
     generatedAt:new Date().toISOString(),
     currentView:view,
     user:{name:currentUser?.nombre || "",role:currentUser?.rol || ""},
-    summary:{
-      evaluations:{
-        total:evaluations.length,
-        averageScore:averageNumeric(evalScores)?.toFixed(1) || null,
-        critical:evaluations.filter(item => normalizeComparableValue(item?.estadoEvaluacion || item?.estado || item?.resultadoGeneral).includes("critico")).length,
-        byType:topCountsBy(evaluations,row => row.campaign || row.tipoGestion || row.tipoGestionRuc || "Sin tipo")
-      },
-      feedback:{
-        total:feedback.length,
-        pending:feedback.filter(item => normalizeComparableValue(item?.status || item?.estado).includes("pendiente") || normalizeComparableValue(item?.status || item?.estado).includes("seguimiento")).length,
-        closed:feedback.filter(item => normalizeComparableValue(item?.status || item?.estado).includes("cerr")).length,
-        status:feedbackStatus
-      },
-      noTipification:{total:(noTipificationRecords || []).length},
-      operationalIncidents:{
-        total:incidents.length,
-        byType:topCountsBy(incidents,row => row.incidentType || row.incident_type || "Sin tipo")
-      },
-      salesValidations:{
-        total:sales.length,
-        attentionRequired:salesAttention.length,
-        byAudio:topCountsBy(sales,row => row.audioStatus || "Sin audio"),
-        byResult:topCountsBy(sales,row => row.result || "Sin resultado")
-      },
-      staffing:{
-        total:(staffing || []).length,
-        active:(staffing || []).filter(isStaffingActive).length,
-        users:(users || []).length
-      },
-      snapshots:(historico || []).length
-    },
-    recent:{
-      evaluations:evaluations.slice(0,8).map(item => ({
-        advisor:getEvaluationAdvisorName(item),
-        score:item?.resultadoGeneral ?? item?.nota ?? item?.score ?? "",
-        status:item?.estadoEvaluacion || item?.estado || "",
-        date:item?.fechaEvaluacion || item?.createdAt || ""
-      })),
-      feedback:feedback.slice(0,8).map(item => ({
-        advisor:item?.assessor || item?.advisorName || "",
-        status:item?.status || item?.estado || "",
-        result:item?.resultadoGeneral || "",
-        date:item?.feedbackDate || item?.createdAt || ""
-      })),
-      salesValidations:sales.slice(0,8).map(item => ({
-        agent:item?.agentName || "",
-        audio:item?.audioStatus || "",
-        result:item?.result || "",
-        date:item?.saleDate || item?.validationDate || ""
-      }))
-    }
+    dataPolicy:"No leas la pantalla. Consulta Firebase con herramientas para cualquier dato, cifra, ranking, alerta o conclusion.",
+    availableCollections:["evaluations","feedback","incidents","no_tipification","sales_validations","calibration_sessions","calibration_results","staffing","users","communications"]
   };
 }
 
@@ -7024,7 +6923,7 @@ function App(){
     if (!currentUser?.usuario) return false;
     setChatAiLoading(true);
     try {
-      const result = await requestTigerAiInsights({question,context:{...tigerAiContext,visibleScreen:getVisibleMainScreenContext()},messages:conversationMessages});
+      const result = await requestTigerAiInsights({question,context:tigerAiContext,messages:conversationMessages});
       return result.answer || "No pude generar conclusiones en este momento.";
     } catch (err) {
       notify("e",err?.message || "No se pudo generar conclusiones IA.");
@@ -7324,7 +7223,7 @@ function App(){
           ),
         )
       ),
-      h("div",{"data-ai-main-content":"true",style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
+      h("div",{style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
         h("div",{style:{position:"absolute",top:-150,left:-100,width:600,height:600,background:"radial-gradient(circle, rgba(29,43,255,0.10) 0%, transparent 60%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"absolute",top:120,right:-80,width:420,height:420,background:"radial-gradient(circle, rgba(91,31,214,0.11) 0%, transparent 62%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"relative",zIndex:1,maxWidth:1280,margin:"0 auto"}},

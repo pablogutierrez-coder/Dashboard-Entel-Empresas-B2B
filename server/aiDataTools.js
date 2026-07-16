@@ -54,7 +54,7 @@ const COLLECTIONS = {
 };
 
 const MAX_RECORDS_RETURNED = 40;
-const MAX_RECORD_CHARS = 7000;
+const MAX_RECORD_CHARS = 3200;
 
 function normalizeText(value) {
   return String(value || "")
@@ -186,7 +186,7 @@ export async function executeAiTool(name, args = {}) {
     const requested = Array.isArray(args.collections) && args.collections.length
       ? [...new Set(args.collections.flatMap(resolveCollections))]
       : Object.keys(COLLECTIONS);
-    const sampleLimit = Math.min(3, clampLimit(args.sampleLimit, 3));
+    const sampleLimit = Math.min(1, clampLimit(args.sampleLimit, 1));
     const collections = {};
     const totals = {};
     for (const key of requested) {

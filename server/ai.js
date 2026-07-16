@@ -1,8 +1,8 @@
 import { config } from "./config.js";
 import { aiToolDefinitions, executeAiTool, truncateToolResult } from "./aiDataTools.js";
 
-const MAX_CONTEXT_CHARS = 18000;
-const MAX_MEMORY_MESSAGES = 12;
+const MAX_CONTEXT_CHARS = 2500;
+const MAX_MEMORY_MESSAGES = 8;
 
 function truncateText(value, maxLength = MAX_CONTEXT_CHARS) {
   const text = typeof value === "string" ? value : JSON.stringify(value || {});
@@ -21,7 +21,7 @@ function sanitizeConversationMessages(messages = []) {
     .slice(-MAX_MEMORY_MESSAGES)
     .map(item => ({
       role: item.role,
-      content: String(item.content || "").slice(0, 2400)
+      content: String(item.content || "").slice(0, 1200)
     }))
     .filter(item => item.content.trim());
 }
@@ -37,7 +37,7 @@ async function callGroq(messages, options = {}) {
       model: config.groqModel,
       messages,
       temperature: 0.2,
-      max_tokens: 1000,
+      max_tokens: 850,
       ...(options.tools ? { tools: options.tools, tool_choice: "auto" } : {})
     })
   });
@@ -53,26 +53,11 @@ async function callGroq(messages, options = {}) {
 }
 
 function localFallbackInsights(context, question) {
-  const visibleText = String(context?.visibleScreen?.text || "").trim();
-  if (visibleText) {
-    const preview = visibleText.split("\n").filter(Boolean).slice(0, 12).join("\n");
-    return [
-      "Lectura rapida de la pantalla visible:",
-      preview,
-      question ? `Consulta recibida: ${question}` : "",
-      "Para conclusiones IA completas, valida GROQ_API_KEY en Railway."
-    ].filter(Boolean).join("\n");
-  }
-  const summary = context?.summary || {};
   const lines = [
-    "No tengo una llave de Groq configurada todavia, pero puedo darte una lectura rapida con los datos disponibles:",
-    `- Evaluaciones visibles: ${summary.evaluations?.total ?? 0}. Promedio: ${summary.evaluations?.averageScore ?? "sin dato"}%.`,
-    `- Feedbacks: ${summary.feedback?.total ?? 0}. Pendientes: ${summary.feedback?.pending ?? 0}. Cerrados: ${summary.feedback?.closed ?? 0}.`,
-    `- Incidencias operativas: ${summary.operationalIncidents?.total ?? 0}.`,
-    `- Validaciones de venta: ${summary.salesValidations?.total ?? 0}. Observadas/sin audio: ${summary.salesValidations?.attentionRequired ?? 0}.`
+    "La IA de Groq no esta disponible en este momento.",
+    "El modo con base de datos requiere GROQ_API_KEY activa porque las consultas se ejecutan mediante herramientas del agente."
   ];
   if (question) lines.push(`Consulta recibida: ${question}`);
-  lines.push("Para activar conclusiones IA completas, configura GROQ_API_KEY en Railway.");
   return lines.join("\n");
 }
 
@@ -97,17 +82,18 @@ export async function generateDashboardInsights({ question = "", context = {}, m
         "Eres Tigre IA, un agente analitico senior de calidad B2B.",
         "Responde en espanol claro, ejecutivo y accionable.",
         "Mantienes memoria conversacional: usa el historial de mensajes para conservar el hilo, referencias previas y preguntas de seguimiento.",
-        "La fuente primaria inicial es context.visibleScreen.text: representa lo visible en la pantalla actual sin el menu lateral.",
-        "Si necesitas validar cifras, buscar registros, agrupar datos o responder sobre informacion que no esta visible, usa las herramientas disponibles para consultar Firebase.",
-        "Si el resumen global contradice la pantalla visible o los resultados de herramientas, obedece primero los resultados de herramientas y luego la pantalla visible.",
+        "No leas ni resumas la pantalla. No uses contenido visual como fuente de datos.",
+        "Tu unica fuente factual son las herramientas conectadas a Firebase y la memoria conversacional.",
+        "Para cualquier cifra, ranking, alerta, tendencia, busqueda o conclusion de negocio, primero consulta Firebase con herramientas.",
+        "Si no usas herramientas, solo puedes responder preguntas conceptuales o pedir precision.",
         "Cuando uses herramientas, revisa primero campos totals, totalRows y totalReturned antes de interpretar muestras. No concluyas que una coleccion no existe solo porque sus muestras fueron resumidas o truncadas.",
-        "No inventes cifras ni menciones modulos que no aparezcan en la pantalla visible o en los datos consultados.",
+        "No inventes cifras ni menciones datos que no esten en los resultados consultados.",
         "Usa formato Markdown con **negritas** en hallazgos, riesgos y acciones clave."
       ].join(" ")
     },
     {
       role: "user",
-      content: `Contexto de pantalla actual. Prioriza visibleScreen.text porque es la lectura de la pantalla actual sin menu lateral:\n${contextText}`
+      content: `Contexto minimo de sesion. No contiene datos de pantalla; usa herramientas Firebase para datos reales:\n${contextText}`
     },
     ...memoryMessages,
     {
