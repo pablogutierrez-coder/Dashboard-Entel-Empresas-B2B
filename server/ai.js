@@ -84,9 +84,20 @@ function shouldUseAdvisorRanking(question) {
     && /(ranking|top|bottom|mejor|mejores|peor|peores|bajo|bajos|menor|menores|nota|notas|promedio|desempeno|desempeno)/.test(text);
 }
 
+function shouldUseAdvisorSeniority(question) {
+  const text = normalizeAiText(question);
+  return /(asesor|asesores|ejecutivo|ejecutivos|agente|agentes|personal|dotacion)/.test(text)
+    && /(antiguo|antiguos|antigua|antiguas|antiguedad|veterano|veteranos|tiempo|ingreso|nuevo|nuevos|nueva|nuevas|reciente|recientes)/.test(text);
+}
+
 function rankingOrderFromQuestion(question) {
   const text = normalizeAiText(question);
   return /(mejor|mejores|alto|altos|mayor|mayores|superior)/.test(text) ? "desc" : "asc";
+}
+
+function seniorityOrderFromQuestion(question) {
+  const text = normalizeAiText(question);
+  return /(nuevo|nuevos|nueva|nuevas|reciente|recientes|menor antiguedad|menos antiguo)/.test(text) ? "newest" : "oldest";
 }
 
 function extractRequestedLimit(question, fallback = 5) {
@@ -123,9 +134,41 @@ function formatAdvisorRankingAnswer(result, order = "asc") {
   return lines.join("\n");
 }
 
+function formatAdvisorSeniorityAnswer(result, order = "oldest") {
+  const ranking = Array.isArray(result?.ranking) ? result.ranking : [];
+  if (!ranking.length) {
+    return [
+      "**No encontre asesores activos con antiguedad disponible en Firebase.**",
+      "",
+      "La consulta se hizo directamente a la coleccion de dotacion, pero no hubo registros para listar."
+    ].join("\n");
+  }
+  const isNewest = order === "newest";
+  const lines = [
+    `**Top ${ranking.length} asesores ${isNewest ? "mas nuevos" : "mas antiguos"}**`,
+    "",
+    `Base consultada: **${result.dotacionActiva || 0} asesores activos** de **${result.totalDotacion || 0} registros de dotacion**.`,
+    ""
+  ];
+  ranking.forEach((item, index) => {
+    const details = [
+      item.antiguedadTexto || "Sin antiguedad",
+      item.fechaIngreso ? `ingreso ${item.fechaIngreso}` : "",
+      item.supervisor ? `supervisor: ${item.supervisor}` : ""
+    ].filter(Boolean).join(" | ");
+    lines.push(`${index + 1}. **${item.asesor}** - ${details}.`);
+  });
+  lines.push("");
+  lines.push(isNewest
+    ? "**Lectura rapida:** estos asesores son los de menor antiguedad activa en dotacion."
+    : "**Lectura rapida:** estos asesores concentran la mayor antiguedad activa en dotacion.");
+  return lines.join("\n");
+}
+
 function inferCollectionsFromQuestion(question) {
   const text = normalizeAiText(question);
   const collections = [];
+  if (shouldUseAdvisorSeniority(question)) collections.push("staffing");
   if (/(evaluacion|evaluaciones|calidad|asesor|asesores|supervisor|supervisores|promedio|nota|notas)/.test(text)) collections.push("evaluations");
   if (/(feedback|feedbacks|retroalimentacion|retroalimentaciones|seguimiento)/.test(text)) collections.push("feedback");
   if (/(incidencia|incidencias|no conectado|no tipificacion|alerta|alertas)/.test(text)) collections.push("incidents", "no_tipification");
@@ -162,6 +205,21 @@ function formatDatabaseSummaryAnswer(summary, question) {
 }
 
 async function localDatabaseAnswer(question) {
+  if (shouldUseAdvisorSeniority(question)) {
+    const limit = extractRequestedLimit(question, 5);
+    const order = seniorityOrderFromQuestion(question);
+    const result = await executeAiTool("get_advisor_seniority_ranking", { limit, order });
+    return {
+      ok: true,
+      mode: "database_fallback",
+      source: "firebase",
+      intent: IntentType.data,
+      answer: formatAdvisorSeniorityAnswer(result, order),
+      memoryUsed: 0,
+      toolsUsed: [{ name: "get_advisor_seniority_ranking", args: { limit, order } }]
+    };
+  }
+
   if (shouldUseAdvisorRanking(question) || shouldUseLowestAdvisorsFallback(question)) {
     const limit = extractRequestedLimit(question, 5);
     const order = rankingOrderFromQuestion(question);

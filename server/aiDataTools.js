@@ -108,6 +108,43 @@ function extractPercent(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseDateValue(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) {
+    const parsed = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const latam = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+  if (latam) {
+    const year = Number(latam[3].length === 2 ? `20${latam[3]}` : latam[3]);
+    const parsed = new Date(year, Number(latam[2]) - 1, Number(latam[1]));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDateOnly(value) {
+  const date = parseDateValue(value);
+  if (!date) return String(value || "");
+  return date.toISOString().slice(0, 10);
+}
+
+function monthsBetween(startDate, endDate = new Date()) {
+  if (!startDate) return null;
+  const months = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth());
+  const adjusted = endDate.getDate() < startDate.getDate() ? months - 1 : months;
+  return Math.max(0, adjusted);
+}
+
+function isActiveStaffing(row) {
+  const state = normalizeText(row?.estado || row?.status || row?.state || "activo");
+  return !["cesado", "inactivo", "baja", "eliminado", "inactive"].includes(state);
+}
+
 async function getDeletedEvaluationIds() {
   const deleted = await readSharedJson("deleted_evaluations_v1", []);
   const values = Array.isArray(deleted)
@@ -187,6 +224,54 @@ async function getAdvisorScoreRanking(args = {}) {
     evaluacionesExcluidasEliminadas: rows.filter(row => isDeletedEvaluation(row, deletedIds)).length,
     asesoresConNota: groups.size,
     scoreInterpretation: "La nota 0.0 es una nota valida cuando totalEvaluaciones es mayor que 0; no significa falta de datos.",
+    ranking
+  };
+}
+
+async function getAdvisorSeniorityRanking(args = {}) {
+  const limit = clampLimit(args.limit, 5);
+  const orderText = normalizeText(args.order || args.direction || "oldest");
+  const newestFirst = /(new|nuevo|reciente|menor|asc)/.test(orderText);
+  const includeInactive = args.includeInactive === true || normalizeText(args.includeInactive) === "true";
+  const rows = await readCollection("staffing");
+  const activeRows = includeInactive ? rows : rows.filter(isActiveStaffing);
+  const ranking = activeRows
+    .map(row => {
+      const entryDate = parseDateValue(row?.fechaIngreso || row?.fecha_ingreso || row?.ingreso || row?.startDate || row?.createdAt);
+      const storedMonths = extractPercent(row?.antiguedad || row?.antigüedad || row?.tenureMonths);
+      const calculatedMonths = monthsBetween(entryDate);
+      const seniorityMonths = storedMonths !== null ? storedMonths : calculatedMonths;
+      return {
+        asesor: String(row?.asesor || row?.assessorName || row?.advisorName || row?.nombre || row?.name || "").trim(),
+        usuario: String(row?.usuarioAsignado || row?.usuario || "").trim(),
+        supervisor: String(row?.supervisor || "").trim(),
+        coordinador: String(row?.coordinador || "").trim(),
+        tipoGestion: String(row?.tipoGestionRuc || row?.campaign || row?.campana || "").trim(),
+        fechaIngreso: formatDateOnly(row?.fechaIngreso || row?.fecha_ingreso || row?.ingreso || row?.startDate || row?.createdAt),
+        antiguedadMeses: seniorityMonths === null ? null : Number(seniorityMonths),
+        antiguedadTexto: seniorityMonths === null ? "Sin dato" : `${Number(seniorityMonths)} mes(es)`,
+        estado: String(row?.estado || "activo").trim() || "activo"
+      };
+    })
+    .filter(item => item.asesor)
+    .sort((a, b) => {
+      const aMonths = a.antiguedadMeses ?? -1;
+      const bMonths = b.antiguedadMeses ?? -1;
+      const senioritySort = newestFirst ? aMonths - bMonths : bMonths - aMonths;
+      if (senioritySort) return senioritySort;
+      const aDate = parseDateValue(a.fechaIngreso)?.getTime() || 0;
+      const bDate = parseDateValue(b.fechaIngreso)?.getTime() || 0;
+      const dateSort = newestFirst ? bDate - aDate : aDate - bDate;
+      return dateSort || a.asesor.localeCompare(b.asesor, "es");
+    })
+    .slice(0, limit);
+  return {
+    ok: true,
+    metric: "antiguedadMeses",
+    order: newestFirst ? "newest" : "oldest",
+    totalDotacion: rows.length,
+    dotacionActiva: rows.filter(isActiveStaffing).length,
+    includeInactive,
     ranking
   };
 }
@@ -307,6 +392,21 @@ export const aiToolDefinitions = [
         }
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_advisor_seniority_ranking",
+      description: "Calcula el ranking de asesores por antiguedad usando la dotacion real en Firebase. Util para preguntas como 'asesores mas antiguos', 'mas nuevos' o 'mayor antiguedad'.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: LIMIT_PARAMETER_SCHEMA,
+          order: { type: "string", enum: ["oldest", "newest"], description: "oldest para mas antiguos, newest para mas nuevos." },
+          includeInactive: { type: "boolean", description: "true para incluir usuarios cesados o inactivos." }
+        }
+      }
+    }
   }
 ];
 
@@ -374,6 +474,10 @@ export async function executeAiTool(name, args = {}) {
 
   if (name === "get_advisor_score_ranking") {
     return getAdvisorScoreRanking(args);
+  }
+
+  if (name === "get_advisor_seniority_ranking") {
+    return getAdvisorSeniorityRanking(args);
   }
 
   return { ok: false, error: `Herramienta IA no disponible: ${name}` };
