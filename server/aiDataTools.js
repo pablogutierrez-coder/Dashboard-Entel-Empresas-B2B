@@ -55,6 +55,10 @@ const COLLECTIONS = {
 
 const MAX_RECORDS_RETURNED = 40;
 const MAX_RECORD_CHARS = 3200;
+const LIMIT_PARAMETER_SCHEMA = {
+  anyOf: [{ type: "number" }, { type: "string" }],
+  description: "Maximo a devolver. Puede llegar como numero o texto; el backend lo normaliza."
+};
 
 function normalizeText(value) {
   return String(value || "")
@@ -143,7 +147,10 @@ export const aiToolDefinitions = [
             items: { type: "string" },
             description: "Colecciones a revisar: evaluations, feedback, incidents, no_tipification, sales_validations, calibration_sessions, calibration_results, staffing, users, communications. Usa vacio para todas."
           },
-          sampleLimit: { type: "number", description: "Cantidad maxima de ejemplos por coleccion." }
+          sampleLimit: {
+            ...LIMIT_PARAMETER_SCHEMA,
+            description: "Cantidad maxima de ejemplos por coleccion. Puede llegar como numero o texto; el backend lo normaliza."
+          }
         }
       }
     }
@@ -158,7 +165,7 @@ export const aiToolDefinitions = [
         properties: {
           collection: { type: "string", description: "Coleccion o alias donde buscar. Usa all para todas." },
           query: { type: "string", description: "Texto a buscar, por ejemplo nombre de asesor, RUC, estado, campana o tipo." },
-          limit: { type: "number", description: "Maximo de registros a devolver." }
+          limit: LIMIT_PARAMETER_SCHEMA
         }
       }
     }
@@ -174,7 +181,7 @@ export const aiToolDefinitions = [
         properties: {
           collection: { type: "string", description: "Coleccion a agrupar." },
           field: { type: "string", description: "Campo a agrupar. Puede ser anidado con punto, por ejemplo user.role." },
-          limit: { type: "number", description: "Maximo de grupos a devolver." }
+          limit: LIMIT_PARAMETER_SCHEMA
         }
       }
     }
