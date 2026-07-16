@@ -3,6 +3,7 @@ import express from "express";
 import { Readable } from "node:stream";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { generateDashboardInsights } from "./ai.js";
 import { config } from "./config.js";
 import { listEvaluationFolderFiles, validateDriveConnection } from "./drive.js";
 import { readSharedRecord } from "./firebase.js";
@@ -22,6 +23,17 @@ app.use(express.urlencoded({ extended: true, limit: "80mb" }));
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, mode: "local-node", timestamp: new Date().toISOString() });
+});
+
+app.post("/api/ai/dashboard-insights", async (req, res, next) => {
+  try {
+    res.json(await generateDashboardInsights({
+      question: req.body?.question || "",
+      context: req.body?.context || {}
+    }));
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get("/api/firebase/shared/:key.json", async (req, res, next) => {
