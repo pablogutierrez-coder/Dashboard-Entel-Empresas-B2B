@@ -71,8 +71,9 @@ function normalizeAiText(value) {
 
 function shouldUseLowestAdvisorsFallback(question) {
   const text = normalizeAiText(question);
-  return /(asesor|asesores|ejecutivo|ejecutivos|agente|agentes)/.test(text)
-    && /(mas bajo|mas bajos|menor|menores|peor|peores|ranking inferior|nota baja|notas bajas)/.test(text);
+  const asksForPeople = /(asesor|asesores|ejecutivo|ejecutivos|agente|agentes|personal)/.test(text);
+  const asksForLowRank = /(bajo|bajos|baja|bajas|menor|menores|peor|peores|inferior|critico|criticos|ranking|top|bottom|nota|notas|promedio)/.test(text);
+  return asksForPeople && asksForLowRank;
 }
 
 function extractRequestedLimit(question, fallback = 5) {
