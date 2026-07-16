@@ -30,6 +30,7 @@ const DELETED_EVALUATIONS_KEY = "deleted_evaluations_v1";
 const COMMUNICATIONS_KEY = "communications_v1";
 const FEEDBACK_KEY = "feedback_records_v2";
 const OPERATIONAL_INCIDENTS_KEY = "operational_incidents_v1";
+const SALES_VALIDATIONS_KEY = "sales_validations_v1";
 const CALIBRATION_SESSIONS_KEY = "calibration_sessions";
 const CALIBRATION_PARTICIPANTS_KEY = "calibration_participants";
 const CALIBRATION_EVALUATIONS_KEY = "calibration_evaluations";
@@ -98,9 +99,15 @@ function getRole(user) {
     administrator: "admin",
     monitor: "analista",
     analyst: "analista",
+    calidad: "analista",
+    quality: "analista",
+    validador: "analista",
+    validator: "analista",
     trainer: "formador",
     coach: "formador",
-    advisor: "asesor"
+    advisor: "asesor",
+    sistema: "sistemas",
+    systems: "sistemas"
   };
   return aliases[role] || role;
 }
@@ -119,6 +126,18 @@ function requireRoles(user, roles, message) {
 
 function canManageCommunications(user) {
   return ["admin", "analista", "supervisor", "formador"].includes(getRole(user));
+}
+
+function canViewSalesValidation(user) {
+  return ["admin", "analista", "supervisor", "formador", "sistemas", "sistema"].includes(getRole(user));
+}
+
+function canManageSalesValidation(user) {
+  return ["admin", "analista"].includes(getRole(user));
+}
+
+function canDeleteSalesValidation(user) {
+  return getRole(user) === "admin";
 }
 
 function getCommunicationAudienceRoles(audienceValue) {
@@ -972,6 +991,107 @@ function buildTransientCalibrationResults(session, sessionEvaluations, savedResu
   };
 }
 
+function getSalesValidationDuplicateKey(record = {}) {
+  return [
+    normalizeText(record.ruc),
+    normalizeDateOrNow(record.saleDate || record.fechaVenta || "").slice(0, 10),
+    normalizeText(record.callId || record.numeroLlamada || record.interactionId)
+  ].join("|");
+}
+
+function buildSalesValidationAudit(existing = {}, next = {}, currentUser = {}, action = "updated", extra = {}) {
+  const now = nowIso();
+  const base = {
+    id: normalizeId(generateNumericId()),
+    action,
+    userId: String(currentUser.usuario || "").trim(),
+    userName: String(currentUser.nombre || "").trim(),
+    userRole: ROLE_LABELS[getRole(currentUser)] || getRole(currentUser),
+    createdAt: now,
+    ...extra
+  };
+  if (action !== "updated") return [base];
+  const fields = [
+    "ruc", "businessName", "agentName", "agentCode", "saleDate", "campaign", "product",
+    "quantity", "callId", "audioStatus", "contractReadingStatus", "omittedContractInfo",
+    "observations", "result", "status"
+  ];
+  return fields
+    .filter(field => JSON.stringify(existing?.[field] ?? "") !== JSON.stringify(next?.[field] ?? ""))
+    .map(field => ({
+      ...base,
+      id: normalizeId(generateNumericId()),
+      field,
+      previousValue: existing?.[field] ?? "",
+      newValue: next?.[field] ?? ""
+    }));
+}
+
+async function readSalesValidations() {
+  const records = await readCachedSharedJson(SALES_VALIDATIONS_KEY, []);
+  return Array.isArray(records) ? records : [];
+}
+
+async function writeSalesValidations(records) {
+  await writeSharedRecord(SALES_VALIDATIONS_KEY, Array.isArray(records) ? records : []);
+  invalidateFirebaseCache(SALES_VALIDATIONS_KEY);
+}
+
+function normalizeSalesValidationPayload(payload = {}, existing = {}, currentUser = {}) {
+  const now = nowIso();
+  const audioStatus = String(payload.audioStatus || existing.audioStatus || "").trim();
+  const contractReadingStatus = String(payload.contractReadingStatus || existing.contractReadingStatus || "").trim();
+  const result = String(payload.result || existing.result || "").trim();
+  const ruc = String(payload.ruc || existing.ruc || "").trim();
+  const businessName = String(payload.businessName || payload.razonSocial || existing.businessName || "").trim();
+  const agentName = String(payload.agentName || payload.agenteComercial || existing.agentName || "").trim();
+  const saleDate = String(payload.saleDate || payload.fechaVenta || existing.saleDate || "").trim();
+  const callId = String(payload.callId || payload.numeroLlamada || payload.interactionId || existing.callId || "").trim();
+  if (!ruc) throw new Error("El RUC del cliente es obligatorio.");
+  if (!businessName) throw new Error("La razon social es obligatoria.");
+  if (!agentName) throw new Error("El agente comercial es obligatorio.");
+  if (!saleDate) throw new Error("La fecha de venta es obligatoria.");
+  if (!audioStatus) throw new Error("Debes indicar si se encontro audio en InConcert.");
+  if (!contractReadingStatus) throw new Error("Debes indicar el estado de lectura o confirmacion del contrato.");
+  if (!result) throw new Error("El resultado de la validacion es obligatorio.");
+  const audioNeedsObservation = normalizeText(audioStatus) !== "si, se encontro audio" && normalizeText(audioStatus) !== "si se encontro audio";
+  const observations = String(payload.observations || payload.observaciones || existing.observations || "").trim();
+  if (audioNeedsObservation && !observations) throw new Error("La observacion es obligatoria cuando el audio no fue encontrado o presenta incidencias.");
+  if (["no", "parcial"].includes(normalizeText(contractReadingStatus)) && !String(payload.omittedContractInfo || existing.omittedContractInfo || "").trim()) {
+    throw new Error("Debes detallar la informacion contractual omitida.");
+  }
+  const id = normalizeId(payload.id || existing.id || generateNumericId());
+  const validationDate = existing.validationDate || now;
+  return {
+    ...existing,
+    id,
+    ruc,
+    businessName,
+    agentName,
+    agentCode: String(payload.agentCode || payload.codigoAgente || existing.agentCode || "").trim(),
+    saleDate,
+    campaign: String(payload.campaign || payload.campana || existing.campaign || "").trim(),
+    product: String(payload.product || payload.producto || existing.product || "").trim(),
+    quantity: String(payload.quantity || payload.cantidad || existing.quantity || "").trim(),
+    callId,
+    audioStatus,
+    contractReadingStatus,
+    omittedContractInfo: String(payload.omittedContractInfo || existing.omittedContractInfo || "").trim(),
+    observations,
+    result,
+    validatorId: existing.validatorId || String(currentUser.usuario || "").trim(),
+    validatorName: existing.validatorName || String(currentUser.nombre || "").trim(),
+    validationDate,
+    status: existing.status || "Activa",
+    files: Array.isArray(existing.files) ? existing.files : [],
+    auditTrail: Array.isArray(existing.auditTrail) ? existing.auditTrail : [],
+    createdAt: existing.createdAt || now,
+    updatedAt: now,
+    updatedBy: String(currentUser.usuario || "").trim(),
+    updatedByName: String(currentUser.nombre || "").trim()
+  };
+}
+
 export const gasHandlers = {
   async getData(key) {
     return await readSharedRecord(key);
@@ -1488,6 +1608,119 @@ export const gasHandlers = {
     const nextRecords = [record, ...(Array.isArray(records) ? records : [])];
     await writeSharedRecord(OPERATIONAL_INCIDENTS_KEY, nextRecords);
     invalidateFirebaseCache(OPERATIONAL_INCIDENTS_KEY);
+    return record;
+  },
+
+  async listSalesValidations(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    if (!canViewSalesValidation(currentUser)) throw new Error("No tienes permisos para ver validaciones de ventas.");
+    const records = await readSalesValidations();
+    const role = getRole(currentUser);
+    return records
+      .filter(record => role === "admin" ? true : normalizeText(record?.status) !== "eliminada")
+      .sort((a, b) => new Date(b.updatedAt || b.validationDate || 0).getTime() - new Date(a.updatedAt || a.validationDate || 0).getTime());
+  },
+
+  async saveSalesValidation(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    if (!canManageSalesValidation(currentUser)) throw new Error("No tienes permisos para registrar validaciones de ventas.");
+    const records = await readSalesValidations();
+    const id = payload.id ? normalizeId(payload.id) : "";
+    const index = id ? records.findIndex(item => normalizeId(item?.id) === id) : -1;
+    const existing = index >= 0 ? records[index] : {};
+    const normalized = normalizeSalesValidationPayload(payload, existing, currentUser);
+    const duplicateKey = getSalesValidationDuplicateKey(normalized);
+    const duplicated = records.find(item =>
+      normalizeId(item?.id) !== normalizeId(normalized.id) &&
+      normalizeText(item?.status) !== "eliminada" &&
+      getSalesValidationDuplicateKey(item) === duplicateKey
+    );
+    if (duplicated) throw new Error("Ya existe una validacion para el mismo RUC, fecha de venta y numero de llamada.");
+
+    const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+    let record = normalized;
+    if (attachments.length) {
+      const storageResult = await uploadAttachmentsWithFirebaseFallback(
+        { id: record.id, salesValidationId: record.id, type: "sales_validation" },
+        attachments
+      );
+      record = buildFileFieldsFromSavedFiles(
+        record,
+        mergeFilesByIdentity(record.files, storageResult.savedFiles || []),
+        storageResult
+      );
+      record.attachmentStatus = storageResult.ok ? "completo" : "pendiente";
+    }
+
+    const action = index >= 0 ? "updated" : "created";
+    const auditEntries = action === "created"
+      ? buildSalesValidationAudit({}, record, currentUser, "created")
+      : buildSalesValidationAudit(existing, record, currentUser, "updated");
+    record.auditTrail = [...(Array.isArray(existing.auditTrail) ? existing.auditTrail : []), ...auditEntries];
+    const nextRecords = index >= 0
+      ? records.map(item => normalizeId(item?.id) === normalizeId(record.id) ? record : item)
+      : [record, ...records];
+    await writeSalesValidations(nextRecords);
+    return record;
+  },
+
+  async deleteSalesValidation(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    if (!canDeleteSalesValidation(currentUser)) throw new Error("Solo el administrador puede eliminar validaciones de ventas.");
+    const id = normalizeId(payload.id);
+    const reason = String(payload.reason || payload.motivo || "").trim();
+    if (!id) throw new Error("El id de la validacion es obligatorio.");
+    if (!reason) throw new Error("El motivo de eliminacion es obligatorio.");
+    const records = await readSalesValidations();
+    const index = records.findIndex(item => normalizeId(item?.id) === id);
+    if (index < 0) throw new Error("No se encontro la ficha de validacion.");
+    const now = nowIso();
+    const existing = records[index];
+    const record = {
+      ...existing,
+      status: "Eliminada",
+      deletedAt: now,
+      deletedBy: String(currentUser.usuario || "").trim(),
+      deletedByName: String(currentUser.nombre || "").trim(),
+      deleteReason: reason,
+      updatedAt: now,
+      updatedBy: String(currentUser.usuario || "").trim(),
+      updatedByName: String(currentUser.nombre || "").trim(),
+      auditTrail: [
+        ...(Array.isArray(existing.auditTrail) ? existing.auditTrail : []),
+        ...buildSalesValidationAudit(existing, existing, currentUser, "deleted", { reason })
+      ]
+    };
+    const nextRecords = records.map(item => normalizeId(item?.id) === id ? record : item);
+    await writeSalesValidations(nextRecords);
+    return record;
+  },
+
+  async restoreSalesValidation(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    requireRoles(currentUser, ["admin"], "Solo el administrador puede restaurar validaciones.");
+    const id = normalizeId(payload.id);
+    const records = await readSalesValidations();
+    const index = records.findIndex(item => normalizeId(item?.id) === id);
+    if (index < 0) throw new Error("No se encontro la ficha de validacion.");
+    const now = nowIso();
+    const existing = records[index];
+    const record = {
+      ...existing,
+      status: "Activa",
+      restoredAt: now,
+      restoredBy: String(currentUser.usuario || "").trim(),
+      restoredByName: String(currentUser.nombre || "").trim(),
+      updatedAt: now,
+      updatedBy: String(currentUser.usuario || "").trim(),
+      updatedByName: String(currentUser.nombre || "").trim(),
+      auditTrail: [
+        ...(Array.isArray(existing.auditTrail) ? existing.auditTrail : []),
+        ...buildSalesValidationAudit(existing, existing, currentUser, "restored")
+      ]
+    };
+    const nextRecords = records.map(item => normalizeId(item?.id) === id ? record : item);
+    await writeSalesValidations(nextRecords);
     return record;
   },
 
