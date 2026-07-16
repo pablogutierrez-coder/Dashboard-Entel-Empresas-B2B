@@ -96,6 +96,95 @@ function clampLimit(limit, fallback = 20) {
   return Math.min(MAX_RECORDS_RETURNED, Math.max(1, Math.floor(parsed)));
 }
 
+function normalizeId(value) {
+  return String(value ?? "").trim();
+}
+
+function extractPercent(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const match = String(value ?? "").replace(",", ".").match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function getDeletedEvaluationIds() {
+  const deleted = await readSharedJson("deleted_evaluations_v1", []);
+  const values = Array.isArray(deleted)
+    ? deleted
+    : deleted && typeof deleted === "object"
+      ? Object.values(deleted)
+      : [];
+  return new Set(values.flatMap(item => {
+    if (item === null || item === undefined) return [];
+    if (typeof item === "string" || typeof item === "number") return [normalizeId(item)];
+    if (typeof item === "object") return [item.id, item.idEvaluacion, item.evaluationId, item.deletedId].map(normalizeId).filter(Boolean);
+    return [];
+  }).filter(Boolean));
+}
+
+function isDeletedEvaluation(row, deletedIds) {
+  if (!row || typeof row !== "object") return false;
+  if (row.deleted || row.isDeleted || normalizeText(row.estado) === "eliminado") return true;
+  const ids = [row.id, row.idEvaluacion, row.evaluationId, row.feedbackId].map(normalizeId).filter(Boolean);
+  return ids.some(id => deletedIds.has(id));
+}
+
+function getEvaluationScore(row) {
+  return extractPercent(row?.resultadoGeneral ?? row?.nota ?? row?.score ?? row?.puntaje ?? row?.calificacion);
+}
+
+async function getAdvisorScoreRanking(args = {}) {
+  const limit = clampLimit(args.limit, 5);
+  const rows = await readCollection("evaluations");
+  const deletedIds = await getDeletedEvaluationIds();
+  const groups = new Map();
+  rows.forEach(row => {
+    if (isDeletedEvaluation(row, deletedIds)) return;
+    const advisor = String(row?.asesorNombre || row?.asesor || row?.advisorName || row?.agentName || "").trim();
+    const score = getEvaluationScore(row);
+    if (!advisor || score === null) return;
+    if (!groups.has(advisor)) {
+      groups.set(advisor, {
+        asesor: advisor,
+        totalEvaluaciones: 0,
+        sumaNotas: 0,
+        notaPromedio: 0,
+        notaMinima: score,
+        notaMaxima: score,
+        ultimaEvaluacion: "",
+        ultimaNota: score
+      });
+    }
+    const item = groups.get(advisor);
+    item.totalEvaluaciones += 1;
+    item.sumaNotas += score;
+    item.notaMinima = Math.min(item.notaMinima, score);
+    item.notaMaxima = Math.max(item.notaMaxima, score);
+    const date = String(row?.fechaEvaluacion || row?.createdAt || row?.updatedAt || "");
+    if (!item.ultimaEvaluacion || date > item.ultimaEvaluacion) {
+      item.ultimaEvaluacion = date;
+      item.ultimaNota = score;
+    }
+  });
+  const ranking = [...groups.values()]
+    .map(item => ({
+      ...item,
+      notaPromedio: Number((item.sumaNotas / item.totalEvaluaciones).toFixed(1))
+    }))
+    .sort((a, b) => a.notaPromedio - b.notaPromedio || b.totalEvaluaciones - a.totalEvaluaciones || a.asesor.localeCompare(b.asesor, "es"))
+    .slice(0, limit);
+  return {
+    ok: true,
+    metric: "notaPromedio",
+    order: "asc",
+    totalEvaluaciones: rows.length,
+    evaluacionesExcluidasEliminadas: rows.filter(row => isDeletedEvaluation(row, deletedIds)).length,
+    asesoresConNota: groups.size,
+    ranking
+  };
+}
+
 function resolveCollections(collection) {
   const raw = normalizeText(collection);
   if (!raw || raw === "all" || raw === "todas" || raw === "todos") return Object.keys(COLLECTIONS);
@@ -185,6 +274,19 @@ export const aiToolDefinitions = [
         }
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_lowest_advisors",
+      description: "Calcula los asesores con menor nota promedio real usando evaluaciones de calidad en Firebase. Util para preguntas como 'asesores mas bajos', 'peores notas' o 'ranking inferior'.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: LIMIT_PARAMETER_SCHEMA
+        }
+      }
+    }
   }
 ];
 
@@ -244,6 +346,10 @@ export async function executeAiTool(name, args = {}) {
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "es"))
       .slice(0, limit);
     return { ok: true, collection: key, field: args.field, totalRows: rows.length, groups };
+  }
+
+  if (name === "get_lowest_advisors") {
+    return getAdvisorScoreRanking(args);
   }
 
   return { ok: false, error: `Herramienta IA no disponible: ${name}` };
