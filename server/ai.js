@@ -87,6 +87,7 @@ export async function generateDashboardInsights({ question = "", context = {}, m
         "Para cualquier cifra, ranking, alerta, tendencia, busqueda o conclusion de negocio, primero consulta Firebase con herramientas.",
         "Para preguntas sobre asesores con notas mas bajas, peores resultados o ranking inferior, usa get_lowest_advisors antes de responder.",
         "Si una herramienta devuelve nota 0.0 con evaluaciones asociadas, interpretalo como una nota valida de calidad, no como ausencia de datos.",
+        "No agregues advertencias de falta de datos cuando la herramienta indique totalEvaluaciones mayor que 0 o tieneEvaluacionesValidas true.",
         "Si no usas herramientas, solo puedes responder preguntas conceptuales o pedir precision.",
         "Cuando uses herramientas, revisa primero campos totals, totalRows y totalReturned antes de interpretar muestras. No concluyas que una coleccion no existe solo porque sus muestras fueron resumidas o truncadas.",
         "No inventes cifras ni menciones datos que no esten en los resultados consultados.",

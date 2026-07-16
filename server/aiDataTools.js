@@ -170,7 +170,8 @@ async function getAdvisorScoreRanking(args = {}) {
   const ranking = [...groups.values()]
     .map(item => ({
       ...item,
-      notaPromedio: Number((item.sumaNotas / item.totalEvaluaciones).toFixed(1))
+      notaPromedio: Number((item.sumaNotas / item.totalEvaluaciones).toFixed(1)),
+      tieneEvaluacionesValidas: item.totalEvaluaciones > 0
     }))
     .sort((a, b) => a.notaPromedio - b.notaPromedio || b.totalEvaluaciones - a.totalEvaluaciones || a.asesor.localeCompare(b.asesor, "es"))
     .slice(0, limit);
@@ -181,6 +182,7 @@ async function getAdvisorScoreRanking(args = {}) {
     totalEvaluaciones: rows.length,
     evaluacionesExcluidasEliminadas: rows.filter(row => isDeletedEvaluation(row, deletedIds)).length,
     asesoresConNota: groups.size,
+    scoreInterpretation: "La nota 0.0 es una nota valida cuando totalEvaluaciones es mayor que 0; no significa falta de datos.",
     ranking
   };
 }
