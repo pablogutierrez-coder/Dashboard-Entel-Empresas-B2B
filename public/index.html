@@ -2912,71 +2912,137 @@ function NotificationCenter({currentUser,notifications,onRefresh,onOpenNotificat
   );
 }
 
-function TigerChatWidget({currentUser,messages,isOpen,onToggle,onSendMessage,onAskAi,sending,aiLoading}){
-  const [draft,setDraft] = useState("");
-  const listRef = useRef(null);
+function renderAiInlineMarkdown(text){
+  const parts = String(text || "").split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part,index) => {
+    const bold = part.startsWith("**") && part.endsWith("**") && part.length > 4;
+    return bold
+      ? h("strong",{key:index,style:{fontWeight:900,color:"#fff"}},part.slice(2,-2))
+      : h("span",{key:index},part);
+  });
+}
+
+function renderAiMarkdown(text){
+  const lines = String(text || "").split(/\r?\n/);
+  return h("div",{style:{display:"flex",flexDirection:"column",gap:8}},
+    lines.map((line,index) => {
+      const value = String(line || "").trim();
+      if (!value) return h("div",{key:index,style:{height:4}});
+      const ordered = value.match(/^(\d+)[\.\)]\s+(.+)$/);
+      const bullet = value.match(/^[-*]\s+(.+)$/);
+      const heading = value.match(/^(#{1,3})\s+(.+)$/);
+      if (heading) {
+        return h("div",{key:index,style:{fontSize:14,fontWeight:900,color:"#fff",marginTop:index ? 6 : 0}},renderAiInlineMarkdown(heading[2]));
+      }
+      if (ordered) {
+        return h("div",{key:index,style:{display:"grid",gridTemplateColumns:"26px 1fr",gap:8,alignItems:"start",fontSize:13,lineHeight:1.65,color:"#e8ecff"}},
+          h("span",{style:{width:22,height:22,borderRadius:8,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"rgba(29,43,255,0.18)",border:"1px solid rgba(29,43,255,0.30)",color:THEME.primary,fontWeight:900}},ordered[1]),
+          h("span",null,renderAiInlineMarkdown(ordered[2]))
+        );
+      }
+      if (bullet) {
+        return h("div",{key:index,style:{display:"grid",gridTemplateColumns:"14px 1fr",gap:8,alignItems:"start",fontSize:13,lineHeight:1.65,color:"#e8ecff"}},
+          h("span",{style:{width:7,height:7,borderRadius:999,background:THEME.accent,marginTop:8}}),
+          h("span",null,renderAiInlineMarkdown(bullet[1]))
+        );
+      }
+      return h("p",{key:index,style:{margin:0,fontSize:13,lineHeight:1.68,color:"#e8ecff"}},renderAiInlineMarkdown(value));
+    })
+  );
+}
+
+function TigerChatWidget({currentUser,messages,isOpen,onToggle,onAskAi,aiLoading}){
+  const [question,setQuestion] = useState("");
+  const [insight,setInsight] = useState("");
+  const [activePrompt,setActivePrompt] = useState("resumen");
+  const [copied,setCopied] = useState(false);
+  const resultRef = useRef(null);
 
   useEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [messages,isOpen]);
+    if (resultRef.current) resultRef.current.scrollTop = 0;
+  }, [insight]);
 
-  const submit = async() => {
-    const text = String(draft || "").trim();
-    if (!text || sending) return;
-    const sent = await onSendMessage(text);
-    if (sent) setDraft("");
-  };
-  const askAi = async() => {
+  const prompts = [
+    {id:"resumen",label:"Resumen ejecutivo",question:"Genera un resumen ejecutivo del dashboard actual. Usa negritas para los hallazgos clave, datos concretos y 3 acciones recomendadas."},
+    {id:"riesgos",label:"Riesgos",question:"Identifica riesgos operativos y de calidad del dashboard actual. Prioriza por impacto y urgencia. Usa negritas en cada riesgo."},
+    {id:"acciones",label:"Acciones",question:"Propón un plan de acción concreto para mejorar los indicadores visibles. Incluye responsables sugeridos, foco y próximos pasos."},
+    {id:"alertas",label:"Alertas",question:"Detecta alertas o anomalías en los datos visibles del dashboard. Explica qué revisar primero y por qué."}
+  ];
+
+  const runAi = async(prompt) => {
     if (!onAskAi || aiLoading) return;
-    const text = String(draft || "").trim();
-    const sent = await onAskAi(text);
-    if (sent) setDraft("");
+    setActivePrompt(prompt.id);
+    const answer = await onAskAi(prompt.question);
+    if (answer) setInsight(String(answer));
+  };
+
+  const askCustom = async() => {
+    const text = String(question || "").trim();
+    if (!text || !onAskAi || aiLoading) return;
+    setActivePrompt("personalizada");
+    const answer = await onAskAi(text);
+    if (answer) setInsight(String(answer));
+    setQuestion("");
+  };
+
+  const copyInsight = async() => {
+    if (!insight || !navigator?.clipboard) return;
+    await navigator.clipboard.writeText(insight);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
   };
 
   return h(Fragment,null,
-    isOpen && h("div",{style:{position:"fixed",right:24,bottom:96,width:360,maxWidth:"calc(100vw - 32px)",height:520,background:"linear-gradient(180deg, rgba(18,19,29,0.98) 0%, rgba(23,12,41,0.98) 100%)",border: `1px solid ${THEME.borderStrong}`,borderRadius:22,boxShadow:"0 22px 60px rgba(0,0,0,0.42), 0 0 0 1px rgba(91,31,214,0.08)",zIndex:1450,display:"flex",flexDirection:"column",overflow:"hidden"}},
-      h("div",{style:{padding:"18px 18px 14px",borderBottom: `1px solid ${THEME.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,background:"linear-gradient(135deg, rgba(29,43,255,0.16) 0%, rgba(91,31,214,0.18) 62%, rgba(230,0,168,0.14) 100%)"}},
+    isOpen && h("div",{style:{position:"fixed",right:24,bottom:96,width:520,maxWidth:"calc(100vw - 32px)",height:620,maxHeight:"calc(100vh - 126px)",background:"linear-gradient(180deg, rgba(18,19,29,0.98) 0%, rgba(23,12,41,0.98) 100%)",border:`1px solid ${THEME.borderStrong}`,borderRadius:24,boxShadow:"0 26px 70px rgba(0,0,0,0.46), 0 0 0 1px rgba(91,31,214,0.08)",zIndex:1450,display:"flex",flexDirection:"column",overflow:"hidden"}},
+      h("div",{style:{padding:"18px 20px 16px",borderBottom:`1px solid ${THEME.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,background:"linear-gradient(135deg, rgba(29,43,255,0.18) 0%, rgba(91,31,214,0.20) 58%, rgba(230,0,168,0.16) 100%)"}},
         h("div",{style:{display:"flex",alignItems:"center",gap:12}},
-          h("div",{style:{width:42,height:42,borderRadius:14,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(11,11,18,0.55)",border: `1px solid ${THEME.border}`}},
-            h("span",{style:{fontSize:22,lineHeight:1}},TIGER_FACE)
+          h("div",{style:{width:46,height:46,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(11,11,18,0.55)",border:`1px solid ${THEME.border}`,boxShadow:"0 12px 24px rgba(29,43,255,0.16)"}},
+            h("span",{style:{fontSize:24,lineHeight:1}},TIGER_FACE)
           ),
           h("div",null,
-            h("div",{style:{fontSize:15,fontWeight:800,color:"#fff",fontFamily:THEME.displayFont,letterSpacing:"0.08em",textTransform:"uppercase"}},"Tigre IA"),
-            h("div",{style:{fontSize:11,color:"#d7d3e6"}},"Chat interno y conclusiones del dashboard")
+            h("div",{style:{fontSize:16,fontWeight:900,color:"#fff",fontFamily:THEME.displayFont,letterSpacing:"0.10em",textTransform:"uppercase"}},"Tigre IA"),
+            h("div",{style:{fontSize:12,color:"#d7d3e6"}},"Widget de inteligencia para conclusiones del dashboard")
           )
         ),
         h("button",{style:{...BTN("out"),padding:"10px 12px"},onClick:onToggle},"CERRAR")
       ),
-      h("div",{ref:listRef,style:{flex:1,overflowY:"auto",padding:"16px 16px 10px",display:"flex",flexDirection:"column",gap:10}},
-        !(messages || []).length
-          ? h("div",{style:{margin:"auto 0",textAlign:"center",padding:"24px 12px",color:"#8b92a5",fontSize:12,lineHeight:1.8}},
-              "Todavia no hay mensajes.", h("br",null), "Usa este espacio para coordinar entre administradores, analistas y asesores."
-            )
-          : messages.map(message => {
-              const isMine = String(message?.authorUser || "").trim().toLowerCase() === String(currentUser?.usuario || "").trim().toLowerCase();
-              return h("div",{key:message.id,style:{alignSelf:isMine ? "flex-end" : "stretch",maxWidth:"92%",background:isMine ? "rgba(29,43,255,0.14)" : "rgba(255,255,255,0.04)",border:isMine ? "1px solid rgba(29,43,255,0.30)" : `1px solid ${THEME.border}`,borderRadius:16,padding:"12px 14px",boxShadow:isMine ? "0 10px 24px rgba(29,43,255,0.14)" : "none"}},
-                h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:8}},
-                  h("div",{style:{fontSize:11,fontWeight:800,color:isMine ? THEME.primary : "#fff",fontFamily:THEME.displayFont,letterSpacing:"0.08em",textTransform:"uppercase"}}, `${message.authorName || "Usuario"} - ${message.authorRole || ""}`),
-                  h("div",{style:{fontSize:10,color:"#8b92a5",whiteSpace:"nowrap"}}, formatFeedbackDate(message.createdAt))
-                ),
-                h("div",{style:{fontSize:12,color:"#e2e8f0",lineHeight:1.7,whiteSpace:"pre-wrap"}}, message.text || "")
-              );
-            })
+      h("div",{style:{padding:16,borderBottom:`1px solid ${THEME.border}`,display:"grid",gridTemplateColumns:"repeat(2, minmax(0, 1fr))",gap:10}},
+        prompts.map(prompt => h("button",{key:prompt.id,style:{...BTN(activePrompt===prompt.id ? "p" : "out"),justifyContent:"center",padding:"11px 10px",fontSize:10},disabled:aiLoading,onClick:()=>runAi(prompt)},prompt.label))
       ),
-      h("div",{style:{padding:"14px 16px 16px",borderTop: `1px solid ${THEME.border}`,background:"rgba(8,8,14,0.42)"}},
-        h("textarea",{style:{...INP,minHeight:88,resize:"vertical",marginBottom:10},placeholder:"Escribe un mensaje o pregunta: ¿qué conclusiones ves en este dashboard?",value:draft,onChange:ev => setDraft(ev.target.value)}),
+      h("div",{ref:resultRef,style:{flex:1,overflowY:"auto",padding:"16px 18px",background:"linear-gradient(180deg, rgba(8,8,14,0.20), rgba(8,8,14,0.42))"}},
+        aiLoading
+          ? h("div",{style:{...CARD,padding:18,display:"flex",alignItems:"center",gap:12}},
+              h("div",{style:{width:12,height:12,borderRadius:999,background:THEME.accent,boxShadow:"0 0 20px rgba(230,0,168,0.75)"}}),
+              h("div",null,
+                h("div",{style:{fontSize:13,fontWeight:900,color:"#fff"}},"Analizando datos del dashboard..."),
+                h("div",{style:{fontSize:11,color:"#9aa3bd",marginTop:4}},"Tigre IA esta buscando patrones, riesgos y acciones utiles.")
+              )
+            )
+          : insight
+            ? h("div",{style:{...CARD,padding:18,marginBottom:0}},
+                h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:14}},
+                  h("div",{style:{fontSize:11,color:THEME.accent,fontWeight:900,fontFamily:THEME.displayFont,letterSpacing:"0.12em",textTransform:"uppercase"}},"Analisis generado"),
+                  h("button",{style:{...BTN("out"),padding:"8px 10px",fontSize:9},onClick:copyInsight},copied ? "COPIADO" : "COPIAR")
+                ),
+                renderAiMarkdown(insight)
+              )
+            : h("div",{style:{margin:"auto 0",textAlign:"center",padding:"38px 18px",color:"#9aa3bd",fontSize:13,lineHeight:1.8}},
+                h("div",{style:{fontSize:34,marginBottom:12}},TIGER_FACE),
+                h("div",{style:{fontSize:18,fontWeight:900,color:"#fff",marginBottom:8}},"Listo para analizar"),
+                "Elige una accion rapida o escribe una pregunta. La IA usara los datos visibles y cargados del dashboard."
+              )
+      ),
+      h("div",{style:{padding:"14px 16px 16px",borderTop:`1px solid ${THEME.border}`,background:"rgba(8,8,14,0.52)"}},
+        h("textarea",{style:{...INP,minHeight:78,resize:"vertical",marginBottom:10},placeholder:"Pregunta personalizada: por ejemplo, ¿qué equipo necesita prioridad esta semana?",value:question,onChange:ev=>setQuestion(ev.target.value)}),
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}},
-          h("div",{style:{fontSize:11,color:"#8b92a5"}},"Usa IA para conclusiones rapidas del dashboard"),
-          h("div",{style:{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}},
-            h("button",{style:{...BTN("out"),padding:"10px 12px"},disabled:aiLoading,onClick:askAi}, aiLoading ? "ANALIZANDO..." : "CONCLUSIONES IA"),
-            h("button",{style:{...BTN("pink"),padding:"10px 14px"},disabled:sending || !String(draft || "").trim(),onClick:submit}, sending ? "ENVIANDO..." : "ENVIAR")
-          )
+          h("div",{style:{fontSize:11,color:"#8b92a5"}},"Usa negritas, listas y conclusiones accionables."),
+          h("button",{style:{...BTN("pink"),padding:"11px 16px"},disabled:aiLoading || !String(question || "").trim(),onClick:askCustom},aiLoading ? "ANALIZANDO..." : "PREGUNTAR IA")
         )
       )
     ),
     h("button",{style:{position:"fixed",right:24,bottom:24,width:isOpen ? 60 : 72,height:isOpen ? 60 : 72,borderRadius:999,border:"none",background:THEME.gradient,color:"#fff",boxShadow:"0 16px 38px rgba(29,43,255,0.28), 0 0 0 1px rgba(255,255,255,0.06)",zIndex:1460,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4},onClick:onToggle},
       h("span",{style:{fontSize:isOpen ? 24 : 28,lineHeight:1}},TIGER_FACE),
-      !isOpen && h("span",{style:{fontSize:9,fontWeight:800,fontFamily:THEME.displayFont,letterSpacing:"0.14em"}},"CHAT")
+      !isOpen && h("span",{style:{fontSize:9,fontWeight:800,fontFamily:THEME.displayFont,letterSpacing:"0.14em"}},"IA")
     )
   );
 }
@@ -5263,15 +5329,7 @@ function App(){
     setChatAiLoading(true);
     try {
       const result = await requestTigerAiInsights({question,context:tigerAiContext});
-      const intro = question ? `Consulta: ${question}\n\n` : "";
-      const saved = await saveInternalChatEntry({
-        text:`${intro}${result.answer || "No pude generar conclusiones en este momento."}`,
-        authorName:"Tigre IA",
-        authorUser:"__tigre_ia__",
-        authorRole:result.mode === "groq" ? "IA de analisis" : "IA pendiente de configurar"
-      });
-      await reloadInternalChat();
-      return !!saved;
+      return result.answer || "No pude generar conclusiones en este momento.";
     } catch (err) {
       notify("e",err?.message || "No se pudo generar conclusiones IA.");
       return false;
@@ -6906,15 +6964,7 @@ function App(){
     setChatAiLoading(true);
     try {
       const result = await requestTigerAiInsights({question,context:tigerAiContext});
-      const intro = question ? `Consulta: ${question}\n\n` : "";
-      const saved = await saveInternalChatEntry({
-        text:`${intro}${result.answer || "No pude generar conclusiones en este momento."}`,
-        authorName:"Tigre IA",
-        authorUser:"__tigre_ia__",
-        authorRole:result.mode === "groq" ? "IA de analisis" : "IA pendiente de configurar"
-      });
-      await reloadInternalChat();
-      return !!saved;
+      return result.answer || "No pude generar conclusiones en este momento.";
     } catch (err) {
       notify("e",err?.message || "No se pudo generar conclusiones IA.");
       return false;
