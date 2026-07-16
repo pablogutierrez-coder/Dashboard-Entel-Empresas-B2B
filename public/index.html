@@ -5387,6 +5387,20 @@ function normalizeComparableValue(value){
     .toLowerCase();
 }
 
+function formatDateTime(value){
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || "-");
+  return date.toLocaleDateString("es-PE",{
+    timeZone: APP_TIME_ZONE,
+    year:"numeric",
+    month:"short",
+    day:"numeric",
+    hour:"2-digit",
+    minute:"2-digit"
+  });
+}
+
 function normalizeResultValue(value){
   const normalized = normalizeComparableValue(value);
   if (["no cumple","no cumple.","incumple","incorrecto","error","errores","fallo","falla","deficiente","mala practica"].includes(normalized)) return "NO CUMPLE";
