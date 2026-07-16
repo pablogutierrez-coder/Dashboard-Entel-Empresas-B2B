@@ -1,8 +1,8 @@
 import { config } from "./config.js";
 import { aiToolDefinitions, executeAiTool, truncateToolResult } from "./aiDataTools.js";
 
-const MAX_CONTEXT_CHARS = 2500;
-const MAX_MEMORY_MESSAGES = 8;
+const MAX_CONTEXT_CHARS = 1200;
+const MAX_MEMORY_MESSAGES = 5;
 
 function truncateText(value, maxLength = MAX_CONTEXT_CHARS) {
   const text = typeof value === "string" ? value : JSON.stringify(value || {});
@@ -37,7 +37,7 @@ async function callGroq(messages, options = {}) {
       model: config.groqModel,
       messages,
       temperature: 0.2,
-      max_tokens: 850,
+      max_tokens: 520,
       ...(options.tools ? { tools: options.tools, tool_choice: "auto" } : {})
     })
   });
@@ -61,9 +61,78 @@ function localFallbackInsights(context, question) {
   return lines.join("\n");
 }
 
+function normalizeAiText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function shouldUseLowestAdvisorsFallback(question) {
+  const text = normalizeAiText(question);
+  return /(asesor|asesores|ejecutivo|ejecutivos|agente|agentes)/.test(text)
+    && /(mas bajo|mas bajos|menor|menores|peor|peores|ranking inferior|nota baja|notas bajas)/.test(text);
+}
+
+function extractRequestedLimit(question, fallback = 5) {
+  const match = String(question || "").match(/\b(\d{1,2})\b/);
+  if (!match) return fallback;
+  const parsed = Number(match[1]);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(20, parsed);
+}
+
+function formatLowestAdvisorsAnswer(result) {
+  const ranking = Array.isArray(result?.ranking) ? result.ranking : [];
+  if (!ranking.length) {
+    return [
+      "**No encontre asesores con notas disponibles en Firebase.**",
+      "",
+      "La consulta se hizo directamente a la base de datos, pero no hubo registros con nota calculable."
+    ].join("\n");
+  }
+  const lines = [
+    `**Top ${ranking.length} asesores con nota mas baja**`,
+    "",
+    `Base consultada: **${result.totalEvaluaciones || 0} evaluaciones** y **${result.asesoresConNota || 0} asesores con nota**.`,
+    ""
+  ];
+  ranking.forEach((item, index) => {
+    lines.push(`${index + 1}. **${item.asesor}** - **${Number(item.notaPromedio || 0).toFixed(1)}%** promedio (${item.totalEvaluaciones} evaluacion(es)).`);
+  });
+  lines.push("");
+  lines.push("**Lectura rapida:** estos asesores requieren revision prioritaria porque concentran los promedios mas bajos de calidad registrados.");
+  return lines.join("\n");
+}
+
+async function localDatabaseAnswer(question) {
+  if (shouldUseLowestAdvisorsFallback(question)) {
+    const limit = extractRequestedLimit(question, 5);
+    const result = await executeAiTool("get_lowest_advisors", { limit });
+    return {
+      ok: true,
+      mode: "database_fallback",
+      answer: formatLowestAdvisorsAnswer(result),
+      memoryUsed: 0,
+      toolsUsed: [{ name: "get_lowest_advisors", args: { limit } }]
+    };
+  }
+  return null;
+}
+
+function isGroqLimitError(error) {
+  const text = normalizeAiText(error?.message || "");
+  return error?.status === 429 || text.includes("rate limit") || text.includes("tokens per day") || text.includes("tokens per minute");
+}
+
 export async function generateDashboardInsights({ question = "", context = {}, messages = [] }) {
   const safeQuestion = String(question || "").trim().slice(0, 1200);
   const memoryMessages = sanitizeConversationMessages(messages);
+  const deterministicAnswer = await localDatabaseAnswer(safeQuestion);
+  if (deterministicAnswer) {
+    return { ...deterministicAnswer, memoryUsed: memoryMessages.length };
+  }
   if (!config.groqApiKey) {
     return {
       ok: true,
@@ -105,7 +174,23 @@ export async function generateDashboardInsights({ question = "", context = {}, m
     }
   ];
 
-  const firstPayload = await callGroq(baseMessages, { tools: aiToolDefinitions });
+  let firstPayload;
+  try {
+    firstPayload = await callGroq(baseMessages, { tools: aiToolDefinitions });
+  } catch (error) {
+    const fallback = await localDatabaseAnswer(safeQuestion);
+    if (fallback) return { ...fallback, memoryUsed: memoryMessages.length };
+    if (isGroqLimitError(error)) {
+      return {
+        ok: true,
+        mode: "groq_rate_limited",
+        answer: "**Tigre IA llego al limite temporal de Groq.** La base de datos sigue disponible, pero esta pregunta necesita generacion IA. Intenta nuevamente cuando se libere cuota o formula una consulta concreta de ranking/conteo para responderla directo desde Firebase.",
+        memoryUsed: memoryMessages.length,
+        toolsUsed: []
+      };
+    }
+    throw error;
+  }
   const firstMessage = firstPayload?.choices?.[0]?.message || {};
   const toolCalls = Array.isArray(firstMessage.tool_calls) ? firstMessage.tool_calls.slice(0, 5) : [];
   const toolsUsed = [];
@@ -129,14 +214,39 @@ export async function generateDashboardInsights({ question = "", context = {}, m
         content: truncateToolResult(result)
       });
     }
-    const finalPayload = await callGroq([
-      ...baseMessages,
-      ...toolMessages,
-      {
-        role: "user",
-        content: "Con los resultados de herramientas anteriores, responde la pregunta de forma ejecutiva, accionable y sin inventar datos."
+    let finalPayload;
+    try {
+      finalPayload = await callGroq([
+        ...baseMessages,
+        ...toolMessages,
+        {
+          role: "user",
+          content: "Con los resultados de herramientas anteriores, responde la pregunta de forma ejecutiva, accionable y sin inventar datos."
+        }
+      ]);
+    } catch (error) {
+      if (isGroqLimitError(error)) {
+        const directLowestResult = toolsUsed.find(item => item.name === "get_lowest_advisors");
+        if (directLowestResult) {
+          const result = await executeAiTool("get_lowest_advisors", directLowestResult.args || {});
+          return {
+            ok: true,
+            mode: "database_fallback",
+            answer: formatLowestAdvisorsAnswer(result),
+            memoryUsed: memoryMessages.length,
+            toolsUsed
+          };
+        }
+        return {
+          ok: true,
+          mode: "groq_rate_limited",
+          answer: "**Tigre IA consulto Firebase, pero Groq llego al limite antes de redactar la conclusion.** Intenta nuevamente cuando se libere cuota.",
+          memoryUsed: memoryMessages.length,
+          toolsUsed
+        };
       }
-    ]);
+      throw error;
+    }
     return {
       ok: true,
       mode: "groq",
