@@ -120,6 +120,12 @@ function cleanUsername(value) {
     .replace(/\s+/g, "");
 }
 
+function getUserTenantKey(user) {
+  const loginKey = normalizeLoginKey(user?.usuario || user?.user || user?.username);
+  const clientKey = String(user?.clientId || user?.platformId || user?.tenantId || DEFAULT_PLATFORM_ID).trim() || DEFAULT_PLATFORM_ID;
+  return `${clientKey}::${loginKey}`;
+}
+
 function normalizeProfileStatus(value) {
   return String(value || "activo")
     .normalize("NFD")
@@ -192,7 +198,7 @@ function normalizeUsersList(users) {
   (Array.isArray(users) ? users : []).forEach(user => {
     const normalized = normalizeUserRecord(user);
     if (!normalized) return;
-    const key = normalizeLoginKey(normalized.usuario);
+    const key = getUserTenantKey(normalized);
     if (!key) return;
     const existing = byLogin.get(key) || {};
     byLogin.set(key, {
@@ -2345,15 +2351,20 @@ function isPrimaryCulqiUser(user){
 function filterUsersForPlatform(records, platformId){
   const list = normalizeUsersList(Array.isArray(records) ? records : []);
   if (isCulqiPlatform(platformId)) {
-    return list
-      .filter(isPrimaryCulqiUser)
-      .map(user => ({
+    const culqiUsers = list.filter(user => isRecordVisibleForPlatform(user, CULQI_PLATFORM_ID));
+    const hasPrimaryInCulqi = culqiUsers.some(isPrimaryCulqiUser);
+    const pabloFallback = hasPrimaryInCulqi ? null : list.find(user => isPrimaryCulqiUser(user));
+    const scoped = [
+      ...(pabloFallback ? [pabloFallback] : []),
+      ...culqiUsers
+    ].map(user => ({
         ...user,
         clientId: CULQI_PLATFORM_ID,
         platformId: CULQI_PLATFORM_ID,
         clientName: getPlatformDisplayName(CULQI_PLATFORM_ID),
         platformName: getPlatformDisplayName(CULQI_PLATFORM_ID)
       }));
+    return normalizeUsersList(scoped);
   }
   return list.filter(user => isRecordVisibleForPlatform(user, platformId || DEFAULT_PLATFORM_ID));
 }
@@ -5388,7 +5399,7 @@ function App(){
     const latestUsers = await loadUsers().catch(() => users);
     const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
     const now = new Date().toISOString();
-    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey && isRecordVisibleForPlatform(u, currentPlatformId)
       ? {...u, password:nextPassword, mustChangePassword:false, passwordChangedAt:now, updatedAt:now}
       : u
     );
@@ -5397,7 +5408,7 @@ function App(){
       notify("e","No se pudo actualizar la contrasena.");
       return false;
     }
-    const updatedUser = updated.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+    const updatedUser = updated.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey && isRecordVisibleForPlatform(u, currentPlatformId));
     setUsers(updated);
     setCurrentUser({...currentUser,...updatedUser,passwordChangeRequired:false,passwordChangeReason:""});
     notify("s","Contrasena actualizada correctamente.");
@@ -6840,24 +6851,25 @@ function App(){
   };
 
   const agregarUsuario = async(nuevoUsuario) => {
-    const normalizedNewUser = normalizeUserRecord(nuevoUsuario);
+    const normalizedNewUser = normalizeUserRecord(tagRecordForPlatform(nuevoUsuario, currentPlatformId, currentPlatformName));
     if (!normalizedNewUser) return false;
     const latestUsers = await loadUsers().catch(() => []);
     const sourceUsers = normalizeUsersList([...(latestUsers || []), ...(users || [])]);
-    if (sourceUsers.some(user => normalizeLoginKey(user.usuario) === normalizeLoginKey(normalizedNewUser.usuario))) {
-      notify("e","Ese usuario ya existe en la base.");
+    const platformUsers = filterUsersForPlatform(sourceUsers, currentPlatformId);
+    if (platformUsers.some(user => normalizeLoginKey(user.usuario) === normalizeLoginKey(normalizedNewUser.usuario))) {
+      notify("e","Ese usuario ya existe en esta plataforma.");
       setUsers(sourceUsers);
       return false;
     }
-    if (normalizedNewUser.rol === "asesor" && normalizedNewUser.assessorName && sourceUsers.some(user => user.rol === "asesor" && normalizeName(user.assessorName) === normalizeName(normalizedNewUser.assessorName))) {
-      notify("e","Ese asesor ya tiene un usuario asignado en la base.");
+    if (normalizedNewUser.rol === "asesor" && normalizedNewUser.assessorName && platformUsers.some(user => user.rol === "asesor" && normalizeName(user.assessorName) === normalizeName(normalizedNewUser.assessorName))) {
+      notify("e","Ese asesor ya tiene un usuario asignado en esta plataforma.");
       setUsers(sourceUsers);
       return false;
     }
     const updated = normalizeUsersList([...sourceUsers, normalizedNewUser]);
     let nextStaffing = staffing;
     if (normalizedNewUser.rol === "asesor" && normalizedNewUser.assessorName) {
-      nextStaffing = staffing.map(item => normalizeName(item?.asesor) === normalizeName(normalizedNewUser.assessorName) ? {...item,usuarioAsignado:normalizedNewUser.usuario} : item);
+      nextStaffing = staffing.map(item => isRecordVisibleForPlatform(item, currentPlatformId) && normalizeName(item?.asesor) === normalizeName(normalizedNewUser.assessorName) ? {...item,usuarioAsignado:normalizedNewUser.usuario,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName,platformName:currentPlatformName} : item);
     }
     const saved = await saveUsers(updated);
     if (saved === false) return false;
@@ -6874,11 +6886,11 @@ function App(){
     const latestUsers = await loadUsers({preferBackend:true}).catch(() => users);
     const normalizedUserKey = normalizeLoginKey(usuario);
     const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
-    const userToDelete = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
-    const updated = normalizedSource.filter(u => normalizeLoginKey(u.usuario) !== normalizedUserKey);
+    const userToDelete = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey && isRecordVisibleForPlatform(u, currentPlatformId));
+    const updated = normalizedSource.filter(u => !(normalizeLoginKey(u.usuario) === normalizedUserKey && isRecordVisibleForPlatform(u, currentPlatformId)));
     let nextStaffing = staffing;
     if (userToDelete?.rol === "asesor") {
-      nextStaffing = staffing.map(item => normalizeLoginKey(item?.usuarioAsignado) === normalizedUserKey ? {...item,usuarioAsignado:""} : item);
+      nextStaffing = staffing.map(item => isRecordVisibleForPlatform(item, currentPlatformId) && normalizeLoginKey(item?.usuarioAsignado) === normalizedUserKey ? {...item,usuarioAsignado:""} : item);
     }
     const saved = await saveUsers(updated);
     if (saved === false) return false;
@@ -6896,15 +6908,16 @@ function App(){
     const latestUsers = await loadUsers({preferBackend:true}).catch(() => users);
     const normalizedUserKey = normalizeLoginKey(usuario);
     const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
-    const targetUser = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+    const targetUser = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey && isRecordVisibleForPlatform(u, currentPlatformId));
     if (!targetUser) {
       notify("e","No se encontro el usuario para actualizar estado.");
       return false;
     }
-    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, estado: nextStatus} : u);
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey && isRecordVisibleForPlatform(u, currentPlatformId) ? {...u, estado: nextStatus} : u);
     let nextStaffing = staffing;
     if (targetUser?.rol === "asesor") {
       nextStaffing = staffing.map(item => {
+        if (!isRecordVisibleForPlatform(item, currentPlatformId)) return item;
         const matchesUser = normalizeLoginKey(item?.usuarioAsignado) === normalizedUserKey;
         const matchesAdvisor = normalizeName(item?.asesor) === normalizeName(targetUser?.assessorName || targetUser?.nombre);
         return matchesUser || matchesAdvisor ? {...item, estado: nextStatus, usuarioAsignado: item?.usuarioAsignado || targetUser.usuario} : item;
@@ -6928,12 +6941,12 @@ function App(){
     if (!normalizedUserKey || !nextPassword) return false;
     const latestUsers = await loadUsers().catch(() => users);
     const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
-    const targetUser = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+    const targetUser = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey && isRecordVisibleForPlatform(u, currentPlatformId));
     if (!targetUser) {
       notify("e","No se encontro el usuario para resetear contrasena.");
       return false;
     }
-    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey ? {...u, password: nextPassword, mustChangePassword:!isAdminUser(u), passwordChangedAt:"", updatedAt:new Date().toISOString()} : u);
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey && isRecordVisibleForPlatform(u, currentPlatformId) ? {...u, password: nextPassword, mustChangePassword:!isAdminUser(u), passwordChangedAt:"", updatedAt:new Date().toISOString()} : u);
     const saved = await saveUsers(updated);
     if (saved === false) { notify("e","No se pudo guardar la nueva contrasena en la base."); return false; }
     setUsers(updated);
@@ -6949,7 +6962,7 @@ function App(){
     const latestUsers = await loadUsers().catch(() => users);
     const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
     const now = new Date().toISOString();
-    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey
+    const updated = normalizedSource.map(u => normalizeLoginKey(u.usuario) === normalizedUserKey && isRecordVisibleForPlatform(u, currentPlatformId)
       ? {...u, password:nextPassword, mustChangePassword:false, passwordChangedAt:now, updatedAt:now}
       : u
     );
@@ -6958,7 +6971,7 @@ function App(){
       notify("e","No se pudo actualizar la contrasena.");
       return false;
     }
-    const updatedUser = updated.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+    const updatedUser = updated.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey && isRecordVisibleForPlatform(u, currentPlatformId));
     setUsers(updated);
     setCurrentUser({...currentUser,...updatedUser,passwordChangeRequired:false,passwordChangeReason:""});
     notify("s","Contrasena actualizada correctamente.");
