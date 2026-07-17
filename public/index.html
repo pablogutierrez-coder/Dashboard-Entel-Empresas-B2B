@@ -2361,9 +2361,9 @@ function PlatformSelector({onSelect}){
           style:{
             ...CARD,
             background:culqi
-              ? `linear-gradient(135deg, rgba(59,12,70,0.70) 0%, rgba(255,92,0,0.16) 100%), linear-gradient(180deg, rgba(37,13,48,0.96), rgba(24,7,31,0.98))`
+              ? `radial-gradient(circle at 88% 18%, rgba(255,138,0,0.32) 0%, transparent 34%), radial-gradient(circle at 16% 86%, rgba(255,75,0,0.18) 0%, transparent 38%), linear-gradient(135deg, rgba(59,12,70,0.96) 0%, rgba(80,18,78,0.88) 46%, rgba(255,92,0,0.30) 100%), linear-gradient(180deg, rgba(37,13,48,0.98), rgba(24,7,31,0.98))`
               : CARD.background,
-            backgroundImage:culqi ? `linear-gradient(135deg, rgba(59,12,70,0.76) 0%, rgba(255,92,0,0.14) 100%), url("${CULQI_ASSET}")` : undefined,
+            backgroundImage:undefined,
             backgroundSize:culqi ? "cover" : undefined,
             backgroundPosition:culqi ? "center" : undefined,
             marginBottom:0,
