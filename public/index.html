@@ -2336,6 +2336,48 @@ function filterRecordsForPlatform(records, platformId){
   return (Array.isArray(records) ? records : []).filter(record => isRecordVisibleForPlatform(record, platformId));
 }
 
+const CULQI_PRIMARY_LOGIN = "pablo.gutierrez";
+
+function isPrimaryCulqiUser(user){
+  return normalizeLoginKey(user?.usuario) === normalizeLoginKey(CULQI_PRIMARY_LOGIN);
+}
+
+function filterUsersForPlatform(records, platformId){
+  const list = normalizeUsersList(Array.isArray(records) ? records : []);
+  if (isCulqiPlatform(platformId)) {
+    return list
+      .filter(isPrimaryCulqiUser)
+      .map(user => ({
+        ...user,
+        clientId: CULQI_PLATFORM_ID,
+        platformId: CULQI_PLATFORM_ID,
+        clientName: getPlatformDisplayName(CULQI_PLATFORM_ID),
+        platformName: getPlatformDisplayName(CULQI_PLATFORM_ID)
+      }));
+  }
+  return list.filter(user => isRecordVisibleForPlatform(user, platformId || DEFAULT_PLATFORM_ID));
+}
+
+function tagRecordForPlatform(record, platformId, clientName){
+  const normalizedPlatformId = normalizeClientId(platformId);
+  return {
+    ...record,
+    clientId: normalizedPlatformId,
+    platformId: normalizedPlatformId,
+    clientName: clientName || getPlatformDisplayName(normalizedPlatformId),
+    platformName: clientName || getPlatformDisplayName(normalizedPlatformId)
+  };
+}
+
+function mergeScopedRecordsByPlatform(allRecords, scopedRecords, platformId, clientName){
+  const source = Array.isArray(allRecords) ? allRecords : [];
+  const scoped = Array.isArray(scopedRecords) ? scopedRecords : [];
+  return [
+    ...source.filter(record => !isRecordVisibleForPlatform(record, platformId)),
+    ...scoped.map(record => tagRecordForPlatform(record, platformId, clientName))
+  ];
+}
+
 function getPlatformDisplayName(platformId){
   return getPlatformById(platformId)?.client || "AN CALIDAD";
 }
@@ -5237,7 +5279,7 @@ function App(){
   };
 
   const agregarUsuario = async(nuevoUsuario) => {
-    const normalizedNewUser = normalizeUserRecord(nuevoUsuario);
+    const normalizedNewUser = normalizeUserRecord(tagRecordForPlatform(nuevoUsuario, currentPlatformId, currentPlatformName));
     if (!normalizedNewUser) return false;
     const latestUsers = await loadUsers({preferBackend:true}).catch(() => []);
     const sourceUsers = normalizeUsersList([...(latestUsers || []), ...(users || [])]);
@@ -5254,7 +5296,7 @@ function App(){
     const updated = normalizeUsersList([...sourceUsers, normalizedNewUser]);
     let nextStaffing = staffing;
     if (normalizedNewUser.rol === "asesor" && normalizedNewUser.assessorName) {
-      nextStaffing = staffing.map(item => normalizeName(item?.asesor) === normalizeName(normalizedNewUser.assessorName) ? {...item,usuarioAsignado:normalizedNewUser.usuario} : item);
+      nextStaffing = staffing.map(item => isRecordVisibleForPlatform(item, currentPlatformId) && normalizeName(item?.asesor) === normalizeName(normalizedNewUser.assessorName) ? {...item,usuarioAsignado:normalizedNewUser.usuario,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName,platformName:currentPlatformName} : item);
     }
     const saved = await saveUsers(updated);
     if (saved === false) return false;
@@ -5431,13 +5473,18 @@ function App(){
   const currentPlatformName = getPlatformDisplayName(currentPlatformId);
   const isCulqiActive = isCulqiPlatform(currentPlatformId);
   applyPlatformVisualTheme(currentPlatformId);
+  const scopedUsers = useMemo(() => filterUsersForPlatform(users, currentPlatformId), [users,currentPlatformId]);
+  const scopedStaffing = useMemo(() => filterRecordsForPlatform(staffing, currentPlatformId), [staffing,currentPlatformId]);
+  const scopedLegendConcepts = useMemo(() => filterRecordsForPlatform(legendConcepts, currentPlatformId), [legendConcepts,currentPlatformId]);
+  const scopedCommunicationRecords = useMemo(() => filterRecordsForPlatform(communicationRecords, currentPlatformId), [communicationRecords,currentPlatformId]);
+  const scopedNotifications = useMemo(() => filterRecordsForPlatform(notifications, currentPlatformId), [notifications,currentPlatformId]);
   const scopedFeedbackRecords = useMemo(() => filterRecordsForPlatform(feedbackRecords, currentPlatformId), [feedbackRecords,currentPlatformId]);
   const scopedEvaluationRecords = useMemo(() => filterRecordsForPlatform(evaluationRecords, currentPlatformId), [evaluationRecords,currentPlatformId]);
   const scopedNoTipificationRecords = useMemo(() => filterRecordsForPlatform(noTipificationRecords, currentPlatformId), [noTipificationRecords,currentPlatformId]);
   const scopedOperationalIncidents = useMemo(() => filterRecordsForPlatform(operationalIncidents, currentPlatformId), [operationalIncidents,currentPlatformId]);
   const scopedSalesValidations = useMemo(() => filterRecordsForPlatform(salesValidations, currentPlatformId), [salesValidations,currentPlatformId]);
-  const advisorOptions = useMemo(() => buildAdvisorOptions(staffing, raw, historico, scopedFeedbackRecords), [staffing,raw,historico,scopedFeedbackRecords]);
-  const advisorProfiles = useMemo(() => buildAdvisorProfiles(staffing, users), [staffing,users]);
+  const advisorOptions = useMemo(() => buildAdvisorOptions(scopedStaffing, raw, historico, scopedFeedbackRecords), [scopedStaffing,raw,historico,scopedFeedbackRecords]);
+  const advisorProfiles = useMemo(() => buildAdvisorProfiles(scopedStaffing, scopedUsers), [scopedStaffing,scopedUsers]);
   const melted = useMemo(() => melt(raw), [raw]);
   const tigerAiContext = useMemo(() => buildTigerAiContext({
     view,
@@ -5447,10 +5494,10 @@ function App(){
     noTipificationRecords: scopedNoTipificationRecords,
     operationalIncidents: scopedOperationalIncidents,
     salesValidations: scopedSalesValidations,
-    staffing,
-    users,
+    staffing: scopedStaffing,
+    users: scopedUsers,
     historico
-  }), [view,currentUser,scopedEvaluationRecords,scopedFeedbackRecords,scopedNoTipificationRecords,scopedOperationalIncidents,scopedSalesValidations,staffing,users,historico]);
+  }), [view,currentUser,scopedEvaluationRecords,scopedFeedbackRecords,scopedNoTipificationRecords,scopedOperationalIncidents,scopedSalesValidations,scopedStaffing,scopedUsers,historico]);
   const loadData = data => {
     setRaw(data);
     setView("analysis");
@@ -5551,7 +5598,7 @@ function App(){
     }
   };
 
-  const unreadNotifications = (notifications || []).filter(item=>!item.isRead).length;
+  const unreadNotifications = (scopedNotifications || []).filter(item=>!item.isRead).length;
   const previewEvaluation = selectedPreviewFeedback ? getLinkedEvaluation(evaluationRecords, selectedPreviewFeedback.id) : null;
   const editingEvaluation = selectedEvaluationFeedback ? getLinkedEvaluation(evaluationRecords, selectedEvaluationFeedback.id) : null;
 
@@ -7014,13 +7061,18 @@ function App(){
   const currentPlatformName = getPlatformDisplayName(currentPlatformId);
   const isCulqiActive = isCulqiPlatform(currentPlatformId);
   applyPlatformVisualTheme(currentPlatformId);
+  const scopedUsers = useMemo(() => filterUsersForPlatform(users, currentPlatformId), [users,currentPlatformId]);
+  const scopedStaffing = useMemo(() => filterRecordsForPlatform(staffing, currentPlatformId), [staffing,currentPlatformId]);
+  const scopedLegendConcepts = useMemo(() => filterRecordsForPlatform(legendConcepts, currentPlatformId), [legendConcepts,currentPlatformId]);
+  const scopedCommunicationRecords = useMemo(() => filterRecordsForPlatform(communicationRecords, currentPlatformId), [communicationRecords,currentPlatformId]);
+  const scopedNotifications = useMemo(() => filterRecordsForPlatform(notifications, currentPlatformId), [notifications,currentPlatformId]);
   const scopedFeedbackRecords = useMemo(() => filterRecordsForPlatform(feedbackRecords, currentPlatformId), [feedbackRecords,currentPlatformId]);
   const scopedEvaluationRecords = useMemo(() => filterRecordsForPlatform(evaluationRecords, currentPlatformId), [evaluationRecords,currentPlatformId]);
   const scopedNoTipificationRecords = useMemo(() => filterRecordsForPlatform(noTipificationRecords, currentPlatformId), [noTipificationRecords,currentPlatformId]);
   const scopedOperationalIncidents = useMemo(() => filterRecordsForPlatform(operationalIncidents, currentPlatformId), [operationalIncidents,currentPlatformId]);
   const scopedSalesValidations = useMemo(() => filterRecordsForPlatform(salesValidations, currentPlatformId), [salesValidations,currentPlatformId]);
-  const advisorOptions = useMemo(() => buildAdvisorOptions(staffing, raw, historico, scopedFeedbackRecords), [staffing,raw,historico,scopedFeedbackRecords]);
-  const advisorProfiles = useMemo(() => buildAdvisorProfiles(staffing, users), [staffing,users]);
+  const advisorOptions = useMemo(() => buildAdvisorOptions(scopedStaffing, raw, historico, scopedFeedbackRecords), [scopedStaffing,raw,historico,scopedFeedbackRecords]);
+  const advisorProfiles = useMemo(() => buildAdvisorProfiles(scopedStaffing, scopedUsers), [scopedStaffing,scopedUsers]);
   const melted = useMemo(() => melt(raw), [raw]);
   const tigerAiContext = useMemo(() => buildTigerAiContext({
     view,
@@ -7030,10 +7082,10 @@ function App(){
     noTipificationRecords: scopedNoTipificationRecords,
     operationalIncidents: scopedOperationalIncidents,
     salesValidations: scopedSalesValidations,
-    staffing,
-    users,
+    staffing: scopedStaffing,
+    users: scopedUsers,
     historico
-  }), [view,currentUser,scopedEvaluationRecords,scopedFeedbackRecords,scopedNoTipificationRecords,scopedOperationalIncidents,scopedSalesValidations,staffing,users,historico]);
+  }), [view,currentUser,scopedEvaluationRecords,scopedFeedbackRecords,scopedNoTipificationRecords,scopedOperationalIncidents,scopedSalesValidations,scopedStaffing,scopedUsers,historico]);
 
   const loadData = data => {
     setRaw(data);
@@ -7152,8 +7204,15 @@ function App(){
     return saved;
   };
 
+  const guardarDotacionScoped = async(nextScopedStaffing) => {
+    const merged = mergeScopedRecordsByPlatform(staffing, nextScopedStaffing, currentPlatformId, currentPlatformName);
+    const saved = await saveStaffing(merged);
+    if (saved !== false) setStaffing(merged);
+    return saved;
+  };
+
   const guardarComunicado = async(payload) => {
-    const saved = await saveCommunicationEntry(payload);
+    const saved = await saveCommunicationEntry(tagRecordForPlatform(payload, currentPlatformId, currentPlatformName));
     await reloadCommunications();
     return saved;
   };
@@ -7205,7 +7264,7 @@ function App(){
   };
 
   const isAdvisorInactive = advisorName => {
-    const profile = (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
+    const profile = (scopedStaffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
     return profile ? !isStaffingActive(profile) : false;
   };
   const notifyInactiveAdvisor = () => notify("e","Este asesor esta cesado. Mantiene su historial, pero no puede recibir nuevas evaluaciones, feedbacks o alertas.");
@@ -7305,13 +7364,13 @@ function App(){
     }
   };
 
-  const unreadNotifications = (notifications || []).filter(item=>!item.isRead).length;
-  const unreadCommunications = (communicationRecords || []).filter(item => !item.userHasRead && item.estado !== "Archivado").length;
+  const unreadNotifications = (scopedNotifications || []).filter(item=>!item.isRead).length;
+  const unreadCommunications = (scopedCommunicationRecords || []).filter(item => !item.userHasRead && item.estado !== "Archivado").length;
   const previewEvaluation = selectedPreviewFeedback ? getLinkedEvaluation(scopedEvaluationRecords, selectedPreviewFeedback.id) : null;
   const editingEvaluation = selectedEvaluationRecord || (selectedEvaluationFeedback ? getLinkedEvaluation(scopedEvaluationRecords, selectedEvaluationFeedback.id) : null);
 
   if (!selectedPlatform) return h(PlatformSelector,{onSelect:setSelectedPlatform});
-  if (!currentUser) return h(LoginScreen,{onLogin:handleLogin,users,loadingUsers:appLoading,bootstrapError,platform:selectedPlatform,onBack:()=>setSelectedPlatform(null)});
+  if (!currentUser) return h(LoginScreen,{onLogin:handleLogin,users:scopedUsers,loadingUsers:appLoading,bootstrapError,platform:selectedPlatform,onBack:()=>setSelectedPlatform(null)});
 
   return h(Fragment,null,
     h("div",{style:{display:"flex",height:"100vh",background:isCulqiActive ? `linear-gradient(90deg, rgba(18,6,28,0.985) 0%, rgba(31,9,39,0.96) 52%, rgba(255,104,0,0.12) 100%), url("${CULQI_ASSET}")` : THEME.bg,backgroundSize:isCulqiActive ? "cover" : undefined,backgroundPosition:isCulqiActive ? "center" : undefined,overflow:"hidden"}},
@@ -7363,18 +7422,18 @@ function App(){
         h("div",{style:{position:"absolute",top:-150,left:-100,width:600,height:600,background:isCulqiActive ? "radial-gradient(circle, rgba(255,138,0,0.13) 0%, transparent 60%)" : "radial-gradient(circle, rgba(29,43,255,0.10) 0%, transparent 60%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"absolute",top:120,right:-80,width:420,height:420,background:isCulqiActive ? "radial-gradient(circle, rgba(110,27,115,0.24) 0%, transparent 62%)" : "radial-gradient(circle, rgba(91,31,214,0.11) 0%, transparent 62%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"relative",zIndex:1,maxWidth:1280,margin:"0 auto"}},
-          view==="advisor" && currentUser.rol==="asesor" && h(AdvisorPortal,{currentUser,users,staffing,feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,raw,historico,notify,onFeedbackUpdated:reloadFeedbackRecords,onOpenPreview:openPreviewModal,onOpenEvaluation:openEvaluationModal}),
-          view==="improvement" && canViewImprovementDashboard(currentUser) && h(ContinuousImprovementDashboard,{currentUser,feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,evaluationsLoading:false,noTipificationRecords:scopedNoTipificationRecords,staffing,historico,users,onOpenEvaluation:openEvaluationModal,onOpenNoTipification:openNoTipificationModal}),
-          view==="communications" && h(CommunicationsCenter,{records:communicationRecords,currentUser,onSave:guardarComunicado,onDelete:eliminarComunicado,onAddComment:comentarComunicado,onDeleteComment:eliminarComentarioComunicado,onMarkRead:marcarComunicadoLeido,onRefresh:reloadCommunications,notify,users,focusedCommunicationId}),
-          view==="notifications" && h(NotificationCenter,{currentUser,notifications,onRefresh:reloadNotifications,onOpenNotificationTarget:openNotificationTarget}),
-          view==="legend" && h(LegendCenter,{concepts:legendConcepts,onRefresh:reloadLegend}),
-          view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords:scopedEvaluationRecords,staffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
-          view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,onOpenFeedback:openFeedbackModal,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing}),
-          view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,notify}),
+          view==="advisor" && currentUser.rol==="asesor" && h(AdvisorPortal,{currentUser,users:scopedUsers,staffing:scopedStaffing,feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,raw,historico,notify,onFeedbackUpdated:reloadFeedbackRecords,onOpenPreview:openPreviewModal,onOpenEvaluation:openEvaluationModal}),
+          view==="improvement" && canViewImprovementDashboard(currentUser) && h(ContinuousImprovementDashboard,{currentUser,feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,evaluationsLoading:false,noTipificationRecords:scopedNoTipificationRecords,staffing:scopedStaffing,historico,users:scopedUsers,onOpenEvaluation:openEvaluationModal,onOpenNoTipification:openNoTipificationModal}),
+          view==="communications" && h(CommunicationsCenter,{records:scopedCommunicationRecords,currentUser,onSave:guardarComunicado,onDelete:eliminarComunicado,onAddComment:comentarComunicado,onDeleteComment:eliminarComentarioComunicado,onMarkRead:marcarComunicadoLeido,onRefresh:reloadCommunications,notify,users:scopedUsers,focusedCommunicationId}),
+          view==="notifications" && h(NotificationCenter,{currentUser,notifications:scopedNotifications,onRefresh:reloadNotifications,onOpenNotificationTarget:openNotificationTarget}),
+          view==="legend" && h(LegendCenter,{concepts:scopedLegendConcepts,onRefresh:reloadLegend}),
+          view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords:scopedEvaluationRecords,staffing:scopedStaffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
+          view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,onOpenFeedback:openFeedbackModal,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing:scopedStaffing}),
+          view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing:scopedStaffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,notify}),
           view==="salesValidation" && canViewSalesValidationModule(currentUser) && h(SalesValidationCenter,{records:scopedSalesValidations,currentUser,onSave:guardarValidacionVenta,onDelete:eliminarValidacionVenta,onRestore:restaurarValidacionVenta}),
-          view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users,notify}),
-          view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing,setStaffing,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords:scopedEvaluationRecords,feedbackRecords:scopedFeedbackRecords,currentUser}),
-          view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,onResetPassword:resetearContrasenaUsuario,notify,staffing})
+          view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users:scopedUsers,notify}),
+          view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing:scopedStaffing,setStaffing,onSaveStaffing:guardarDotacionScoped,clientId:currentPlatformId,clientName:currentPlatformName,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords:scopedEvaluationRecords,feedbackRecords:scopedFeedbackRecords,currentUser}),
+          view==="users" && canManageUsers(currentUser) && h(UserManager,{users:scopedUsers,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,onResetPassword:resetearContrasenaUsuario,notify,staffing:scopedStaffing})
         )
       )
     ),
@@ -10407,7 +10466,7 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
   );
 }
 
-function StaffingConfig({staffing,setStaffing,notify,onOpenFeedback,onOpenEvaluation,onOpenEvaluationHistory,onOpenNoTipification,evaluationRecords,feedbackRecords,currentUser}){
+function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName,notify,onOpenFeedback,onOpenEvaluation,onOpenEvaluationHistory,onOpenNoTipification,evaluationRecords,feedbackRecords,currentUser}){
   const [form,setForm] = useState({asesor:"",supervisor:"",coordinador:"",antiguedad:"",fechaIngreso:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
   const [editingAdvisor,setEditingAdvisor] = useState("");
   const [editForm,setEditForm] = useState({supervisor:"",coordinador:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
@@ -10415,6 +10474,14 @@ function StaffingConfig({staffing,setStaffing,notify,onOpenFeedback,onOpenEvalua
   const canEditRegistry = ["admin","analista"].includes(role);
   const canDeleteRegistry = role === "admin";
   const canChangeStatus = role === "admin";
+  const savePlatformStaffing = async(updated) => {
+    const normalizedPlatformId = normalizeClientId(clientId || DEFAULT_PLATFORM_ID);
+    const tagged = (updated || []).map(item => tagRecordForPlatform(item, normalizedPlatformId, clientName || getPlatformDisplayName(normalizedPlatformId)));
+    if (typeof onSaveStaffing === "function") return await onSaveStaffing(tagged);
+    const saved = await saveStaffing(tagged);
+    if (saved !== false && typeof setStaffing === "function" && typeof onSaveStaffing !== "function") setStaffing(tagged);
+    return saved;
+  };
   const syncLinkedUserStatus = async(staffingItem, nextStatus) => {
     const advisorName = normalizeName(staffingItem?.asesor);
     const assignedUser = normalizeLoginKey(staffingItem?.usuarioAsignado);
@@ -10433,23 +10500,23 @@ function StaffingConfig({staffing,setStaffing,notify,onOpenFeedback,onOpenEvalua
     return savedUsers !== false;
   };
   const saveStaffingAndUserStatus = async(updated, targetItem, nextStatus, errorMessage) => {
-    const saved = await saveStaffing(updated);
+    const saved = await savePlatformStaffing(updated);
     if (saved === false) { notify("e", errorMessage || "No se pudo guardar staffing."); return false; }
     if (targetItem && nextStatus) {
       const synced = await syncLinkedUserStatus(targetItem, nextStatus);
       if (!synced) { notify("e","Se actualizo dotacion, pero no se pudo sincronizar el estado del usuario."); }
     }
-    setStaffing(updated);
+    if (typeof setStaffing === "function" && typeof onSaveStaffing !== "function") setStaffing(updated);
     return true;
   };
   const add = async() => {
     if (!form.asesor.trim() || !form.supervisor.trim()) { notify("e","Completa asesor y supervisor."); return; }
     if (String(form.dni || "").trim() && !/^\d{8}$/.test(String(form.dni).trim())) { notify("e","El DNI debe tener 8 digitos."); return; }
-    const newItem = {...form,asesor:form.asesor.trim().toUpperCase(),antiguedad:+form.antiguedad || 0,estado:normalizeProfileStatus(form.estado || "activo")};
+    const newItem = tagRecordForPlatform({...form,asesor:form.asesor.trim().toUpperCase(),antiguedad:+form.antiguedad || 0,estado:normalizeProfileStatus(form.estado || "activo")}, clientId || DEFAULT_PLATFORM_ID, clientName);
     const updated = [...staffing, newItem];
-    const saved = await saveStaffing(updated);
+    const saved = await savePlatformStaffing(updated);
     if (saved === false) { notify("e","No se pudo guardar staffing."); return; }
-    setStaffing(updated);
+    if (typeof setStaffing === "function" && typeof onSaveStaffing !== "function") setStaffing(updated);
     setForm({asesor:"",supervisor:"",coordinador:"",antiguedad:"",fechaIngreso:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
     notify("s","Asesor agregado.");
   };
@@ -10495,9 +10562,9 @@ function StaffingConfig({staffing,setStaffing,notify,onOpenFeedback,onOpenEvalua
   };
   const remove = async(asesor) => {
     const updated = staffing.filter(s => s.asesor !== asesor);
-    const saved = await saveStaffing(updated);
+    const saved = await savePlatformStaffing(updated);
     if (saved === false) { notify("e","No se pudo eliminar el asesor."); return; }
-    setStaffing(updated);
+    if (typeof setStaffing === "function" && typeof onSaveStaffing !== "function") setStaffing(updated);
     notify("s","Asesor eliminado.");
   };
   return h(Fragment,null,
