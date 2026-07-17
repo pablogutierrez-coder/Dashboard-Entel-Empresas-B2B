@@ -161,8 +161,8 @@ function getPasswordDateMs(user) {
 }
 
 function getPasswordChangeReason(user) {
-  if (!user || isAdminUser(user)) return "";
   if (normalizeBooleanFlag(user.mustChangePassword || user.forcePasswordChange || user.requirePasswordChange)) return "first_login";
+  if (!user || isAdminUser(user)) return "";
   const changedAtMs = getPasswordDateMs(user);
   if (!changedAtMs) return "expired";
   const ageDays = (Date.now() - changedAtMs) / 86400000;
@@ -2670,7 +2670,7 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPas
       campaign:String(form.campaign||"").trim(),
       supervisorId:String(form.supervisorId||"").trim(),
       estado:String(form.estado||"activo").trim(),
-      mustChangePassword:form.rol !== "admin",
+      mustChangePassword:true,
       passwordChangedAt:"",
       assessorName:form.rol === "asesor" ? normalizedAssessor : ""
     });
@@ -7453,7 +7453,7 @@ function App(){
     toast && h("div",{style:{position:"fixed",bottom:112,right:30,background:toast.type==="s"?THEME.primary:THEME.accent,color:THEME.white,padding:"16px 24px",borderRadius:14,fontSize:13,fontWeight:800,boxShadow:"0 10px 30px rgba(0,0,0,0.3)",zIndex:2000,letterSpacing:"0.08em",fontFamily:THEME.displayFont}},toast.msg),
     h(TigerChatWidget,{currentUser,messages:chatMessages,isOpen:chatOpen,onToggle:()=>setChatOpen(prev=>!prev),onSendMessage:sendInternalChatMessage,onAskAi:askTigerAi,sending:chatSending,aiLoading:chatAiLoading}),
     h(UserManualModal,{isOpen:manualOpen,currentUser,onClose:()=>setManualOpen(false)}),
-    currentUser?.passwordChangeRequired && !isAdminUser(currentUser) && h(PasswordChangeModal,{currentUser,onChangePassword:cambiarContrasenaActual}),
+    currentUser?.passwordChangeRequired && h(PasswordChangeModal,{currentUser,onChangePassword:cambiarContrasenaActual}),
     h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor:feedbackModalAssessor || "",editingRecord:editingFeedbackRecord,notify}),
     h(NoTipificationModal,{isOpen:!!selectedNoTipificationEntry,onClose:closeNoTipificationModal,entryContext:selectedNoTipificationEntry,currentUser,onSave:guardarNoTipificacion,notify}),
     h(EvaluationModal,{isOpen:!!selectedEvaluationFeedback,onClose:closeEvaluationModal,feedbackRecord:selectedEvaluationFeedback,evaluationRecord:editingEvaluation,currentUser,onSave:guardarEvaluacion,onUpdate:actualizarEvaluacion,notify,platform:selectedPlatform}),
