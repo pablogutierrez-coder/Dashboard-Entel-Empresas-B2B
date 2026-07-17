@@ -1943,6 +1943,64 @@ const CARD = { background:"linear-gradient(180deg, rgba(23,24,42,0.96) 0%, rgba(
 const INP = { width:"100%", background:"rgba(9, 9, 17, 0.96)", border: `1px solid ${THEME.border}`, borderRadius:12, padding:"14px 16px", color:THEME.text, fontSize:13, fontFamily:THEME.bodyFont, outline:"none", transition:"all 0.3s", boxShadow:"inset 0 0 0 1px rgba(255,255,255,0.01)" };
 const SEL = { ...INP, cursor:"pointer" };
 
+const BASE_THEME_VALUES = {...THEME};
+const BASE_CARD_VALUES = {...CARD};
+const BASE_INP_VALUES = {...INP};
+const BASE_SEL_VALUES = {...SEL};
+const CULQI_ASSET = "/assets/culqi-full-pos.webp";
+
+const CULQI_THEME_VALUES = {
+  bg: "#16061D",
+  surface: "#24102B",
+  surfaceAlt: "#31133A",
+  panel: "#3A143C",
+  border: "rgba(255, 132, 24, 0.30)",
+  borderStrong: "rgba(255, 132, 24, 0.58)",
+  text: "#FFF7EF",
+  muted: "#F2C6A6",
+  primary: "#FF8A00",
+  violet: "#6E1B73",
+  secondary: "#40104D",
+  accent: "#FF4B00",
+  white: "#FFF7EF",
+  glowBlue: "0 0 0 1px rgba(255,138,0,0.20), 0 18px 44px rgba(255,92,0,0.18)",
+  glowViolet: "0 0 0 1px rgba(255,132,24,0.22), 0 18px 46px rgba(68,12,66,0.50)",
+  gradient: "linear-gradient(135deg, #FF8A00 0%, #FF5A00 44%, #6E1B73 100%)",
+  gradientSoft: "linear-gradient(135deg, rgba(255,138,0,0.22) 0%, rgba(255,90,0,0.18) 48%, rgba(110,27,115,0.20) 100%)",
+  displayFont: BASE_THEME_VALUES.displayFont,
+  bodyFont: BASE_THEME_VALUES.bodyFont
+};
+
+function isCulqiPlatform(platformId){
+  return String(platformId || "").trim() === CULQI_PLATFORM_ID;
+}
+
+function applyPlatformVisualTheme(platformId){
+  if (isCulqiPlatform(platformId)) {
+    Object.assign(THEME,CULQI_THEME_VALUES);
+    Object.assign(CARD,{
+      ...BASE_CARD_VALUES,
+      background:"linear-gradient(180deg, rgba(43,18,49,0.96) 0%, rgba(29,8,36,0.98) 100%)",
+      border:`1px solid ${CULQI_THEME_VALUES.border}`,
+      boxShadow:CULQI_THEME_VALUES.glowViolet
+    });
+    Object.assign(INP,{
+      ...BASE_INP_VALUES,
+      background:"rgba(20,7,26,0.96)",
+      border:`1px solid ${CULQI_THEME_VALUES.border}`,
+      color:CULQI_THEME_VALUES.text
+    });
+    Object.assign(SEL,{...INP,cursor:"pointer"});
+    if (document?.documentElement) document.documentElement.dataset.platform = CULQI_PLATFORM_ID;
+    return;
+  }
+  Object.assign(THEME,BASE_THEME_VALUES);
+  Object.assign(CARD,BASE_CARD_VALUES);
+  Object.assign(INP,BASE_INP_VALUES);
+  Object.assign(SEL,BASE_SEL_VALUES);
+  if (document?.documentElement) document.documentElement.dataset.platform = DEFAULT_PLATFORM_ID;
+}
+
 const BTN = t => {
   const bgs = {
     p: THEME.gradient,
@@ -2111,7 +2169,20 @@ function getDefaultEvaluationSections(){
   ];
 }
 
-function getDefaultZeroToleranceItems(){
+function getDefaultZeroToleranceItems(clientId = DEFAULT_PLATFORM_ID){
+  if (normalizeClientId(clientId) === CULQI_PLATFORM_ID) {
+    return [
+      {categoria:"Grabacion",subItem:"No informa que la llamada esta siendo grabada.",descripcion:"El ejecutivo omite el aviso de grabacion en una venta cerrada.",impacto:"Anulacion de calidad (0%)",resultado:"No aplica"},
+      {categoria:"Representacion",subItem:"No valida que la persona tenga autorizacion.",descripcion:"Cierra con una persona que no confirma representacion del comercio.",impacto:"Anulacion + Feedback",resultado:"No aplica"},
+      {categoria:"Producto",subItem:"No informa el producto contratado ni cantidad.",descripcion:"El cliente acepta sin saber si contrata POS Culqi, CulqiFull u otro producto.",impacto:"Anulacion + Accion disciplinaria",resultado:"No aplica"},
+      {categoria:"Condiciones",subItem:"No informa tasas principales o IGV.",descripcion:"No comunica las tasas o no menciona que no incluyen IGV.",impacto:"Anulacion + Accion disciplinaria",resultado:"No aplica"},
+      {categoria:"Condiciones",subItem:"No informa membresia o GPV minimo.",descripcion:"Omite una condicion economica relevante para el comercio.",impacto:"Anulacion + Accion disciplinaria",resultado:"No aplica"},
+      {categoria:"Condiciones",subItem:"No informa condicion de recojo de POS.",descripcion:"No comunica que sucede si no cumple el GPV minimo.",impacto:"Observacion critica",resultado:"No aplica"},
+      {categoria:"Mala Practica",subItem:"Ofrece beneficios o condiciones falsas.",descripcion:"Inventa tasas, caracteristicas o promete beneficios inexistentes.",impacto:"Anulacion + Accion disciplinaria",resultado:"No aplica"},
+      {categoria:"Conducta / Trato",subItem:"Presiona, incomoda o falta el respeto al cliente.",descripcion:"Usa tono inadecuado, agresivo o cuelga sin motivo.",impacto:"Anulacion + Accion disciplinaria",resultado:"No aplica"},
+      {categoria:"Tipificacion",subItem:"Tipifica mal intencionalmente.",descripcion:"Registra una tipificacion que no corresponde al resultado real de la llamada.",impacto:"Anulacion + Feedback",resultado:"No aplica"}
+    ];
+  }
   return [
     {categoria:"1. Evasion de Trabajo / Call Avoidance",subItem:"1.1 Retardo injustificado en el saludo",descripcion:"Transcurren mas de 5 segundos de silencio desde que conecta la llamada sin que el asesor emita el protocolo de presentacion.",impacto:"Anulacion de calidad (0%)",resultado:"No aplica"},
     {categoria:"1. Evasion de Trabajo / Call Avoidance",subItem:"1.2 Simulacion de falla tecnica",descripcion:"El asesor finge problemas de audio, repite 'alo, alo', 'no le escucho' de forma reiterada e injustificada para forzar el corte, evadiendo la gestion.",impacto:"Anulacion + Feedback inmediato",resultado:"No aplica"},
@@ -2126,8 +2197,8 @@ function getDefaultZeroToleranceItems(){
   ];
 }
 
-function calculateEvaluationSummary(secciones, zeroToleranceItems, formType){
-  const baseSummary = calculateWeightedEvaluationScore(secciones, formType);
+function calculateEvaluationSummary(secciones, zeroToleranceItems, formType, clientId = DEFAULT_PLATFORM_ID){
+  const baseSummary = calculateWeightedEvaluationScore(secciones, formType, clientId);
   const appliesCeroTolerancia = normalizeEvaluationFormType(formType) === "mala_practica" ||
     (zeroToleranceItems || []).some(item => normalizeComparableValue(item?.resultado) === "cumple");
   if (!appliesCeroTolerancia) {
@@ -2231,17 +2302,46 @@ const PLATFORM_OPTIONS = [
     icon: "bar"
   },
   {
-    id: "client_new",
-    title: "Nueva subplataforma",
-    client: "Otro cliente",
-    description: "Espacio preparado para configurar un segundo cliente sin mezclar su operacion con Entel.",
-    status: "Pendiente de configuracion",
-    enabled: false,
+    id: "culqi_bcp",
+    title: "Calidad Culqi",
+    client: "Culqi del BCP",
+    description: "Subplataforma para auditar gestiones comerciales de POS Culqi, validacion de oferta y criterios de cero tolerancia.",
+    status: "Disponible",
+    enabled: true,
     icon: "db"
   }
 ];
 
+const DEFAULT_PLATFORM_ID = "entel_b2b";
+const CULQI_PLATFORM_ID = "culqi_bcp";
+
+function getPlatformById(id){
+  return PLATFORM_OPTIONS.find(item => item.id === id) || PLATFORM_OPTIONS[0];
+}
+
+function getRecordClientId(record){
+  return String(record?.clientId || record?.platformId || record?.tenantId || DEFAULT_PLATFORM_ID).trim() || DEFAULT_PLATFORM_ID;
+}
+
+function isRecordVisibleForPlatform(record, platformId){
+  const currentPlatformId = platformId || DEFAULT_PLATFORM_ID;
+  const recordClientId = getRecordClientId(record);
+  if (currentPlatformId === DEFAULT_PLATFORM_ID) {
+    return !record?.clientId || recordClientId === DEFAULT_PLATFORM_ID;
+  }
+  return recordClientId === currentPlatformId;
+}
+
+function filterRecordsForPlatform(records, platformId){
+  return (Array.isArray(records) ? records : []).filter(record => isRecordVisibleForPlatform(record, platformId));
+}
+
+function getPlatformDisplayName(platformId){
+  return getPlatformById(platformId)?.client || "AN CALIDAD";
+}
+
 function PlatformSelector({onSelect}){
+  applyPlatformVisualTheme(DEFAULT_PLATFORM_ID);
   return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"radial-gradient(circle at 50% 18%, rgba(29,43,255,0.18) 0%, transparent 36%), radial-gradient(circle at 80% 10%, rgba(91,31,214,0.16) 0%, transparent 28%), #0B0B12",padding:"28px"}},
     h("div",{style:{width:"100%",maxWidth:980}},
       h("div",{style:{textAlign:"center",marginBottom:34}},
@@ -2251,19 +2351,27 @@ function PlatformSelector({onSelect}){
         h("p",{style:{color:"#AFC3FF",fontSize:15,lineHeight:1.7,margin:0}},"Elige el cliente o subplataforma con la que vas a trabajar.")
       ),
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:22}},
-        PLATFORM_OPTIONS.map(platform => h("button",{
+        PLATFORM_OPTIONS.map(platform => {
+          const culqi = isCulqiPlatform(platform.id);
+          return h("button",{
           key:platform.id,
           type:"button",
           disabled:!platform.enabled,
           onClick:()=>platform.enabled && onSelect(platform),
           style:{
             ...CARD,
+            background:culqi
+              ? `linear-gradient(135deg, rgba(59,12,70,0.70) 0%, rgba(255,92,0,0.16) 100%), linear-gradient(180deg, rgba(37,13,48,0.96), rgba(24,7,31,0.98))`
+              : CARD.background,
+            backgroundImage:culqi ? `linear-gradient(135deg, rgba(59,12,70,0.76) 0%, rgba(255,92,0,0.14) 100%), url("${CULQI_ASSET}")` : undefined,
+            backgroundSize:culqi ? "cover" : undefined,
+            backgroundPosition:culqi ? "center" : undefined,
             marginBottom:0,
             minHeight:250,
             textAlign:"left",
             cursor:platform.enabled ? "pointer" : "not-allowed",
             opacity:platform.enabled ? 1 : 0.62,
-            borderTop:`4px solid ${platform.enabled ? THEME.primary : "rgba(166,160,184,0.28)"}`,
+            borderTop:`4px solid ${culqi ? "#FF8A00" : platform.enabled ? THEME.primary : "rgba(166,160,184,0.28)"}`,
             transition:"transform 0.2s ease, border-color 0.2s ease",
             display:"flex",
             flexDirection:"column",
@@ -2271,18 +2379,18 @@ function PlatformSelector({onSelect}){
           }
         },
           h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:18}},
-            h("div",{style:{width:52,height:52,borderRadius:16,background:platform.enabled ? THEME.gradient : "rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:platform.enabled ? "0 12px 28px rgba(29,43,255,0.24)" : "none"}}, I(platform.icon,24,platform.enabled ? THEME.white : THEME.muted)),
+            h("div",{style:{width:52,height:52,borderRadius:culqi ? 999 : 16,background:culqi ? "rgba(255,138,0,0.96)" : platform.enabled ? THEME.gradient : "rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:culqi ? "0 12px 30px rgba(255,90,0,0.36)" : platform.enabled ? "0 12px 28px rgba(29,43,255,0.24)" : "none",color:"#fff",fontSize:culqi ? 28 : undefined,fontWeight:900}}, culqi ? "Q" : I(platform.icon,24,platform.enabled ? THEME.white : THEME.muted)),
             h("span",{style:{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:THEME.displayFont,color:platform.enabled ? "#19C37D" : "#FFC857",background:platform.enabled ? "rgba(25,195,125,0.12)" : "rgba(255,200,87,0.10)",border:`1px solid ${platform.enabled ? "rgba(25,195,125,0.28)" : "rgba(255,200,87,0.28)"}`,borderRadius:999,padding:"8px 10px"}},platform.status)
           ),
           h("div",null,
-            h("div",{style:{fontSize:13,color:THEME.primary,fontWeight:800,letterSpacing:"0.20em",fontFamily:THEME.displayFont,textTransform:"uppercase",marginBottom:8}},platform.client),
+            h("div",{style:{fontSize:13,color:culqi ? "#FFB15E" : THEME.primary,fontWeight:800,letterSpacing:"0.20em",fontFamily:THEME.displayFont,textTransform:"uppercase",marginBottom:8}},platform.client),
             h("div",{style:{fontSize:28,color:THEME.text,fontWeight:800,fontFamily:THEME.displayFont,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:10}},platform.title),
-            h("p",{style:{color:"#AFC3FF",fontSize:13,lineHeight:1.7,margin:0}},platform.description)
+            h("p",{style:{color:culqi ? "#FFE3C7" : "#AFC3FF",fontSize:13,lineHeight:1.7,margin:0}},platform.description)
           ),
           h("div",{style:{marginTop:"auto",display:"flex",justifyContent:"flex-end"}},
             h("span",{style:{...BTN(platform.enabled ? "p" : "s"),padding:"10px 14px",fontSize:10,cursor:platform.enabled ? "pointer" : "not-allowed"}},platform.enabled ? "INGRESAR" : "PROXIMAMENTE")
           )
-        ))
+        )})
       ),
       h("div",{style:{marginTop:30,fontSize:12,color:THEME.muted,fontWeight:600,letterSpacing:"0.08em",textAlign:"center"}},
         "Herramienta desarrollada por ",
@@ -2298,6 +2406,13 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError,onBack,platform}
   const [showP, setShowP] = useState(false);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+  const culqi = isCulqiPlatform(platform?.id);
+  const loginBackground = culqi
+    ? `linear-gradient(90deg, rgba(22,6,29,0.97) 0%, rgba(52,13,59,0.86) 46%, rgba(255,104,0,0.34) 100%), url("${CULQI_ASSET}")`
+    : "radial-gradient(circle at 50% 18%, rgba(29,43,255,0.18) 0%, transparent 36%), radial-gradient(circle at 80% 10%, rgba(91,31,214,0.16) 0%, transparent 28%), #0B0B12";
+  const cardBackground = culqi
+    ? "linear-gradient(180deg, rgba(43,16,48,0.94) 0%, rgba(21,6,28,0.98) 100%)"
+    : "linear-gradient(180deg, rgba(18,19,29,0.96) 0%, rgba(22,12,40,0.98) 100%)";
 
   const submit = async() => {
     if (loadingUsers) {
@@ -2367,13 +2482,14 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError,onBack,platform}
     setLoading(false);
   };
 
-  return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"radial-gradient(circle at 50% 18%, rgba(29,43,255,0.18) 0%, transparent 36%), radial-gradient(circle at 80% 10%, rgba(91,31,214,0.16) 0%, transparent 28%), #0B0B12",padding:"20px"}},
-    h("div",{style:{width:"100%",maxWidth:430,background:"linear-gradient(180deg, rgba(18,19,29,0.96) 0%, rgba(22,12,40,0.98) 100%)",border: `1px solid ${THEME.border}`,borderRadius:24,padding:"40px 36px",boxShadow:THEME.glowViolet,position:"relative",overflow:"hidden"}},
+  return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:loginBackground,backgroundSize:culqi ? "cover" : undefined,backgroundPosition:culqi ? "center" : undefined,padding:"20px"}},
+    h("div",{style:{width:"100%",maxWidth:430,background:cardBackground,border: `1px solid ${culqi ? "rgba(255,138,0,0.42)" : THEME.border}`,borderRadius:culqi ? 28 : 24,padding:"40px 36px",boxShadow:culqi ? "0 24px 70px rgba(255,92,0,0.22), 0 0 0 1px rgba(255,255,255,0.03)" : THEME.glowViolet,position:"relative",overflow:"hidden"}} ,
+      culqi && h("div",{style:{position:"absolute",inset:0,background:"radial-gradient(circle at 80% 12%, rgba(255,138,0,0.20), transparent 32%), radial-gradient(circle at 10% 80%, rgba(110,27,115,0.45), transparent 38%)",pointerEvents:"none"}}),
       onBack && h("button",{type:"button",style:{position:"absolute",top:18,left:18,...BTN("out"),padding:"8px 10px",fontSize:10},onClick:onBack},"VOLVER"),
-      h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:30}},
-        h("div",{style:{width:56,height:56,borderRadius:16,background:THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:16,boxShadow:"0 10px 30px rgba(29,43,255,0.28)"}}, I("bar",26,THEME.white)),
-        h("div",{style:{fontSize:28,fontWeight:700,color:THEME.text,letterSpacing:"0.06em",fontFamily:THEME.displayFont,textTransform:"uppercase"}},"Calidad B2B"),
-        h("div",{style:{fontSize:10,color:THEME.muted,letterSpacing:"0.2em",textTransform:"uppercase",marginTop:6,fontWeight:600}},platform?.client || "AN CALIDAD")
+      h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:30,position:"relative",zIndex:1}},
+        h("div",{style:{width:56,height:56,borderRadius:culqi ? 999 : 16,background:culqi ? "#FF8A00" : THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:16,boxShadow:culqi ? "0 12px 34px rgba(255,90,0,0.44)" : "0 10px 30px rgba(29,43,255,0.28)",color:"#fff",fontSize:culqi ? 34 : undefined,fontWeight:900,lineHeight:1}}, culqi ? "Q" : I("bar",26,THEME.white)),
+        h("div",{style:{fontSize:28,fontWeight:700,color:THEME.text,letterSpacing:"0.06em",fontFamily:THEME.displayFont,textTransform:"uppercase"}},culqi ? "Culqi Full" : "Calidad B2B"),
+        h("div",{style:{fontSize:10,color:culqi ? "#FFB15E" : THEME.muted,letterSpacing:"0.2em",textTransform:"uppercase",marginTop:6,fontWeight:700}},culqi ? "Culqi del BCP" : platform?.client || "AN CALIDAD")
       ),
       h("div",{style:{marginBottom:16}},
         h("div",{style:{fontSize:10,color:THEME.muted,textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:8,fontWeight:700,fontFamily:THEME.displayFont}},"USUARIO"),
@@ -2393,9 +2509,9 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError,onBack,platform}
         loadingUsers ? "CARGANDO USUARIOS..." : loading ? "VERIFICANDO..." : "INICIAR SESION"
       )
     ),
-    h("div",{style:{marginTop:30,fontSize:12,color:THEME.muted,fontWeight:600,letterSpacing:"0.08em",textAlign:"center"}},
+    h("div",{style:{marginTop:30,fontSize:12,color:culqi ? "#FFE3C7" : THEME.muted,fontWeight:600,letterSpacing:"0.08em",textAlign:"center",textShadow:culqi ? "0 2px 16px rgba(0,0,0,0.45)" : undefined}},
       "Herramienta desarrollada por ",
-      h("span",{style:{color:THEME.accent}},"IA Learning Solutions")
+      h("span",{style:{color:culqi ? "#FF8A00" : THEME.accent}},"IA Learning Solutions")
     )
   );
 }
@@ -4317,7 +4433,7 @@ function CommunicationsCenter({records,currentUser,onSave,onDelete,onAddComment,
     h(CommunicationEditorModal,{isOpen:editorRecord!==null,onClose:()=>setEditorRecord(null),record:editorRecord,currentUser,onSave:saveCommunication,notify,users})
   );
 }
-function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,currentUser,onSave,onUpdate,notify}){
+function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,currentUser,onSave,onUpdate,notify,platform}){
   const [form,setForm] = useState(null);
   const [evidenceFiles,setEvidenceFiles] = useState([]);
   const [audioFiles,setAudioFiles] = useState([]);
@@ -4329,6 +4445,8 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
   const currentRole = String(currentUser?.rol || "").trim().toLowerCase();
   const initialOjtMode = isOjtEvaluationRecord(evaluationRecord) || isOjtEvaluationRecord(feedbackRecord);
   const readOnly = !(canFillEvaluation(currentUser) || (currentRole === "formador" && initialOjtMode)) || currentEvaluation?.estadoEvaluacion === "closed";
+  const clientId = normalizeClientId(evaluationRecord?.clientId || evaluationRecord?.platformId || feedbackRecord?.clientId || feedbackRecord?.platformId || platform?.id || DEFAULT_PLATFORM_ID);
+  const clientName = getPlatformDisplayName(clientId);
 
   const getEvaluationItemIdentityValues = item => [
     item?.nombreSeccion,
@@ -5309,21 +5427,30 @@ function App(){
     setView("home");
   };
 
-  const advisorOptions = useMemo(() => buildAdvisorOptions(staffing, raw, historico, feedbackRecords), [staffing,raw,historico,feedbackRecords]);
+  const currentPlatformId = selectedPlatform?.id || DEFAULT_PLATFORM_ID;
+  const currentPlatformName = getPlatformDisplayName(currentPlatformId);
+  const isCulqiActive = isCulqiPlatform(currentPlatformId);
+  applyPlatformVisualTheme(currentPlatformId);
+  const scopedFeedbackRecords = useMemo(() => filterRecordsForPlatform(feedbackRecords, currentPlatformId), [feedbackRecords,currentPlatformId]);
+  const scopedEvaluationRecords = useMemo(() => filterRecordsForPlatform(evaluationRecords, currentPlatformId), [evaluationRecords,currentPlatformId]);
+  const scopedNoTipificationRecords = useMemo(() => filterRecordsForPlatform(noTipificationRecords, currentPlatformId), [noTipificationRecords,currentPlatformId]);
+  const scopedOperationalIncidents = useMemo(() => filterRecordsForPlatform(operationalIncidents, currentPlatformId), [operationalIncidents,currentPlatformId]);
+  const scopedSalesValidations = useMemo(() => filterRecordsForPlatform(salesValidations, currentPlatformId), [salesValidations,currentPlatformId]);
+  const advisorOptions = useMemo(() => buildAdvisorOptions(staffing, raw, historico, scopedFeedbackRecords), [staffing,raw,historico,scopedFeedbackRecords]);
   const advisorProfiles = useMemo(() => buildAdvisorProfiles(staffing, users), [staffing,users]);
   const melted = useMemo(() => melt(raw), [raw]);
   const tigerAiContext = useMemo(() => buildTigerAiContext({
     view,
     currentUser,
-    evaluationRecords,
-    feedbackRecords,
-    noTipificationRecords,
-    operationalIncidents,
-    salesValidations,
+    evaluationRecords: scopedEvaluationRecords,
+    feedbackRecords: scopedFeedbackRecords,
+    noTipificationRecords: scopedNoTipificationRecords,
+    operationalIncidents: scopedOperationalIncidents,
+    salesValidations: scopedSalesValidations,
     staffing,
     users,
     historico
-  }), [view,currentUser,evaluationRecords,feedbackRecords,noTipificationRecords,operationalIncidents,salesValidations,staffing,users,historico]);
+  }), [view,currentUser,scopedEvaluationRecords,scopedFeedbackRecords,scopedNoTipificationRecords,scopedOperationalIncidents,scopedSalesValidations,staffing,users,historico]);
   const loadData = data => {
     setRaw(data);
     setView("analysis");
@@ -6883,21 +7010,30 @@ function App(){
     setView(canViewImprovementDashboard(currentUser) ? "improvement" : getDefaultViewForUser(currentUser));
   };
 
-  const advisorOptions = useMemo(() => buildAdvisorOptions(staffing, raw, historico, feedbackRecords), [staffing,raw,historico,feedbackRecords]);
+  const currentPlatformId = selectedPlatform?.id || DEFAULT_PLATFORM_ID;
+  const currentPlatformName = getPlatformDisplayName(currentPlatformId);
+  const isCulqiActive = isCulqiPlatform(currentPlatformId);
+  applyPlatformVisualTheme(currentPlatformId);
+  const scopedFeedbackRecords = useMemo(() => filterRecordsForPlatform(feedbackRecords, currentPlatformId), [feedbackRecords,currentPlatformId]);
+  const scopedEvaluationRecords = useMemo(() => filterRecordsForPlatform(evaluationRecords, currentPlatformId), [evaluationRecords,currentPlatformId]);
+  const scopedNoTipificationRecords = useMemo(() => filterRecordsForPlatform(noTipificationRecords, currentPlatformId), [noTipificationRecords,currentPlatformId]);
+  const scopedOperationalIncidents = useMemo(() => filterRecordsForPlatform(operationalIncidents, currentPlatformId), [operationalIncidents,currentPlatformId]);
+  const scopedSalesValidations = useMemo(() => filterRecordsForPlatform(salesValidations, currentPlatformId), [salesValidations,currentPlatformId]);
+  const advisorOptions = useMemo(() => buildAdvisorOptions(staffing, raw, historico, scopedFeedbackRecords), [staffing,raw,historico,scopedFeedbackRecords]);
   const advisorProfiles = useMemo(() => buildAdvisorProfiles(staffing, users), [staffing,users]);
   const melted = useMemo(() => melt(raw), [raw]);
   const tigerAiContext = useMemo(() => buildTigerAiContext({
     view,
     currentUser,
-    evaluationRecords,
-    feedbackRecords,
-    noTipificationRecords,
-    operationalIncidents,
-    salesValidations,
+    evaluationRecords: scopedEvaluationRecords,
+    feedbackRecords: scopedFeedbackRecords,
+    noTipificationRecords: scopedNoTipificationRecords,
+    operationalIncidents: scopedOperationalIncidents,
+    salesValidations: scopedSalesValidations,
     staffing,
     users,
     historico
-  }), [view,currentUser,evaluationRecords,feedbackRecords,noTipificationRecords,operationalIncidents,salesValidations,staffing,users,historico]);
+  }), [view,currentUser,scopedEvaluationRecords,scopedFeedbackRecords,scopedNoTipificationRecords,scopedOperationalIncidents,scopedSalesValidations,staffing,users,historico]);
 
   const loadData = data => {
     setRaw(data);
@@ -6934,7 +7070,7 @@ function App(){
   };
 
   const guardarFeedback = async(payload) => {
-    const saved = await saveFeedbackEntry(payload);
+    const saved = await saveFeedbackEntry({...payload,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName,platformName:currentPlatformName});
     if (!saved) {
       notify("e","No se pudo guardar el feedback.");
       return null;
@@ -6946,7 +7082,7 @@ function App(){
   };
 
   const guardarEvaluacion = async(payload) => {
-    const saved = await saveEvaluationEntry(payload);
+    const saved = await saveEvaluationEntry({...payload,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName,platformName:currentPlatformName});
     if (saved) {
       upsertEvaluationInState(saved);
     }
@@ -6954,7 +7090,7 @@ function App(){
   };
 
   const actualizarEvaluacion = async(payload) => {
-    const saved = await updateEvaluationEntry(payload);
+    const saved = await updateEvaluationEntry({...payload,clientId:payload?.clientId || currentPlatformId,platformId:payload?.platformId || currentPlatformId,clientName:payload?.clientName || currentPlatformName,platformName:payload?.platformName || currentPlatformName});
     if (saved) {
       upsertEvaluationInState(saved);
     }
@@ -6962,14 +7098,14 @@ function App(){
   };
 
   const guardarIncidenciaOperativa = async(payload) => {
-    const saved = await saveOperationalIncidentEntry(payload);
+    const saved = await saveOperationalIncidentEntry({...payload,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName,platformName:currentPlatformName});
     await reloadOperationalIncidents();
     notify("s","Incidencia registrada correctamente: No conectado.");
     return saved;
   };
 
   const guardarValidacionVenta = async(payload) => {
-    const saved = await saveSalesValidationEntry(payload);
+    const saved = await saveSalesValidationEntry({...payload,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName,platformName:currentPlatformName});
     await reloadSalesValidations();
     notify("s", payload?.id ? "Validación actualizada correctamente." : "Validación registrada correctamente.");
     return saved;
@@ -7011,7 +7147,7 @@ function App(){
   };
 
   const guardarNoTipificacion = async(payload) => {
-    const saved = await saveNoTipificationEntry(payload);
+    const saved = await saveNoTipificationEntry({...payload,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName,platformName:currentPlatformName});
     await reloadNoTipificationRecords();
     return saved;
   };
@@ -7171,30 +7307,30 @@ function App(){
 
   const unreadNotifications = (notifications || []).filter(item=>!item.isRead).length;
   const unreadCommunications = (communicationRecords || []).filter(item => !item.userHasRead && item.estado !== "Archivado").length;
-  const previewEvaluation = selectedPreviewFeedback ? getLinkedEvaluation(evaluationRecords, selectedPreviewFeedback.id) : null;
-  const editingEvaluation = selectedEvaluationRecord || (selectedEvaluationFeedback ? getLinkedEvaluation(evaluationRecords, selectedEvaluationFeedback.id) : null);
+  const previewEvaluation = selectedPreviewFeedback ? getLinkedEvaluation(scopedEvaluationRecords, selectedPreviewFeedback.id) : null;
+  const editingEvaluation = selectedEvaluationRecord || (selectedEvaluationFeedback ? getLinkedEvaluation(scopedEvaluationRecords, selectedEvaluationFeedback.id) : null);
 
   if (!selectedPlatform) return h(PlatformSelector,{onSelect:setSelectedPlatform});
   if (!currentUser) return h(LoginScreen,{onLogin:handleLogin,users,loadingUsers:appLoading,bootstrapError,platform:selectedPlatform,onBack:()=>setSelectedPlatform(null)});
 
   return h(Fragment,null,
-    h("div",{style:{display:"flex",height:"100vh",background:THEME.bg,overflow:"hidden"}},
+    h("div",{style:{display:"flex",height:"100vh",background:isCulqiActive ? `linear-gradient(90deg, rgba(18,6,28,0.985) 0%, rgba(31,9,39,0.96) 52%, rgba(255,104,0,0.12) 100%), url("${CULQI_ASSET}")` : THEME.bg,backgroundSize:isCulqiActive ? "cover" : undefined,backgroundPosition:isCulqiActive ? "center" : undefined,overflow:"hidden"}},
       h("div",{
         style:{
           width:280,
           minWidth:280,
-          background:"linear-gradient(180deg, rgba(14,15,24,0.98) 0%, rgba(20,11,37,0.98) 100%)",
-          borderRight: `1px solid ${THEME.border}`,
+          background:isCulqiActive ? "linear-gradient(180deg, rgba(30,9,38,0.98) 0%, rgba(17,5,25,0.99) 100%)" : "linear-gradient(180deg, rgba(14,15,24,0.98) 0%, rgba(20,11,37,0.98) 100%)",
+          borderRight: `1px solid ${isCulqiActive ? "rgba(255,138,0,0.30)" : THEME.border}`,
           display:"flex",
           flexDirection:"column",
           padding:"30px 20px",
           zIndex:10,
-          boxShadow:"20px 0 40px rgba(0,0,0,0.18)"
+          boxShadow:isCulqiActive ? "20px 0 54px rgba(255,92,0,0.08), 18px 0 44px rgba(0,0,0,0.30)" : "20px 0 40px rgba(0,0,0,0.18)"
         }
       },
         h("div",{style:{display:"flex",alignItems:"center",gap:14,marginBottom:40,paddingLeft:8}},
-          h("div",{style:{width:40,height:40,borderRadius:12,background:THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 10px 26px rgba(29,43,255,0.24)"}},I("bar",20,THEME.white)),
-          h("div",{style:{fontSize:24,fontWeight:700,color:THEME.text,letterSpacing:"0.04em",fontFamily:THEME.displayFont,textTransform:"uppercase"}},"AN ",h("span",{style:{color:THEME.primary}},"CALIDAD"))
+          h("div",{style:{width:40,height:40,borderRadius:isCulqiActive ? 999 : 12,background:isCulqiActive ? "#FF8A00" : THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:isCulqiActive ? "0 10px 28px rgba(255,90,0,0.38)" : "0 10px 26px rgba(29,43,255,0.24)",color:"#fff",fontSize:isCulqiActive ? 25 : undefined,fontWeight:900,lineHeight:1}},isCulqiActive ? "Q" : I("bar",20,THEME.white)),
+          h("div",{style:{fontSize:24,fontWeight:700,color:THEME.text,letterSpacing:"0.04em",fontFamily:THEME.displayFont,textTransform:"uppercase"}},isCulqiActive ? "CULQI " : "AN ",h("span",{style:{color:isCulqiActive ? "#FF8A00" : THEME.primary}},isCulqiActive ? "FULL" : "CALIDAD"))
         ),
         h("div",{style:{display:"flex",flexDirection:"column",gap:10,flex:1}},
           currentUser.rol === "asesor" && h("button",{style:{...BTN(view==="advisor"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="advisor"?"#fff":"#8b92a5"},onClick:()=>setView("advisor")},I("users",18,view==="advisor"?"#fff":"#8b92a5"),"MI PERFIL"),
@@ -7223,21 +7359,21 @@ function App(){
           ),
         )
       ),
-      h("div",{style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative"}},
-        h("div",{style:{position:"absolute",top:-150,left:-100,width:600,height:600,background:"radial-gradient(circle, rgba(29,43,255,0.10) 0%, transparent 60%)",pointerEvents:"none",zIndex:0}}),
-        h("div",{style:{position:"absolute",top:120,right:-80,width:420,height:420,background:"radial-gradient(circle, rgba(91,31,214,0.11) 0%, transparent 62%)",pointerEvents:"none",zIndex:0}}),
+      h("div",{style:{flex:1,overflowY:"auto",padding:"40px 60px",position:"relative",background:isCulqiActive ? "linear-gradient(180deg, rgba(22,6,29,0.62), rgba(12,5,17,0.92))" : undefined}},
+        h("div",{style:{position:"absolute",top:-150,left:-100,width:600,height:600,background:isCulqiActive ? "radial-gradient(circle, rgba(255,138,0,0.13) 0%, transparent 60%)" : "radial-gradient(circle, rgba(29,43,255,0.10) 0%, transparent 60%)",pointerEvents:"none",zIndex:0}}),
+        h("div",{style:{position:"absolute",top:120,right:-80,width:420,height:420,background:isCulqiActive ? "radial-gradient(circle, rgba(110,27,115,0.24) 0%, transparent 62%)" : "radial-gradient(circle, rgba(91,31,214,0.11) 0%, transparent 62%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"relative",zIndex:1,maxWidth:1280,margin:"0 auto"}},
-          view==="advisor" && currentUser.rol==="asesor" && h(AdvisorPortal,{currentUser,users,staffing,feedbackRecords,evaluationRecords,raw,historico,notify,onFeedbackUpdated:reloadFeedbackRecords,onOpenPreview:openPreviewModal,onOpenEvaluation:openEvaluationModal}),
-          view==="improvement" && canViewImprovementDashboard(currentUser) && h(ContinuousImprovementDashboard,{currentUser,feedbackRecords,evaluationRecords,evaluationsLoading:false,noTipificationRecords,staffing,historico,users,onOpenEvaluation:openEvaluationModal,onOpenNoTipification:openNoTipificationModal}),
+          view==="advisor" && currentUser.rol==="asesor" && h(AdvisorPortal,{currentUser,users,staffing,feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,raw,historico,notify,onFeedbackUpdated:reloadFeedbackRecords,onOpenPreview:openPreviewModal,onOpenEvaluation:openEvaluationModal}),
+          view==="improvement" && canViewImprovementDashboard(currentUser) && h(ContinuousImprovementDashboard,{currentUser,feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,evaluationsLoading:false,noTipificationRecords:scopedNoTipificationRecords,staffing,historico,users,onOpenEvaluation:openEvaluationModal,onOpenNoTipification:openNoTipificationModal}),
           view==="communications" && h(CommunicationsCenter,{records:communicationRecords,currentUser,onSave:guardarComunicado,onDelete:eliminarComunicado,onAddComment:comentarComunicado,onDeleteComment:eliminarComentarioComunicado,onMarkRead:marcarComunicadoLeido,onRefresh:reloadCommunications,notify,users,focusedCommunicationId}),
           view==="notifications" && h(NotificationCenter,{currentUser,notifications,onRefresh:reloadNotifications,onOpenNotificationTarget:openNotificationTarget}),
           view==="legend" && h(LegendCenter,{concepts:legendConcepts,onRefresh:reloadLegend}),
-          view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords,staffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
-          view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords,evaluationRecords,onOpenFeedback:openFeedbackModal,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing}),
-          view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:operationalIncidents,noTipificationRecords,currentUser,advisorOptions,staffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,notify}),
-          view==="salesValidation" && canViewSalesValidationModule(currentUser) && h(SalesValidationCenter,{records:salesValidations,currentUser,onSave:guardarValidacionVenta,onDelete:eliminarValidacionVenta,onRestore:restaurarValidacionVenta}),
+          view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords:scopedEvaluationRecords,staffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
+          view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,onOpenFeedback:openFeedbackModal,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing}),
+          view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,notify}),
+          view==="salesValidation" && canViewSalesValidationModule(currentUser) && h(SalesValidationCenter,{records:scopedSalesValidations,currentUser,onSave:guardarValidacionVenta,onDelete:eliminarValidacionVenta,onRestore:restaurarValidacionVenta}),
           view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users,notify}),
-          view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing,setStaffing,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords,feedbackRecords,currentUser}),
+          view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing,setStaffing,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords:scopedEvaluationRecords,feedbackRecords:scopedFeedbackRecords,currentUser}),
           view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,onResetPassword:resetearContrasenaUsuario,notify,staffing})
         )
       )
@@ -7248,8 +7384,8 @@ function App(){
     currentUser?.passwordChangeRequired && !isAdminUser(currentUser) && h(PasswordChangeModal,{currentUser,onChangePassword:cambiarContrasenaActual}),
     h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor:feedbackModalAssessor || "",editingRecord:editingFeedbackRecord,notify}),
     h(NoTipificationModal,{isOpen:!!selectedNoTipificationEntry,onClose:closeNoTipificationModal,entryContext:selectedNoTipificationEntry,currentUser,onSave:guardarNoTipificacion,notify}),
-    h(EvaluationModal,{isOpen:!!selectedEvaluationFeedback,onClose:closeEvaluationModal,feedbackRecord:selectedEvaluationFeedback,evaluationRecord:editingEvaluation,currentUser,onSave:guardarEvaluacion,onUpdate:actualizarEvaluacion,notify}),
-    h(EvaluationHistoryModal,{advisorName:selectedEvaluationHistoryAdvisor,evaluations:evaluationRecords,evaluationsLoading,feedbackRecords,noTipificationRecords,currentUser,onClose:closeEvaluationHistory,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,onDeleteEvaluation:eliminarEvaluacion}),
+    h(EvaluationModal,{isOpen:!!selectedEvaluationFeedback,onClose:closeEvaluationModal,feedbackRecord:selectedEvaluationFeedback,evaluationRecord:editingEvaluation,currentUser,onSave:guardarEvaluacion,onUpdate:actualizarEvaluacion,notify,platform:selectedPlatform}),
+    h(EvaluationHistoryModal,{advisorName:selectedEvaluationHistoryAdvisor,evaluations:scopedEvaluationRecords,evaluationsLoading,feedbackRecords:scopedFeedbackRecords,noTipificationRecords:scopedNoTipificationRecords,currentUser,onClose:closeEvaluationHistory,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,onDeleteEvaluation:eliminarEvaluacion}),
     h(FeedbackPreviewModal,{record:selectedPreviewFeedback,evaluation:previewEvaluation,currentUser,onClose:closePreviewModal,onMarkViewed:()=>runPreviewAction("mark_viewed",selectedPreviewFeedback),onAccept:comment=>runPreviewAction("accept_feedback",selectedPreviewFeedback,comment),onReject:comment=>runPreviewAction("reject_feedback",selectedPreviewFeedback,comment),onSetFollowUp:()=>runPreviewAction("set_follow_up",selectedPreviewFeedback),onCloseFeedback:comment=>runPreviewAction("close_feedback",selectedPreviewFeedback,comment)})
   );
 }
@@ -7296,6 +7432,52 @@ const EVALUATION_FORM_TEMPLATES = {
   mala_practica: []
 };
 
+const CULQI_EVALUATION_FORM_TEMPLATES = {
+  venta: [
+    {categoria:"1. Apertura y Validacion",pesoItem:20,nombreSeccion:"1.1 Presentacion y Grabacion",criterio:"Presentacion y grabacion",pesoSub:10},
+    {categoria:"1. Apertura y Validacion",pesoItem:20,nombreSeccion:"1.2 Validacion y Autoridad",criterio:"Validacion y autoridad",pesoSub:10},
+    {categoria:"2. Propuesta del Producto",pesoItem:15,nombreSeccion:"2.1 Explicacion Funcional",criterio:"Explicacion funcional",pesoSub:10},
+    {categoria:"2. Propuesta del Producto",pesoItem:15,nombreSeccion:"2.2 Beneficios Reales",criterio:"Beneficios reales",pesoSub:5},
+    {categoria:"3. Condiciones Economicas",pesoItem:25,nombreSeccion:"3.1 Tasas y cobro de IGV",criterio:"Tasas y cobro de IGV",pesoSub:15},
+    {categoria:"3. Condiciones Economicas",pesoItem:25,nombreSeccion:"3.2 Costos y Membresias",criterio:"Costos y membresias",pesoSub:10},
+    {categoria:"4. Politicas de Uso",pesoItem:20,nombreSeccion:"4.1 Facturacion Minima (GPV)",criterio:"Facturacion minima GPV",pesoSub:10},
+    {categoria:"4. Politicas de Uso",pesoItem:20,nombreSeccion:"4.2 Condiciones de Recojo",criterio:"Condiciones de recojo",pesoSub:10},
+    {categoria:"5. Cierre de Venta",pesoItem:15,nombreSeccion:"5.1 Resumen y Aceptacion",criterio:"Resumen y aceptacion",pesoSub:10},
+    {categoria:"5. Cierre de Venta",pesoItem:15,nombreSeccion:"5.2 Datos para Visita/Envio",criterio:"Datos para visita o envio",pesoSub:5},
+    {categoria:"6. Gestion y Trato",pesoItem:5,nombreSeccion:"6.1 Resolucion de Dudas",criterio:"Resolucion de dudas",pesoSub:2.5},
+    {categoria:"6. Gestion y Trato",pesoItem:5,nombreSeccion:"6.2 Trato y Tipificacion",criterio:"Trato y tipificacion",pesoSub:2.5}
+  ],
+  no_venta: [
+    {categoria:"1. Protocolo de Inicio",pesoItem:15,nombreSeccion:"1.1 Presentacion y Motivo",criterio:"Presentacion y motivo",pesoSub:10},
+    {categoria:"1. Protocolo de Inicio",pesoItem:15,nombreSeccion:"1.2 Trato e Interes Inicial",criterio:"Trato e interes inicial",pesoSub:5},
+    {categoria:"2. Sondeo Comercial",pesoItem:20,nombreSeccion:"2.1 Indagacion del Negocio",criterio:"Indagacion del negocio",pesoSub:10},
+    {categoria:"2. Sondeo Comercial",pesoItem:20,nombreSeccion:"2.2 Sondeo Estrategico",criterio:"Sondeo estrategico",pesoSub:10},
+    {categoria:"3. Presentacion de Oferta",pesoItem:20,nombreSeccion:"3.1 Explicacion del POS",criterio:"Explicacion del POS",pesoSub:10},
+    {categoria:"3. Presentacion de Oferta",pesoItem:20,nombreSeccion:"3.2 Transparencia",criterio:"Transparencia",pesoSub:10},
+    {categoria:"4. Manejo de Objeciones",pesoItem:30,nombreSeccion:"4.1 Escucha de la Objecion",criterio:"Escucha de la objecion",pesoSub:15},
+    {categoria:"4. Manejo de Objeciones",pesoItem:30,nombreSeccion:"4.2 Rebate / Argumentacion",criterio:"Rebate / argumentacion",pesoSub:15},
+    {categoria:"5. Cierre y Despedida",pesoItem:10,nombreSeccion:"5.1 Alternativa de Seguimiento",criterio:"Alternativa de seguimiento",pesoSub:5},
+    {categoria:"5. Cierre y Despedida",pesoItem:10,nombreSeccion:"5.2 Cierre Cordial",criterio:"Cierre cordial",pesoSub:5},
+    {categoria:"6. Gestion del Sistema",pesoItem:5,nombreSeccion:"6.1 Tipificacion",criterio:"Tipificacion",pesoSub:2.5},
+    {categoria:"6. Gestion del Sistema",pesoItem:5,nombreSeccion:"6.2 Registro de Comentarios",criterio:"Registro de comentarios",pesoSub:2.5}
+  ],
+  mala_practica: []
+};
+
+const EVALUATION_FORM_TEMPLATES_BY_CLIENT = {
+  [DEFAULT_PLATFORM_ID]: EVALUATION_FORM_TEMPLATES,
+  [CULQI_PLATFORM_ID]: CULQI_EVALUATION_FORM_TEMPLATES
+};
+
+function normalizeClientId(value){
+  const raw = String(value || DEFAULT_PLATFORM_ID).trim();
+  return raw === CULQI_PLATFORM_ID ? CULQI_PLATFORM_ID : DEFAULT_PLATFORM_ID;
+}
+
+function getEvaluationTemplatesForClient(clientId){
+  return EVALUATION_FORM_TEMPLATES_BY_CLIENT[normalizeClientId(clientId)] || EVALUATION_FORM_TEMPLATES;
+}
+
 function normalizeEvaluationFormType(value){
   const normalized = normalizeComparableValue(value);
   if (["no venta","no_venta","noventa"].includes(normalized)) return "no_venta";
@@ -7307,9 +7489,10 @@ function buildEvaluationTemplateSection(section){
   return {resultado:"",detalleAuditado:"",oportunidadMejora:"",evidencia:"",puntaje:0,...section};
 }
 
-function getDefaultEvaluationSections(formType){
+function getDefaultEvaluationSections(formType, clientId = DEFAULT_PLATFORM_ID){
   const type = normalizeEvaluationFormType(formType);
-  return (EVALUATION_FORM_TEMPLATES[type] || EVALUATION_FORM_TEMPLATES.venta).map(buildEvaluationTemplateSection);
+  const templates = getEvaluationTemplatesForClient(clientId);
+  return (templates[type] || templates.venta).map(buildEvaluationTemplateSection);
 }
 
 function getAntiguedadBucket(value){
@@ -7345,8 +7528,8 @@ function mergeEvaluationSectionWithTemplate(templateSection, storedSection){
   };
 }
 
-function normalizeEvaluationSectionsForScoring(secciones, formType){
-  const template = getDefaultEvaluationSections(formType);
+function normalizeEvaluationSectionsForScoring(secciones, formType, clientId = DEFAULT_PLATFORM_ID){
+  const template = getDefaultEvaluationSections(formType, clientId);
   const source = Array.isArray(secciones) ? secciones : [];
   return template.map(templateSection => mergeEvaluationSectionWithTemplate(
     templateSection,
@@ -7354,10 +7537,10 @@ function normalizeEvaluationSectionsForScoring(secciones, formType){
   ));
 }
 
-function calculateWeightedEvaluationScore(secciones, formType){
+function calculateWeightedEvaluationScore(secciones, formType, clientId = DEFAULT_PLATFORM_ID){
   let applicableWeight = 0;
   let achievedWeight = 0;
-  normalizeEvaluationSectionsForScoring(secciones, formType).forEach(section => {
+  normalizeEvaluationSectionsForScoring(secciones, formType, clientId).forEach(section => {
     const weight = Number(section?.pesoSub || 0) || 0;
     const result = normalizeComparableValue(section?.resultado);
     if (!weight || !result || result === "no aplica") return;
@@ -8803,7 +8986,7 @@ function NoTipificationModal({isOpen,onClose,entryContext,currentUser,onSave,not
   );
 }
 
-function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,currentUser,onSave,onUpdate,notify}){
+function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,currentUser,onSave,onUpdate,notify,platform}){
   const [form,setForm] = useState(null);
   const [evidenceFiles,setEvidenceFiles] = useState([]);
   const [audioFiles,setAudioFiles] = useState([]);
@@ -8815,6 +8998,8 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
   const currentRole = String(currentUser?.rol || "").trim().toLowerCase();
   const initialOjtMode = isOjtEvaluationRecord(evaluationRecord) || isOjtEvaluationRecord(feedbackRecord);
   const readOnly = !(canFillEvaluation(currentUser) || (currentRole === "formador" && initialOjtMode)) || currentEvaluation?.estadoEvaluacion === "closed";
+  const clientId = normalizeClientId(evaluationRecord?.clientId || evaluationRecord?.platformId || feedbackRecord?.clientId || feedbackRecord?.platformId || platform?.id || DEFAULT_PLATFORM_ID);
+  const clientName = getPlatformDisplayName(clientId);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -8823,8 +9008,9 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
     const storedFormType = sourceEvaluation?.evaluationFormType || sourceEvaluation?.tipoFicha || sourceEvaluation?.formType || "";
     const initialFormType = sourceEvaluation ? normalizeEvaluationFormType(storedFormType || "venta") : "";
     setCurrentEvaluation(sourceEvaluation);
-    const template = initialFormType ? getDefaultEvaluationSections(initialFormType) : [];
-    const zeroToleranceTemplate = getDefaultZeroToleranceItems();
+    const sourceClientId = normalizeClientId(sourceEvaluation?.clientId || sourceEvaluation?.platformId || feedbackRecord?.clientId || feedbackRecord?.platformId || platform?.id || DEFAULT_PLATFORM_ID);
+    const template = initialFormType ? getDefaultEvaluationSections(initialFormType, sourceClientId) : [];
+    const zeroToleranceTemplate = getDefaultZeroToleranceItems(sourceClientId);
     const storedSections = Array.isArray(sourceEvaluation?.secciones) && sourceEvaluation.secciones.length
       ? sourceEvaluation.secciones
       : Array.isArray(sourceEvaluation?.items) && sourceEvaluation.items.length
@@ -8837,7 +9023,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
               ? sourceEvaluation.atributos
               : [];
     const currentSections = storedSections.length
-      ? normalizeEvaluationSectionsForScoring(storedSections, initialFormType || "venta")
+      ? normalizeEvaluationSectionsForScoring(storedSections, initialFormType || "venta", sourceClientId)
       : template.map(section => ({...section}));
     const currentZeroTolerance = Array.isArray(sourceEvaluation?.zeroToleranceItems) && sourceEvaluation.zeroToleranceItems.length
       ? zeroToleranceTemplate.map(item => {
@@ -8847,6 +9033,9 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       : zeroToleranceTemplate.map(item => ({...item}));
     setForm({
       feedbackId: feedbackRecord?.feedbackId || feedbackRecord?.id || sourceEvaluation?.feedbackId || "",
+      clientId: sourceClientId,
+      platformId: sourceClientId,
+      clientName: getPlatformDisplayName(sourceClientId),
       asesorNombre: feedbackRecord?.asesorNombre || feedbackRecord?.assessor || sourceEvaluation?.asesorNombre || "",
       campaign: ojtMode ? "OJT" : (feedbackRecord?.campaign || feedbackRecord?.managementTypeRuc || feedbackRecord?.tipoGestionRuc || sourceEvaluation?.campaign || ""),
       tipoGestion: sourceEvaluation?.tipoGestion || feedbackRecord?.tipoGestion || (ojtMode ? "Evaluacion OJT" : "Evaluacion de calidad"),
@@ -8868,9 +9057,9 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
     setIsSaving(false);
     setSaveNotice(null);
     setCommentEditor({open:false,index:-1,text:"",title:""});
-  }, [isOpen,feedbackRecord,evaluationRecord]);
+  }, [isOpen,feedbackRecord,evaluationRecord,platform?.id]);
 
-  const summary = useMemo(() => form ? calculateEvaluationSummary(form.secciones, form.zeroToleranceItems, form.evaluationFormType) : {applicableWeight:0,achievedWeight:0,appliesCeroTolerancia:false,pct:0,label:"Critico",text:"0.0% - Critico"}, [form]);
+  const summary = useMemo(() => form ? calculateEvaluationSummary(form.secciones, form.zeroToleranceItems, form.evaluationFormType, form.clientId || clientId) : {applicableWeight:0,achievedWeight:0,appliesCeroTolerancia:false,pct:0,label:"Critico",text:"0.0% - Critico"}, [form,clientId]);
 
   const canCloseEvaluation = !readOnly && Boolean(currentEvaluation?.id) && !isDirty;
 
@@ -8904,8 +9093,8 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
     setForm(prev => ({
       ...prev,
       evaluationFormType: normalizedType,
-      secciones: getDefaultEvaluationSections(normalizedType),
-      zeroToleranceItems: getDefaultZeroToleranceItems().map(item => ({...item}))
+      secciones: getDefaultEvaluationSections(normalizedType, prev.clientId || clientId),
+      zeroToleranceItems: getDefaultZeroToleranceItems(prev.clientId || clientId).map(item => ({...item}))
     }));
     setIsDirty(true);
     setSaveNotice(null);
@@ -8981,7 +9170,10 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       detalleAuditadoGeneral: savedEvaluation.detalleAuditadoGeneral || prev.detalleAuditadoGeneral,
       oportunidadMejoraGeneral: savedEvaluation.oportunidadMejoraGeneral || prev.oportunidadMejoraGeneral,
       evidenciaGeneral: savedEvaluation.evidenciaGeneral || prev.evidenciaGeneral,
-      secciones: Array.isArray(savedEvaluation.secciones) && savedEvaluation.secciones.length ? normalizeEvaluationSectionsForScoring(savedEvaluation.secciones, savedFormType) : prev.secciones,
+      clientId: normalizeClientId(savedEvaluation.clientId || savedEvaluation.platformId || prev.clientId || clientId),
+      platformId: normalizeClientId(savedEvaluation.clientId || savedEvaluation.platformId || prev.clientId || clientId),
+      clientName: savedEvaluation.clientName || savedEvaluation.platformName || prev.clientName || clientName,
+      secciones: Array.isArray(savedEvaluation.secciones) && savedEvaluation.secciones.length ? normalizeEvaluationSectionsForScoring(savedEvaluation.secciones, savedFormType, savedEvaluation.clientId || savedEvaluation.platformId || prev.clientId || clientId) : prev.secciones,
       zeroToleranceItems: Array.isArray(savedEvaluation.zeroToleranceItems) && savedEvaluation.zeroToleranceItems.length ? savedEvaluation.zeroToleranceItems.map(item => ({...item})) : prev.zeroToleranceItems
     }));
   };
@@ -9124,6 +9316,10 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
         idEvaluacion: currentEvaluation?.id || `${Date.now()}${Math.floor(Math.random() * 1000).toString().padStart(3,"0")}`,
         idempotencyKey: currentEvaluation?.idempotencyKey || `evaluation_${Date.now()}_${Math.random().toString(36).slice(2,10)}`,
         asesorNombre: String(form.asesorNombre || "").trim().toUpperCase(),
+        clientId: normalizeClientId(form.clientId || clientId),
+        platformId: normalizeClientId(form.clientId || clientId),
+        clientName: form.clientName || clientName,
+        platformName: form.clientName || clientName,
         formadorNombre: String(form.formadorNombre || "").trim(),
         evaluationMode: isOjtMode ? "ojt" : "operacion",
         isOjt: isOjtMode,
@@ -9134,7 +9330,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
         tipoFicha: EVALUATION_FORM_TYPES[selectedPayloadFormType]?.label || "Venta",
         tipoGestion: isOjtMode ? "Evaluacion OJT" : "Evaluacion de calidad",
         estadoEvaluacion: closeAfterSave ? "closed" : form.estadoEvaluacion,
-        secciones: normalizeEvaluationSectionsForScoring(form.secciones, selectedPayloadFormType).map(section => ({
+        secciones: normalizeEvaluationSectionsForScoring(form.secciones, selectedPayloadFormType, form.clientId || clientId).map(section => ({
           ...section,
           detalleAuditado: String(section.detalleAuditado || "").trim(),
           oportunidadMejora: "",
@@ -9237,7 +9433,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
     h("div",{style:{background:"linear-gradient(180deg, rgba(18,19,29,0.98) 0%, rgba(22,12,40,0.98) 100%)",border: `1px solid ${THEME.border}`,borderRadius:20,padding:28,width:"100%",maxWidth:1180,maxHeight:"92vh",overflowY:"auto",boxShadow:THEME.glowViolet}},
       h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:18,marginBottom:24}},
         h("div",null,
-          h("div",{style:{fontSize:22,fontWeight:800,color:"#fff",marginBottom:6}},"Ficha de evaluacion de calidad"),
+          h("div",{style:{fontSize:22,fontWeight:800,color:"#fff",marginBottom:6}},`Ficha de evaluacion de calidad - ${clientName}`),
           h("div",{style:{fontSize:12,color:"#8b92a5"}},"Formato ponderado: Cumple suma el peso completo, No cumple vale 0 y No aplica no entra al promedio.")
         ),
         h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:onClose},"CERRAR")

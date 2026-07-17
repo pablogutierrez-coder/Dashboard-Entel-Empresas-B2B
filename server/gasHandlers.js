@@ -379,6 +379,9 @@ const EVALUATION_FORM_TYPES = {
   mala_practica: { label: "Mala practica" }
 };
 
+const DEFAULT_CLIENT_ID = "entel_b2b";
+const CULQI_CLIENT_ID = "culqi_bcp";
+
 const EVALUATION_FORM_TEMPLATES = {
   venta: [
     { categoria: "1. Conecta: Entrada y Validacion", pesoItem: 5, nombreSeccion: "1.1 Saludo e Identificacion", criterio: "Saludo e identificacion", pesoSub: 2 },
@@ -415,6 +418,52 @@ const EVALUATION_FORM_TEMPLATES = {
   mala_practica: []
 };
 
+const CULQI_EVALUATION_FORM_TEMPLATES = {
+  venta: [
+    { categoria: "1. Apertura y Validacion", pesoItem: 20, nombreSeccion: "1.1 Presentacion y Grabacion", criterio: "Presentacion y grabacion", pesoSub: 10 },
+    { categoria: "1. Apertura y Validacion", pesoItem: 20, nombreSeccion: "1.2 Validacion y Autoridad", criterio: "Validacion y autoridad", pesoSub: 10 },
+    { categoria: "2. Propuesta del Producto", pesoItem: 15, nombreSeccion: "2.1 Explicacion Funcional", criterio: "Explicacion funcional", pesoSub: 10 },
+    { categoria: "2. Propuesta del Producto", pesoItem: 15, nombreSeccion: "2.2 Beneficios Reales", criterio: "Beneficios reales", pesoSub: 5 },
+    { categoria: "3. Condiciones Economicas", pesoItem: 25, nombreSeccion: "3.1 Tasas y cobro de IGV", criterio: "Tasas y cobro de IGV", pesoSub: 15 },
+    { categoria: "3. Condiciones Economicas", pesoItem: 25, nombreSeccion: "3.2 Costos y Membresias", criterio: "Costos y membresias", pesoSub: 10 },
+    { categoria: "4. Politicas de Uso", pesoItem: 20, nombreSeccion: "4.1 Facturacion Minima (GPV)", criterio: "Facturacion minima GPV", pesoSub: 10 },
+    { categoria: "4. Politicas de Uso", pesoItem: 20, nombreSeccion: "4.2 Condiciones de Recojo", criterio: "Condiciones de recojo", pesoSub: 10 },
+    { categoria: "5. Cierre de Venta", pesoItem: 15, nombreSeccion: "5.1 Resumen y Aceptacion", criterio: "Resumen y aceptacion", pesoSub: 10 },
+    { categoria: "5. Cierre de Venta", pesoItem: 15, nombreSeccion: "5.2 Datos para Visita/Envio", criterio: "Datos para visita o envio", pesoSub: 5 },
+    { categoria: "6. Gestion y Trato", pesoItem: 5, nombreSeccion: "6.1 Resolucion de Dudas", criterio: "Resolucion de dudas", pesoSub: 2.5 },
+    { categoria: "6. Gestion y Trato", pesoItem: 5, nombreSeccion: "6.2 Trato y Tipificacion", criterio: "Trato y tipificacion", pesoSub: 2.5 }
+  ],
+  no_venta: [
+    { categoria: "1. Protocolo de Inicio", pesoItem: 15, nombreSeccion: "1.1 Presentacion y Motivo", criterio: "Presentacion y motivo", pesoSub: 10 },
+    { categoria: "1. Protocolo de Inicio", pesoItem: 15, nombreSeccion: "1.2 Trato e Interes Inicial", criterio: "Trato e interes inicial", pesoSub: 5 },
+    { categoria: "2. Sondeo Comercial", pesoItem: 20, nombreSeccion: "2.1 Indagacion del Negocio", criterio: "Indagacion del negocio", pesoSub: 10 },
+    { categoria: "2. Sondeo Comercial", pesoItem: 20, nombreSeccion: "2.2 Sondeo Estrategico", criterio: "Sondeo estrategico", pesoSub: 10 },
+    { categoria: "3. Presentacion de Oferta", pesoItem: 20, nombreSeccion: "3.1 Explicacion del POS", criterio: "Explicacion del POS", pesoSub: 10 },
+    { categoria: "3. Presentacion de Oferta", pesoItem: 20, nombreSeccion: "3.2 Transparencia", criterio: "Transparencia", pesoSub: 10 },
+    { categoria: "4. Manejo de Objeciones", pesoItem: 30, nombreSeccion: "4.1 Escucha de la Objecion", criterio: "Escucha de la objecion", pesoSub: 15 },
+    { categoria: "4. Manejo de Objeciones", pesoItem: 30, nombreSeccion: "4.2 Rebate / Argumentacion", criterio: "Rebate / argumentacion", pesoSub: 15 },
+    { categoria: "5. Cierre y Despedida", pesoItem: 10, nombreSeccion: "5.1 Alternativa de Seguimiento", criterio: "Alternativa de seguimiento", pesoSub: 5 },
+    { categoria: "5. Cierre y Despedida", pesoItem: 10, nombreSeccion: "5.2 Cierre Cordial", criterio: "Cierre cordial", pesoSub: 5 },
+    { categoria: "6. Gestion del Sistema", pesoItem: 5, nombreSeccion: "6.1 Tipificacion", criterio: "Tipificacion", pesoSub: 2.5 },
+    { categoria: "6. Gestion del Sistema", pesoItem: 5, nombreSeccion: "6.2 Registro de Comentarios", criterio: "Registro de comentarios", pesoSub: 2.5 }
+  ],
+  mala_practica: []
+};
+
+const EVALUATION_FORM_TEMPLATES_BY_CLIENT = {
+  [DEFAULT_CLIENT_ID]: EVALUATION_FORM_TEMPLATES,
+  [CULQI_CLIENT_ID]: CULQI_EVALUATION_FORM_TEMPLATES
+};
+
+function normalizeClientId(value) {
+  const raw = String(value || DEFAULT_CLIENT_ID).trim();
+  return raw === CULQI_CLIENT_ID ? CULQI_CLIENT_ID : DEFAULT_CLIENT_ID;
+}
+
+function getEvaluationTemplatesForClient(clientId) {
+  return EVALUATION_FORM_TEMPLATES_BY_CLIENT[normalizeClientId(clientId)] || EVALUATION_FORM_TEMPLATES;
+}
+
 function normalizeEvaluationFormType(value) {
   const normalized = normalizeText(value);
   if (["no venta", "no_venta", "noventa"].includes(normalized)) return "no_venta";
@@ -422,9 +471,10 @@ function normalizeEvaluationFormType(value) {
   return "venta";
 }
 
-function getDefaultEvaluationSections(formType) {
+function getDefaultEvaluationSections(formType, clientId = DEFAULT_CLIENT_ID) {
   const type = normalizeEvaluationFormType(formType);
-  return (EVALUATION_FORM_TEMPLATES[type] || EVALUATION_FORM_TEMPLATES.venta)
+  const templates = getEvaluationTemplatesForClient(clientId);
+  return (templates[type] || templates.venta)
     .map(section => ({ resultado: "", detalleAuditado: "", oportunidadMejora: "", evidencia: "", puntaje: 0, ...section }));
 }
 
@@ -468,9 +518,9 @@ function getStoredSectionResult(stored, templateSection) {
   return templateSection.resultado;
 }
 
-function normalizeEvaluationSections(sections, formType) {
+function normalizeEvaluationSections(sections, formType, clientId = DEFAULT_CLIENT_ID) {
   const source = Array.isArray(sections) ? sections : [];
-  return getDefaultEvaluationSections(formType).map(templateSection => {
+  return getDefaultEvaluationSections(formType, clientId).map(templateSection => {
     const stored = findMatchingEvaluationItem(source, templateSection) || {};
     const result = getStoredSectionResult(stored, templateSection);
     return {
@@ -489,10 +539,10 @@ function normalizeEvaluationSections(sections, formType) {
   });
 }
 
-function calculateEvaluationScore(sections, formType) {
+function calculateEvaluationScore(sections, formType, clientId = DEFAULT_CLIENT_ID) {
   let applicableWeight = 0;
   let achievedWeight = 0;
-  for (const section of normalizeEvaluationSections(sections, formType)) {
+  for (const section of normalizeEvaluationSections(sections, formType, clientId)) {
     const weight = Number(section.pesoSub || 0) || 0;
     const result = normalizeText(section.resultado);
     if (!weight || !result || result === "no aplica") continue;
@@ -507,13 +557,16 @@ function calculateEvaluationScore(sections, formType) {
 function normalizeEvaluationRecordForRuntime(record) {
   if (!record || typeof record !== "object" || !Array.isArray(record.secciones) || !record.secciones.length) return record;
   const evaluationFormType = normalizeEvaluationFormType(record.evaluationFormType || record.tipoFicha || record.formType || "venta");
-  const secciones = normalizeEvaluationSections(record.secciones, evaluationFormType);
-  const score = calculateEvaluationScore(secciones, evaluationFormType);
+  const clientId = normalizeClientId(record.clientId || record.platformId);
+  const secciones = normalizeEvaluationSections(record.secciones, evaluationFormType, clientId);
+  const score = calculateEvaluationScore(secciones, evaluationFormType, clientId);
   const appliesCeroTolerancia = Boolean(record.appliesCeroTolerancia) ||
     evaluationFormType === "mala_practica" ||
     (Array.isArray(record.zeroToleranceItems) && record.zeroToleranceItems.some(item => normalizeText(item?.resultado) === "cumple"));
   return {
     ...record,
+    clientId,
+    platformId: clientId,
     evaluationFormType,
     tipoFicha: EVALUATION_FORM_TYPES[evaluationFormType]?.label || "Venta",
     secciones,
@@ -667,8 +720,9 @@ async function persistEvaluation(record) {
   const id = normalizeId(record?.id || record?.idEvaluacion);
   if (!id) throw new Error("No se puede guardar una evaluacion sin id.");
   const evaluationFormType = normalizeEvaluationFormType(record?.evaluationFormType || record?.tipoFicha || record?.formType || "venta");
-  const secciones = normalizeEvaluationSections(record?.secciones, evaluationFormType);
-  const score = calculateEvaluationScore(secciones, evaluationFormType);
+  const clientId = normalizeClientId(record?.clientId || record?.platformId);
+  const secciones = normalizeEvaluationSections(record?.secciones, evaluationFormType, clientId);
+  const score = calculateEvaluationScore(secciones, evaluationFormType, clientId);
   const appliesCeroTolerancia = Boolean(record?.appliesCeroTolerancia) ||
     evaluationFormType === "mala_practica" ||
     (Array.isArray(record?.zeroToleranceItems) && record.zeroToleranceItems.some(item => normalizeText(item?.resultado) === "cumple"));
@@ -676,6 +730,8 @@ async function persistEvaluation(record) {
     ...record,
     id,
     idEvaluacion: id,
+    clientId,
+    platformId: clientId,
     evaluationFormType,
     tipoFicha: EVALUATION_FORM_TYPES[evaluationFormType]?.label || "Venta",
     secciones,
