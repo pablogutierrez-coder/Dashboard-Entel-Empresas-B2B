@@ -7165,7 +7165,7 @@ function App(){
   const guardarIncidenciaOperativa = async(payload) => {
     const saved = await saveOperationalIncidentEntry({...payload,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName,platformName:currentPlatformName});
     await reloadOperationalIncidents();
-    notify("s","Incidencia registrada correctamente: No conectado.");
+    notify("s",`Incidencia registrada correctamente: ${payload?.incident_type || payload?.incidentType || "No conectado"}.`);
     return saved;
   };
 
@@ -10487,6 +10487,13 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
   const canEditRegistry = ["admin","analista"].includes(role);
   const canDeleteRegistry = role === "admin";
   const canChangeStatus = role === "admin";
+  const isCulqiStaffing = isCulqiPlatform(clientId);
+  const defaultManagementType = isCulqiStaffing ? "" : "RUC 10";
+  useEffect(() => {
+    if (isCulqiStaffing && ["RUC 10","RUC 20"].includes(String(form.tipoGestionRuc || "").trim())) {
+      setForm(prev => ({...prev,tipoGestionRuc:""}));
+    }
+  }, [isCulqiStaffing]);
   const savePlatformStaffing = async(updated) => {
     const normalizedPlatformId = normalizeClientId(clientId || DEFAULT_PLATFORM_ID);
     const tagged = (updated || []).map(item => tagRecordForPlatform(item, normalizedPlatformId, clientName || getPlatformDisplayName(normalizedPlatformId)));
@@ -10530,7 +10537,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
     const saved = await savePlatformStaffing(updated);
     if (saved === false) { notify("e","No se pudo guardar staffing."); return; }
     if (typeof setStaffing === "function" && typeof onSaveStaffing !== "function") setStaffing(updated);
-    setForm({asesor:"",supervisor:"",coordinador:"",antiguedad:"",fechaIngreso:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
+    setForm({asesor:"",supervisor:"",coordinador:"",antiguedad:"",fechaIngreso:"",tipoGestionRuc:defaultManagementType,dni:"",estado:"activo"});
     notify("s","Asesor agregado.");
   };
   const startEdit = advisor => {
@@ -10538,14 +10545,14 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
     setEditForm({
       supervisor: advisor.supervisor || "",
       coordinador: advisor.coordinador || "",
-      tipoGestionRuc: advisor.tipoGestionRuc || "RUC 10",
+      tipoGestionRuc: advisor.tipoGestionRuc || advisor.campaign || defaultManagementType,
       dni: advisor.dni || "",
       estado: normalizeProfileStatus(advisor.estado || "activo")
     });
   };
   const cancelEdit = () => {
     setEditingAdvisor("");
-    setEditForm({supervisor:"",coordinador:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
+    setEditForm({supervisor:"",coordinador:"",tipoGestionRuc:defaultManagementType,dni:"",estado:"activo"});
   };
   const saveEdit = async asesor => {
     if (!String(editForm.supervisor || "").trim()) { notify("e","El supervisor es obligatorio."); return; }
@@ -10554,7 +10561,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
       ...item,
       supervisor: String(editForm.supervisor || "").trim(),
       coordinador: String(editForm.coordinador || "").trim(),
-      tipoGestionRuc: String(editForm.tipoGestionRuc || "RUC 10").trim(),
+      tipoGestionRuc: String(editForm.tipoGestionRuc || defaultManagementType).trim(),
       dni: String(editForm.dni || "").trim(),
       estado: normalizeProfileStatus(editForm.estado || "activo")
     } : item);
@@ -10592,7 +10599,9 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Coordinador"),h("input",{style:INP,placeholder:"Ej: COORD. OPS",value:form.coordinador,onChange:ev => setForm({...form,coordinador:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Antiguedad"),h("input",{type:"number",style:INP,placeholder:"12",value:form.antiguedad,onChange:ev => setForm({...form,antiguedad:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha ingreso"),h("input",{type:"date",style:INP,value:form.fechaIngreso,onChange:ev => setForm({...form,fechaIngreso:ev.target.value})})),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Tipo de gestion"),h("select",{style:SEL,value:form.tipoGestionRuc,onChange:ev=>setForm({...form,tipoGestionRuc:ev.target.value})},h("option",{value:"RUC 10"},"RUC 10"),h("option",{value:"RUC 20"},"RUC 20"))),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},isCulqiStaffing ? "Campana" : "Tipo de gestion"),isCulqiStaffing
+          ? h("input",{style:INP,placeholder:"Ej: JULIO S4",value:form.tipoGestionRuc,onChange:ev=>setForm({...form,tipoGestionRuc:ev.target.value})})
+          : h("select",{style:SEL,value:form.tipoGestionRuc,onChange:ev=>setForm({...form,tipoGestionRuc:ev.target.value})},h("option",{value:"RUC 10"},"RUC 10"),h("option",{value:"RUC 20"},"RUC 20"))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"DNI"),h("input",{style:INP,placeholder:"12345678",value:form.dni,onChange:ev => setForm({...form,dni:ev.target.value.replace(/[^\d]/g,"").slice(0,8)})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Estado"),h("select",{style:SEL,value:form.estado,onChange:ev=>setForm({...form,estado:ev.target.value})},h("option",{value:"activo"},"Activo"),h("option",{value:"cesado"},"Cesado")))
       ),
@@ -10602,7 +10611,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
       h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:20}}, staffing.length, " asesores registrados"),
       h("div",{style:{overflowX:"auto"}},
         h("table",{style:{width:"100%",borderCollapse:"collapse"}},
-          h("thead",null,h("tr",null,["Asesor","DNI","Supervisor","Coordinador","Antiguedad","Tipo gestion","Estado","Evaluaciones ingresadas","Acciones"].map(hd => h("th",{key:hd,style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}, hd)))),
+          h("thead",null,h("tr",null,["Asesor","DNI","Supervisor","Coordinador","Antiguedad",isCulqiStaffing ? "Campana" : "Tipo gestion","Estado","Evaluaciones ingresadas","Acciones"].map(hd => h("th",{key:hd,style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}, hd)))),
           h("tbody",null,
             staffing.map(s => {
               const advisorEvaluations = getAdvisorEvaluationHistory(evaluationRecords, s.asesor);
@@ -10620,7 +10629,9 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? h("input",{style:{...INP,padding:"10px 12px"},value:editForm.supervisor,onChange:ev=>setEditForm(prev=>({...prev,supervisor:ev.target.value}))}) : (s.supervisor || "-")),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? h("input",{style:{...INP,padding:"10px 12px"},value:editForm.coordinador,onChange:ev=>setEditForm(prev=>({...prev,coordinador:ev.target.value}))}) : (s.coordinador || "-")),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, s.antiguedad || 0, " meses"),
-                h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? h("select",{style:{...SEL,padding:"10px 12px"},value:editForm.tipoGestionRuc,onChange:ev=>setEditForm(prev=>({...prev,tipoGestionRuc:ev.target.value}))},h("option",{value:"RUC 10"},"RUC 10"),h("option",{value:"RUC 20"},"RUC 20")) : (s.tipoGestionRuc || "-")),
+                h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? (isCulqiStaffing
+                  ? h("input",{style:{...INP,padding:"10px 12px"},placeholder:"Ej: JULIO S4",value:editForm.tipoGestionRuc,onChange:ev=>setEditForm(prev=>({...prev,tipoGestionRuc:ev.target.value}))})
+                  : h("select",{style:{...SEL,padding:"10px 12px"},value:editForm.tipoGestionRuc,onChange:ev=>setEditForm(prev=>({...prev,tipoGestionRuc:ev.target.value}))},h("option",{value:"RUC 10"},"RUC 10"),h("option",{value:"RUC 20"},"RUC 20"))) : (s.tipoGestionRuc || s.campaign || "-")),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing && canChangeStatus
                   ? h("select",{style:{...SEL,padding:"10px 12px"},value:editForm.estado,onChange:ev=>setEditForm(prev=>({...prev,estado:ev.target.value}))},h("option",{value:"activo"},"Activo"),h("option",{value:"cesado"},"Cesado"))
                   : h("span",{style:{display:"inline-flex",padding:"6px 10px",borderRadius:999,fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",color:activeProfile ? "#20d489" : THEME.accent,border:`1px solid ${activeProfile ? "rgba(32,212,137,0.35)" : "rgba(230,0,168,0.35)"}`,background:activeProfile ? "rgba(32,212,137,0.10)" : "rgba(230,0,168,0.10)"}},statusLabel)),

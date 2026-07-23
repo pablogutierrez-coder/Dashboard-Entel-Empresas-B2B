@@ -1049,6 +1049,7 @@ function buildTransientCalibrationResults(session, sessionEvaluations, savedResu
 
 function getSalesValidationDuplicateKey(record = {}) {
   return [
+    normalizeClientId(record.clientId || record.platformId || record.tenantId),
     normalizeText(record.ruc),
     normalizeDateOrNow(record.saleDate || record.fechaVenta || "").slice(0, 10),
     normalizeText(record.callId || record.numeroLlamada || record.interactionId)
@@ -1103,6 +1104,8 @@ function normalizeSalesValidationPayload(payload = {}, existing = {}, currentUse
   const agentName = String(payload.agentName || payload.agenteComercial || existing.agentName || "").trim();
   const saleDate = String(payload.saleDate || payload.fechaVenta || existing.saleDate || "").trim();
   const callId = String(payload.callId || payload.numeroLlamada || payload.interactionId || existing.callId || "").trim();
+  const clientId = normalizeClientId(payload.clientId || payload.platformId || payload.tenantId || existing.clientId || existing.platformId || existing.tenantId);
+  const clientName = String(payload.clientName || payload.platformName || existing.clientName || existing.platformName || "").trim();
   if (!ruc) throw new Error("El RUC del cliente es obligatorio.");
   if (!businessName) throw new Error("La razon social es obligatoria.");
   if (!agentName) throw new Error("El agente comercial es obligatorio.");
@@ -1121,6 +1124,10 @@ function normalizeSalesValidationPayload(payload = {}, existing = {}, currentUse
   return {
     ...existing,
     id,
+    clientId,
+    platformId: clientId,
+    clientName,
+    platformName: clientName,
     ruc,
     businessName,
     agentName,
@@ -1613,6 +1620,10 @@ export const gasHandlers = {
       coordinador: String(payload.coordinador || "").trim(),
       antiguedad: Number(payload.antiguedad || 0) || 0,
       fechaIngreso: String(payload.fechaIngreso || "").trim(),
+      clientId: normalizeClientId(payload.clientId || payload.platformId || payload.tenantId),
+      platformId: normalizeClientId(payload.platformId || payload.clientId || payload.tenantId),
+      clientName: String(payload.clientName || payload.platformName || "").trim(),
+      platformName: String(payload.platformName || payload.clientName || "").trim(),
       managementTypeRuc: String(payload.managementTypeRuc || payload.campaign_name || payload.campana || "").trim(),
       phoneNumber,
       callDateTime: new Date(callDateTime).toString() === "Invalid Date" ? callDateTime : new Date(callDateTime).toISOString(),
@@ -1645,8 +1656,14 @@ export const gasHandlers = {
       || "No se encuentra audio disponible en inConcert para realizar la evaluación de calidad. Se registra la incidencia operativa 'No conectado' para seguimiento correspondiente.";
     const now = nowIso();
     const records = await readCachedSharedJson(OPERATIONAL_INCIDENTS_KEY, []);
+    const clientId = normalizeClientId(payload.clientId || payload.platformId || payload.tenantId);
+    const clientName = String(payload.clientName || payload.platformName || "").trim();
     const record = {
       id: normalizeId(payload.id || generateNumericId()),
+      clientId,
+      platformId: clientId,
+      clientName,
+      platformName: clientName,
       advisor_id: String(payload.advisor_id || payload.advisorUser || "").trim(),
       advisor_name: advisorName,
       monitor_id: String(currentUser.usuario || payload.monitor_id || "").trim(),
