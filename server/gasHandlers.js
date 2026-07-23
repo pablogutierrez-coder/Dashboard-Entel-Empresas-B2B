@@ -803,11 +803,40 @@ async function writeCalibrationCollection(key, records) {
   invalidateFirebaseCache(key);
 }
 
-async function addCalibrationLog(sessionId, user, actionType, description) {
+function getRecordClientId(record = {}) {
+  return normalizeClientId(record.clientId || record.platformId || record.tenantId);
+}
+
+function isRecordVisibleForClient(record = {}, clientId = DEFAULT_CLIENT_ID) {
+  const rawClient = record?.clientId || record?.platformId || record?.tenantId || "";
+  const recordClientId = normalizeClientId(rawClient);
+  const currentClientId = normalizeClientId(clientId);
+  if (currentClientId === DEFAULT_CLIENT_ID) return !rawClient || recordClientId === DEFAULT_CLIENT_ID;
+  return recordClientId === currentClientId;
+}
+
+function withClientScope(record = {}, clientId = DEFAULT_CLIENT_ID, clientName = "") {
+  const scopedClientId = normalizeClientId(clientId);
+  return {
+    ...record,
+    clientId: scopedClientId,
+    platformId: scopedClientId,
+    clientName: String(clientName || record.clientName || record.platformName || "").trim(),
+    platformName: String(clientName || record.platformName || record.clientName || "").trim()
+  };
+}
+
+async function addCalibrationLog(sessionId, user, actionType, description, scope = {}) {
   const logs = await readCalibrationCollection(CALIBRATION_ACTIVITY_LOGS_KEY);
+  const clientId = normalizeClientId(scope.clientId || scope.platformId || user?.clientId || user?.platformId);
+  const clientName = String(scope.clientName || scope.platformName || user?.clientName || user?.platformName || "").trim();
   const log = {
     id: normalizeId(generateNumericId()),
     calibration_session_id: normalizeId(sessionId),
+    clientId,
+    platformId: clientId,
+    clientName,
+    platformName: clientName,
     user_id: String(user?.usuario || user?.user_id || "").trim(),
     user_name: String(user?.nombre || user?.user_name || "").trim(),
     role: getRole(user),
@@ -856,9 +885,15 @@ function validateCalibrationCanStart(session) {
 
 function buildCalibrationParticipantRecord(sessionId, user, overrides = {}) {
   const userId = String(overrides.user_id || user?.user_id || user?.usuario || "").trim();
+  const clientId = normalizeClientId(overrides.clientId || overrides.platformId || user?.clientId || user?.platformId);
+  const clientName = String(overrides.clientName || overrides.platformName || user?.clientName || user?.platformName || "").trim();
   return {
     id: `${sessionId}_${userId}`,
     calibration_session_id: sessionId,
+    clientId,
+    platformId: clientId,
+    clientName,
+    platformName: clientName,
     user_id: userId,
     user_name: String(overrides.user_name || user?.user_name || user?.nombre || "").trim(),
     role: String(overrides.role || user?.role || user?.rol || "").trim().toLowerCase(),
@@ -871,7 +906,9 @@ function buildCalibrationParticipantRecord(sessionId, user, overrides = {}) {
   };
 }
 
-function buildCalibrationItemRows(evaluationId, sections, evaluationType) {
+function buildCalibrationItemRows(evaluationId, sections, evaluationType, scope = {}) {
+  const clientId = normalizeClientId(scope.clientId || scope.platformId);
+  const clientName = String(scope.clientName || scope.platformName || "").trim();
   return normalizeEvaluationSections(sections, evaluationType).map(section => {
     const result = normalizeCalibrationResult(section.resultado);
     const weight = Number(section.pesoSub || 0) || 0;
@@ -879,6 +916,10 @@ function buildCalibrationItemRows(evaluationId, sections, evaluationType) {
     return {
       id: `${evaluationId}_${getCalibrationSectionKey(section) || generateNumericId()}`,
       calibration_evaluation_id: evaluationId,
+      clientId,
+      platformId: clientId,
+      clientName,
+      platformName: clientName,
       item_id: normalizeText(section.categoria),
       item_name: section.categoria || "",
       subitem_id: getCalibrationSectionKey(section),
@@ -908,6 +949,8 @@ function calculateCalibrationScore(sections, zeroToleranceItems, evaluationType)
 
 function compareCalibrationEvaluation(session, expertEvaluation, participantEvaluation) {
   const evaluationType = session.evaluation_type || "venta";
+  const clientId = getRecordClientId(session);
+  const clientName = String(session.clientName || session.platformName || "").trim();
   const expertSections = normalizeEvaluationSections(expertEvaluation?.sections || expertEvaluation?.secciones || [], evaluationType);
   const participantSections = normalizeEvaluationSections(participantEvaluation?.sections || participantEvaluation?.secciones || [], evaluationType);
   const participantByKey = new Map(participantSections.map(section => [getCalibrationSectionKey(section), section]));
@@ -937,6 +980,10 @@ function compareCalibrationEvaluation(session, expertEvaluation, participantEval
     comparisonRows.push({
       id: `${session.id}_${participantEvaluation.user_id}_${key || comparisonRows.length}`,
       calibration_session_id: session.id,
+      clientId,
+      platformId: clientId,
+      clientName,
+      platformName: clientName,
       item_id: normalizeText(expertSection.categoria),
       subitem_id: key,
       item_name: expertSection.categoria || "",
@@ -972,6 +1019,10 @@ function compareCalibrationEvaluation(session, expertEvaluation, participantEval
     result: {
       id: `${session.id}_${participantEvaluation.user_id}`,
       calibration_session_id: session.id,
+      clientId,
+      platformId: clientId,
+      clientName,
+      platformName: clientName,
       user_id: participantEvaluation.user_id,
       user_name: participantEvaluation.user_name,
       role: participantEvaluation.role || "",
@@ -1182,6 +1233,8 @@ export const gasHandlers = {
 
   async getCalibrationData(currentUser = {}) {
     if (!canViewCalibrationModule(currentUser)) throw new Error("No tienes permisos para ver calibraciones.");
+    const requestedClientId = normalizeClientId(currentUser.clientId || currentUser.platformId || currentUser.tenantId);
+    const requestedClientName = String(currentUser.clientName || currentUser.platformName || "").trim();
     const [sessions, participants, evaluations, evaluationItems, results, comparisonRows, logs] = await Promise.all([
       readCalibrationCollection(CALIBRATION_SESSIONS_KEY),
       readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY),
@@ -1192,7 +1245,10 @@ export const gasHandlers = {
       readCalibrationCollection(CALIBRATION_ACTIVITY_LOGS_KEY)
     ]);
     const enrichedSessions = sessions
+      .filter(session => isRecordVisibleForClient(session, requestedClientId))
       .map(session => {
+        const sessionClientId = getRecordClientId(session);
+        const sessionClientName = String(session.clientName || session.platformName || requestedClientName || "").trim();
         let sessionParticipants = participants.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id));
         const expertId = String(session.expert_referent_id || "").trim();
         if (expertId && !sessionParticipants.some(item => String(item.user_id || "") === expertId)) {
@@ -1201,36 +1257,39 @@ export const gasHandlers = {
               usuario: expertId,
               nombre: session.expert_referent_name || expertId,
               rol: "referente_experto"
-            }, { is_expert_referent: true }),
+            }, { is_expert_referent: true, clientId: sessionClientId, clientName: sessionClientName }),
             ...sessionParticipants
           ];
-        } else {
-          sessionParticipants = sessionParticipants.map(item => String(item.user_id || "") === expertId ? { ...item, is_expert_referent: true } : item);
         }
+        sessionParticipants = sessionParticipants.map(item => withClientScope(
+          String(item.user_id || "") === expertId ? { ...item, is_expert_referent: true } : item,
+          sessionClientId,
+          sessionClientName
+        ));
         const sessionEvaluations = evaluations.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id));
         const savedResults = results.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id));
         const savedComparisonRows = comparisonRows.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id));
         const analytics = buildTransientCalibrationResults(session, sessionEvaluations, savedResults, savedComparisonRows);
         return {
-          ...session,
+          ...withClientScope(session, sessionClientId, sessionClientName),
           participants: sessionParticipants,
-          evaluations: sessionEvaluations,
-          evaluationItems: evaluationItems.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id)),
+          evaluations: sessionEvaluations.map(item => withClientScope(item, sessionClientId, sessionClientName)),
+          evaluationItems: evaluationItems.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id)).map(item => withClientScope(item, sessionClientId, sessionClientName)),
           results: analytics.results,
           comparisonRows: analytics.comparisonRows,
-          logs: logs.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id))
+          logs: logs.filter(item => normalizeId(item.calibration_session_id) === normalizeId(session.id)).map(item => withClientScope(item, sessionClientId, sessionClientName))
         };
       })
       .filter(session => canUserSeeCalibration(session, currentUser))
       .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0));
     return {
       sessions: enrichedSessions,
-      participants,
-      evaluations,
-      evaluationItems,
-      results,
-      comparisonRows,
-      logs
+      participants: participants.filter(item => isRecordVisibleForClient(item, requestedClientId)),
+      evaluations: evaluations.filter(item => isRecordVisibleForClient(item, requestedClientId)),
+      evaluationItems: evaluationItems.filter(item => isRecordVisibleForClient(item, requestedClientId)),
+      results: results.filter(item => isRecordVisibleForClient(item, requestedClientId)),
+      comparisonRows: comparisonRows.filter(item => isRecordVisibleForClient(item, requestedClientId)),
+      logs: logs.filter(item => isRecordVisibleForClient(item, requestedClientId))
     };
   },
 
@@ -1241,13 +1300,15 @@ export const gasHandlers = {
     const participants = await readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY);
     const id = normalizeId(payload.id || payload.calibration_session_id) || String(generateNumericId());
     const existing = sessions.find(item => normalizeId(item.id) === id) || {};
+    const clientId = normalizeClientId(payload.clientId || payload.platformId || payload.tenantId || existing.clientId || existing.platformId || currentUser.clientId || currentUser.platformId);
+    const clientName = String(payload.clientName || payload.platformName || existing.clientName || existing.platformName || currentUser.clientName || currentUser.platformName || "").trim();
     if (existing.id && ["closed_results", "annulled"].includes(normalizeCalibrationStatus(existing.status)) && getRole(currentUser) !== "admin") {
       throw new Error("Solo un administrador puede corregir una calibracion cerrada o anulada.");
     }
     const rawParticipants = Array.isArray(payload.participants) ? payload.participants : [];
     let selectedParticipants = rawParticipants
       .filter(item => item && String(item.user_id || item.usuario || "").trim())
-      .map(item => buildCalibrationParticipantRecord(id, item));
+      .map(item => buildCalibrationParticipantRecord(id, item, { clientId, clientName }));
     const expertId = String(payload.expert_referent_id || payload.expertReferentId || "").trim();
     if (expertId && !selectedParticipants.some(item => String(item.user_id) === expertId)) {
       selectedParticipants = [
@@ -1256,16 +1317,24 @@ export const gasHandlers = {
           nombre: payload.expert_referent_name || existing.expert_referent_name || expertId,
           rol: payload.expert_referent_role || "referente_experto",
           area: payload.expert_referent_area || ""
-        }, { is_expert_referent: true }),
+        }, { is_expert_referent: true, clientId, clientName }),
         ...selectedParticipants
       ];
     } else {
-      selectedParticipants = selectedParticipants.map(item => String(item.user_id) === expertId ? { ...item, is_expert_referent: true } : item);
+      selectedParticipants = selectedParticipants.map(item => withClientScope(
+        String(item.user_id) === expertId ? { ...item, is_expert_referent: true } : item,
+        clientId,
+        clientName
+      ));
     }
     const evaluationType = normalizeEvaluationFormType(payload.evaluation_type || payload.audio_type || "venta");
     let session = {
       ...existing,
       id,
+      clientId,
+      platformId: clientId,
+      clientName,
+      platformName: clientName,
       title: String(payload.title || existing.title || "").trim(),
       description: String(payload.description || existing.description || "").trim(),
       calibration_objective: String(payload.calibration_objective || existing.calibration_objective || "").trim(),
@@ -1311,7 +1380,7 @@ export const gasHandlers = {
     ];
     await writeCalibrationCollection(CALIBRATION_SESSIONS_KEY, nextSessions);
     await writeCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY, nextParticipants);
-    await addCalibrationLog(id, currentUser, existing.id ? "session_updated" : "session_created", existing.id ? "Se actualizo la calibracion." : "Se creo la calibracion.");
+    await addCalibrationLog(id, currentUser, existing.id ? "session_updated" : "session_created", existing.id ? "Se actualizo la calibracion." : "Se creo la calibracion.", { clientId, clientName });
     return { ...session, participants: selectedParticipants };
   },
 
@@ -1352,12 +1421,14 @@ export const gasHandlers = {
     const sessions = await readCalibrationCollection(CALIBRATION_SESSIONS_KEY);
     const session = sessions.find(item => normalizeId(item.id) === id);
     if (!session) throw new Error("No se encontro la calibracion.");
+    const clientId = getRecordClientId(session);
+    const clientName = String(session.clientName || session.platformName || "").trim();
     const nextStatus = normalizeCalibrationStatus(payload.status);
     if (nextStatus === "live") {
       let sessionParticipants = (await readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY)).filter(item => normalizeId(item.calibration_session_id) === id);
       const expertId = String(session.expert_referent_id || "").trim();
       if (expertId && !sessionParticipants.some(item => String(item.user_id || "") === expertId)) {
-        sessionParticipants = [buildCalibrationParticipantRecord(id, { usuario: expertId, nombre: session.expert_referent_name || expertId, rol: "referente_experto" }, { is_expert_referent: true }), ...sessionParticipants];
+        sessionParticipants = [buildCalibrationParticipantRecord(id, { usuario: expertId, nombre: session.expert_referent_name || expertId, rol: "referente_experto" }, { is_expert_referent: true, clientId, clientName }), ...sessionParticipants];
       }
       validateCalibrationCanStart({ ...session, participants: sessionParticipants });
     }
@@ -1367,12 +1438,16 @@ export const gasHandlers = {
     }
     const updated = {
       ...session,
+      clientId,
+      platformId: clientId,
+      clientName,
+      platformName: clientName,
       status: nextStatus,
       updated_at: nowIso(),
       closed_at: nextStatus === "closed_results" ? nowIso() : session.closed_at || ""
     };
     await writeCalibrationCollection(CALIBRATION_SESSIONS_KEY, upsertById(sessions, updated));
-    await addCalibrationLog(id, currentUser, `status_${nextStatus}`, `Estado actualizado a ${nextStatus}.`);
+    await addCalibrationLog(id, currentUser, `status_${nextStatus}`, `Estado actualizado a ${nextStatus}.`, { clientId, clientName });
     return { ...updated, ...(resultsPayload || {}) };
   },
 
@@ -1383,6 +1458,8 @@ export const gasHandlers = {
     const sessions = await readCalibrationCollection(CALIBRATION_SESSIONS_KEY);
     const session = sessions.find(item => normalizeId(item.id) === sessionId);
     if (!session) throw new Error("No se encontro la calibracion.");
+    const clientId = getRecordClientId(session);
+    const clientName = String(session.clientName || session.platformName || "").trim();
     const status = normalizeCalibrationStatus(session.status);
     if (status !== "live") throw new Error("Solo se puede enviar una evaluacion cuando la calibracion esta En vivo.");
     const participants = await readCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY);
@@ -1399,6 +1476,10 @@ export const gasHandlers = {
       ...(existing || {}),
       id: evaluationId,
       calibration_session_id: sessionId,
+      clientId,
+      platformId: clientId,
+      clientName,
+      platformName: clientName,
       user_id: userId,
       user_name: currentUser.nombre || payload.user_name || "",
       role: getRole(currentUser),
@@ -1417,7 +1498,7 @@ export const gasHandlers = {
     };
     await writeCalibrationCollection(CALIBRATION_EVALUATIONS_KEY, upsertById(evaluations, normalizedEvaluation));
     const allEvaluationItems = await readCalibrationCollection(CALIBRATION_EVALUATION_ITEMS_KEY);
-    const itemRows = buildCalibrationItemRows(evaluationId, normalizedEvaluation.sections, session.evaluation_type).map(item => ({
+    const itemRows = buildCalibrationItemRows(evaluationId, normalizedEvaluation.sections, session.evaluation_type, { clientId, clientName }).map(item => ({
       ...item,
       calibration_session_id: sessionId,
       user_id: userId,
@@ -1428,11 +1509,11 @@ export const gasHandlers = {
       ...itemRows
     ]);
     const nextParticipants = participants.map(item => normalizeId(item.calibration_session_id) === sessionId && String(item.user_id) === userId
-      ? { ...item, participation_status: "submitted", submitted_at: normalizedEvaluation.submitted_at }
+      ? withClientScope({ ...item, participation_status: "submitted", submitted_at: normalizedEvaluation.submitted_at }, clientId, clientName)
       : item
     );
     await writeCalibrationCollection(CALIBRATION_PARTICIPANTS_KEY, nextParticipants);
-    await addCalibrationLog(sessionId, currentUser, "evaluation_submitted", `${currentUser.nombre || userId} envio su evaluacion de calibracion.`);
+    await addCalibrationLog(sessionId, currentUser, "evaluation_submitted", `${currentUser.nombre || userId} envio su evaluacion de calibracion.`, { clientId, clientName });
     return { ...normalizedEvaluation, items: itemRows };
   },
 

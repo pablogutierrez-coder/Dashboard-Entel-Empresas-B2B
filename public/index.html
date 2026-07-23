@@ -7444,7 +7444,7 @@ function App(){
           view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,onOpenFeedback:openFeedbackModal,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing:scopedStaffing}),
           view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing:scopedStaffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,notify}),
           view==="salesValidation" && canViewSalesValidationModule(currentUser) && h(SalesValidationCenter,{records:scopedSalesValidations,currentUser,onSave:guardarValidacionVenta,onDelete:eliminarValidacionVenta,onRestore:restaurarValidacionVenta}),
-          view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users:scopedUsers,notify}),
+          view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users:scopedUsers,notify,clientId:currentPlatformId,clientName:currentPlatformName}),
           view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing:scopedStaffing,setStaffing,onSaveStaffing:guardarDotacionScoped,clientId:currentPlatformId,clientName:currentPlatformName,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords:scopedEvaluationRecords,feedbackRecords:scopedFeedbackRecords,currentUser}),
           view==="users" && canManageUsers(currentUser) && h(UserManager,{users:scopedUsers,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,onResetPassword:resetearContrasenaUsuario,notify,staffing:scopedStaffing})
         )
@@ -10181,7 +10181,7 @@ function CalibrationDetailView({session,currentUser,onBack,onEnterRoom,onChangeS
   );
 }
 
-function CalibrationModule({currentUser,users,notify}){
+function CalibrationModule({currentUser,users,notify,clientId,clientName}){
   const [data,setData] = useState({sessions:[]});
   const [loading,setLoading] = useState(true);
   const [tab,setTab] = useState("live");
@@ -10189,15 +10189,22 @@ function CalibrationModule({currentUser,users,notify}){
   const [editingSession,setEditingSession] = useState(null);
   const [roomSession,setRoomSession] = useState(null);
   const [detailSession,setDetailSession] = useState(null);
-  const reload = async() => { setLoading(true); const loaded = await loadCalibrationData(currentUser); setData(loaded || {sessions:[]}); setLoading(false); return loaded; };
-  useEffect(()=>{ reload(); },[currentUser?.usuario]);
+  const calibrationUserScope = useMemo(() => ({
+    ...currentUser,
+    clientId: normalizeClientId(clientId || currentUser?.clientId || DEFAULT_PLATFORM_ID),
+    platformId: normalizeClientId(clientId || currentUser?.platformId || DEFAULT_PLATFORM_ID),
+    clientName: clientName || getPlatformDisplayName(clientId || currentUser?.clientId || DEFAULT_PLATFORM_ID),
+    platformName: clientName || getPlatformDisplayName(clientId || currentUser?.platformId || DEFAULT_PLATFORM_ID)
+  }), [currentUser,clientId,clientName]);
+  const reload = async() => { setLoading(true); const loaded = await loadCalibrationData(calibrationUserScope); setData(loaded || {sessions:[]}); setLoading(false); return loaded; };
+  useEffect(()=>{ reload(); },[currentUser?.usuario,clientId]);
   const sessions = getCalibrationVisibleSessions(data.sessions || [], currentUser);
-  const saveSession = async(payload) => { const saved = await saveCalibrationSessionEntry(payload); await reload(); return saved; };
-  const changeStatus = async(session,status) => { try{ await updateCalibrationStatusEntry({id:session.id,status,currentUser}); notify("s","Estado actualizado."); await reload(); }catch(err){ notify("e",err?.message || "No se pudo actualizar el estado."); } };
+  const saveSession = async(payload) => { const saved = await saveCalibrationSessionEntry({...payload,currentUser:calibrationUserScope,clientId:calibrationUserScope.clientId,platformId:calibrationUserScope.platformId,clientName:calibrationUserScope.clientName,platformName:calibrationUserScope.platformName}); await reload(); return saved; };
+  const changeStatus = async(session,status) => { try{ await updateCalibrationStatusEntry({id:session.id,status,currentUser:calibrationUserScope,clientId:calibrationUserScope.clientId,platformId:calibrationUserScope.platformId,clientName:calibrationUserScope.clientName,platformName:calibrationUserScope.platformName}); notify("s","Estado actualizado."); await reload(); }catch(err){ notify("e",err?.message || "No se pudo actualizar el estado."); } };
   const deleteSession = async session => {
     if (!confirm(`Eliminar la calibracion "${session.title || "Sin nombre"}" y todos sus resultados? Esta accion no se puede deshacer.`)) return;
     try{
-      await deleteCalibrationSessionEntry({id:session.id,currentUser});
+      await deleteCalibrationSessionEntry({id:session.id,currentUser:calibrationUserScope,clientId:calibrationUserScope.clientId,platformId:calibrationUserScope.platformId});
       if (detailSession?.id === session.id) setDetailSession(null);
       await reload();
       notify("s","Calibracion eliminada correctamente.");
@@ -10205,7 +10212,7 @@ function CalibrationModule({currentUser,users,notify}){
       notify("e",err?.message || "No se pudo eliminar la calibracion.");
     }
   };
-  const submitEvaluation = async(payload) => { const saved = await submitCalibrationEvaluationEntry(payload); await reload(); return saved; };
+  const submitEvaluation = async(payload) => { const saved = await submitCalibrationEvaluationEntry({...payload,currentUser:calibrationUserScope,clientId:calibrationUserScope.clientId,platformId:calibrationUserScope.platformId,clientName:calibrationUserScope.clientName,platformName:calibrationUserScope.platformName}); await reload(); return saved; };
   if (roomSession) {
     const refreshed = sessions.find(item => item.id === roomSession.id) || roomSession;
     return h(CalibrationEvaluationRoom,{session:refreshed,currentUser,onSubmit:submitEvaluation,notify,onBack:()=>setRoomSession(null)});
