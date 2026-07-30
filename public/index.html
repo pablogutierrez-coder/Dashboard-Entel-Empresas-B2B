@@ -2143,6 +2143,12 @@ function canImportData(user){
   return ["admin","analista"].includes(String(user?.rol||"").trim().toLowerCase());
 }
 
+function canViewStaffingModule(user, platformId){
+  const role = String(user?.rol||"").trim().toLowerCase();
+  if (canImportData(user)) return true;
+  return isCulqiPlatform(platformId) && role === "formador";
+}
+
 function canViewDashboards(user){
   return String(user?.rol||"").trim().toLowerCase() !== "asesor";
 }
@@ -5631,7 +5637,7 @@ function App(){
           canViewTeamFeedback(currentUser) && h("button",{style:{...BTN(view==="feedback"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="feedback"?"#fff":"#8b92a5"},onClick:()=>setView("feedback")},I("send",18,view==="feedback"?"#fff":"#8b92a5"),String(currentUser.rol||"").trim().toLowerCase()==="supervisor" ? "SEGUIMIENTO" : "FEEDBACKS"),
           h("button",{style:{...BTN(view==="legend"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="legend"?"#fff":"#8b92a5"},onClick:()=>setView("legend")},I("spark",18,view==="legend"?"#fff":"#8b92a5"),"LEYENDA"),
           h("button",{style:{...BTN(view==="notifications"?"p":"out"),width:"100%",justifyContent:"space-between",padding:"16px 20px",color:view==="notifications"?"#fff":"#8b92a5"},onClick:()=>setView("notifications")},h("span",{style:{display:"inline-flex",alignItems:"center",gap:12}},I("bell",18,view==="notifications"?"#fff":"#8b92a5"),"NOTIFICACIONES"),unreadNotifications>0 && h("span",{style:{minWidth:22,height:22,borderRadius:999,background:THEME.accent,color:"#fff",fontSize:10,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 6px"}},unreadNotifications)),
-          canImportData(currentUser) && h("button",{style:{...BTN(view==="staffing"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="staffing"?"#fff":"#8b92a5"},onClick:()=>setView("staffing")},I("users",18,view==="staffing"?"#fff":"#8b92a5"),"GESTION DOTACION"),
+          canViewStaffingModule(currentUser,currentPlatformId) && h("button",{style:{...BTN(view==="staffing"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="staffing"?"#fff":"#8b92a5"},onClick:()=>setView("staffing")},I("users",18,view==="staffing"?"#fff":"#8b92a5"),"GESTION DOTACION"),
           canManageUsers(currentUser) && h("button",{style:{...BTN(view==="users"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="users"?"#fff":"#8b92a5"},onClick:()=>setView("users")},I("shield",18,view==="users"?"#fff":"#8b92a5"),"USUARIOS")
         ),
         h("div",{style:{marginTop:"auto",borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:24}},
@@ -6887,16 +6893,31 @@ function App(){
     const normalizedUserKey = normalizeLoginKey(usuario);
     const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
     const userToDelete = normalizedSource.find(u => normalizeLoginKey(u.usuario) === normalizedUserKey && isRecordVisibleForPlatform(u, currentPlatformId));
+    if (!userToDelete) {
+      const visibleUser = filterUsersForPlatform(normalizedSource, currentPlatformId).find(u => normalizeLoginKey(u.usuario) === normalizedUserKey);
+      if (visibleUser && isCulqiPlatform(currentPlatformId) && isPrimaryCulqiUser(visibleUser)) {
+        notify("e","No se puede eliminar el usuario principal de Culqi.");
+      } else {
+        notify("e","No se encontro el usuario en esta plataforma.");
+      }
+      return false;
+    }
     const updated = normalizedSource.filter(u => !(normalizeLoginKey(u.usuario) === normalizedUserKey && isRecordVisibleForPlatform(u, currentPlatformId)));
     let nextStaffing = staffing;
     if (userToDelete?.rol === "asesor") {
       nextStaffing = staffing.map(item => isRecordVisibleForPlatform(item, currentPlatformId) && normalizeLoginKey(item?.usuarioAsignado) === normalizedUserKey ? {...item,usuarioAsignado:""} : item);
     }
     const saved = await saveUsers(updated);
-    if (saved === false) return false;
+    if (saved === false) {
+      notify("e","No se pudo eliminar el usuario en la base.");
+      return false;
+    }
     if (nextStaffing !== staffing) {
       const staffingSaved = await saveStaffing(nextStaffing);
-      if (staffingSaved === false) return false;
+      if (staffingSaved === false) {
+        notify("e","Usuario eliminado, pero no se pudo limpiar su dotacion.");
+        return false;
+      }
       setStaffing(nextStaffing);
     }
     setUsers(updated);
@@ -7445,7 +7466,7 @@ function App(){
           view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing:scopedStaffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,notify}),
           view==="salesValidation" && canViewSalesValidationModule(currentUser) && h(SalesValidationCenter,{records:scopedSalesValidations,currentUser,onSave:guardarValidacionVenta,onDelete:eliminarValidacionVenta,onRestore:restaurarValidacionVenta}),
           view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users:scopedUsers,notify,clientId:currentPlatformId,clientName:currentPlatformName}),
-          view==="staffing" && canImportData(currentUser) && h(StaffingConfig,{staffing:scopedStaffing,setStaffing,onSaveStaffing:guardarDotacionScoped,clientId:currentPlatformId,clientName:currentPlatformName,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords:scopedEvaluationRecords,feedbackRecords:scopedFeedbackRecords,currentUser}),
+          view==="staffing" && canViewStaffingModule(currentUser,currentPlatformId) && h(StaffingConfig,{staffing:scopedStaffing,setStaffing,onSaveStaffing:guardarDotacionScoped,clientId:currentPlatformId,clientName:currentPlatformName,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords:scopedEvaluationRecords,feedbackRecords:scopedFeedbackRecords,currentUser}),
           view==="users" && canManageUsers(currentUser) && h(UserManager,{users:scopedUsers,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,onResetPassword:resetearContrasenaUsuario,notify,staffing:scopedStaffing})
         )
       )
