@@ -8430,13 +8430,61 @@ function EvaluationHistoryModal({advisorName,evaluations,evaluationsLoading,feed
   );
 }
 
+function buildImprovementSmartGroupOptions(dataset){
+  const sourceRows = [
+    ...(dataset?.feedbackRows || []),
+    ...(dataset?.noTipificationRows || [])
+  ];
+  const groupDefinitions = [
+    {type:"quartile",label:"Cuartil",getValue:row=>row.quartile},
+    {type:"supervisor",label:"Supervisor",getValue:row=>row.supervisor},
+    {type:"coordinador",label:"Coordinador",getValue:row=>row.coordinador},
+    {type:"antiguedad",label:"Antiguedad",getValue:row=>getAntiguedadBucket(row.antiguedad)},
+    {type:"gestion",label:"Tipo de gestion",getValue:row=>row.managementTypeRuc || row.campaign}
+  ];
+  const buckets = new Map();
+  groupDefinitions.forEach(definition => {
+    sourceRows.forEach(row => {
+      const rawValue = String(definition.getValue(row) || "").trim();
+      if (!rawValue) return;
+      const key = `${definition.type}::${normalizeComparableValue(rawValue)}`;
+      const existing = buckets.get(key) || {value:key,type:definition.type,rawValue,labelPrefix:definition.label,count:0,advisors:new Set()};
+      existing.count += 1;
+      if (row.advisorName) existing.advisors.add(normalizeName(row.advisorName));
+      buckets.set(key, existing);
+    });
+  });
+  return [...buckets.values()]
+    .map(item => ({
+      value:item.value,
+      type:item.type,
+      rawValue:item.rawValue,
+      label:`${item.labelPrefix}: ${item.rawValue} (${item.advisors.size || item.count})`
+    }))
+    .sort((a,b)=>a.type.localeCompare(b.type,"es") || a.rawValue.localeCompare(b.rawValue,"es"));
+}
+
+function matchesImprovementSmartGroup(row, smartGroup){
+  if (!smartGroup) return true;
+  const [type, normalizedValue] = String(smartGroup).split("::");
+  const matches = value => normalizeComparableValue(value) === normalizedValue;
+  if (type === "quartile") return matches(row.quartile);
+  if (type === "supervisor") return matches(row.supervisor);
+  if (type === "coordinador") return matches(row.coordinador);
+  if (type === "antiguedad") return matches(getAntiguedadBucket(row.antiguedad));
+  if (type === "gestion") return matches(row.managementTypeRuc || row.campaign);
+  return true;
+}
+
 function buildImprovementOptions(dataset){
   return {
     advisors: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.advisorName), ...(dataset.noTipificationRows || []).map(row => row.advisorName)]),
     supervisors: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.supervisor), ...(dataset.noTipificationRows || []).map(row => row.supervisor)]),
     coordinadores: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.coordinador), ...(dataset.noTipificationRows || []).map(row => row.coordinador)]),
     antiguedadBuckets: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => getAntiguedadBucket(row.antiguedad)), ...(dataset.noTipificationRows || []).map(row => getAntiguedadBucket(row.antiguedad))]),
-    managementTypesRuc: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.managementTypeRuc), ...(dataset.noTipificationRows || []).map(row => row.managementTypeRuc)])
+    managementTypesRuc: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.managementTypeRuc), ...(dataset.noTipificationRows || []).map(row => row.managementTypeRuc)]),
+    quartiles: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.quartile), ...(dataset.noTipificationRows || []).map(row => row.quartile)]).filter(value => /^Q[1-4]$/.test(value)),
+    smartGroups: buildImprovementSmartGroupOptions(dataset)
   };
 }
 
@@ -8445,6 +8493,8 @@ function buildEmptyImprovementFilters(currentUser){
     dateFrom: "",
     dateTo: "",
     advisor: "",
+    smartGroup: "",
+    quartile: "",
     antiguedadBucket: "",
     supervisor: "",
     coordinador: "",
@@ -8459,6 +8509,8 @@ function applyImprovementFilters(dataset, filters){
   const matchRow = row => {
     if (!isWithinDateRange(row.feedbackDate || row.callDateTime || row.date || row.lastActionDate || row.createdAt, filters.dateFrom, filters.dateTo)) return false;
     if (filters.advisor && !sameOption(row.advisorName, filters.advisor)) return false;
+    if (filters.smartGroup && !matchesImprovementSmartGroup(row, filters.smartGroup)) return false;
+    if (filters.quartile && !sameOption(row.quartile, filters.quartile)) return false;
     if (filters.antiguedadBucket && getAntiguedadBucket(row.antiguedad) !== filters.antiguedadBucket) return false;
     if (filters.supervisor && !sameOption(row.supervisor, filters.supervisor)) return false;
     if (filters.coordinador && !sameOption(row.coordinador, filters.coordinador)) return false;
@@ -10701,8 +10753,11 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
   const [trendComparison,setTrendComparison] = useState({baseMonth:"",comparedMonth:""});
   const dataset = useMemo(() => buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,noTipificationRecords,staffing,historico,users}), [currentUser,feedbackRecords,evaluationRecords,noTipificationRecords,staffing,historico,users]);
   const options = useMemo(() => buildImprovementOptions(dataset), [dataset]);
+  const selectedSmartGroupLabel = useMemo(() => (options.smartGroups || []).find(item => item.value === filters.smartGroup)?.label || "", [options,filters.smartGroup]);
   const filtered = useMemo(() => applyImprovementFilters(dataset, filters), [dataset,filters]);
-  const activeAdvisor = filters.advisor || options.advisors[0] || "";
+  const advisorPoolForFilters = useMemo(() => applyImprovementFilters(dataset, {...filters,advisor:""}), [dataset,filters]);
+  const contextualAdvisorOptions = useMemo(() => uniqueSortedValues([...(advisorPoolForFilters.feedbackRows || []).map(row => row.advisorName), ...(advisorPoolForFilters.noTipificationRows || []).map(row => row.advisorName)]), [advisorPoolForFilters]);
+  const activeAdvisor = filters.advisor || contextualAdvisorOptions[0] || options.advisors[0] || "";
   const advisorFiltered = useMemo(() => applyImprovementFilters(dataset, {...filters,advisor:activeAdvisor}), [dataset,filters,activeAdvisor]);
   const advisorInsight = useMemo(() => activeAdvisor ? buildAdvisorInsight(advisorFiltered.feedbackRows, advisorFiltered.sectionRows, advisorFiltered.noTipificationRows) : null, [activeAdvisor,advisorFiltered]);
   const effectiveSupervisor = filters.supervisor || "";
@@ -10862,7 +10917,9 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
       filtersOpen && h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha desde"),h("input",{type:"date",style:INP,value:filters.dateFrom,onChange:ev=>setFilters(prev=>({...prev,dateFrom:ev.target.value}))})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha hasta"),h("input",{type:"date",style:INP,value:filters.dateTo,onChange:ev=>setFilters(prev=>({...prev,dateTo:ev.target.value}))})),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Asesor"),h("select",{style:SEL,value:filters.advisor,onChange:ev=>setFilters(prev=>({...prev,advisor:ev.target.value}))},h("option",{value:""},"Todos"),options.advisors.map(value=>h("option",{key:value,value},value)))),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Asesor"),h("select",{style:SEL,value:filters.advisor,onChange:ev=>setFilters(prev=>({...prev,advisor:ev.target.value}))},h("option",{value:""},"Todos"),(contextualAdvisorOptions.length ? contextualAdvisorOptions : options.advisors).map(value=>h("option",{key:value,value},value)))),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Grupo inteligente"),h("select",{style:SEL,value:filters.smartGroup,onChange:ev=>setFilters(prev=>({...prev,smartGroup:ev.target.value,advisor:""}))},h("option",{value:""},"Todos los grupos"),options.smartGroups.map(item=>h("option",{key:item.value,value:item.value},item.label)))),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Cuartil"),h("select",{style:SEL,value:filters.quartile,onChange:ev=>setFilters(prev=>({...prev,quartile:ev.target.value,advisor:""}))},h("option",{value:""},"Todos"),options.quartiles.map(value=>h("option",{key:value,value},`${value} - ${value === "Q1" ? "Alto desempeno" : value === "Q2" ? "Medio-alto" : value === "Q3" ? "Medio-bajo" : "Bajo desempeno"}`)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Antiguedad"),h("select",{style:SEL,value:filters.antiguedadBucket,onChange:ev=>setFilters(prev=>({...prev,antiguedadBucket:ev.target.value}))},h("option",{value:""},"Todas"),options.antiguedadBuckets.map(value=>h("option",{key:value,value},value)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Supervisor"),h("select",{style:SEL,value:filters.supervisor,onChange:ev=>setFilters(prev=>({...prev,supervisor:ev.target.value}))},h("option",{value:""},"Todos"),options.supervisors.map(value=>h("option",{key:value,value},value)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Coordinador"),h("select",{style:SEL,value:filters.coordinador,onChange:ev=>setFilters(prev=>({...prev,coordinador:ev.target.value}))},h("option",{value:""},"Todos"),options.coordinadores.map(value=>h("option",{key:value,value},value)))),
@@ -10919,7 +10976,7 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
             h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:18,marginBottom:24}},
               h(ImprovementKpiCard,{label:"Cantidad de evaluaciones",value:String(teamInsight.totalEvaluations || 0),caption:"Evaluaciones guardadas con los filtros actuales",color:THEME.primary}),
               h(ImprovementKpiCard,{label:"Asesores evaluados",value:String(teamInsight.totalAdvisors),caption:`Supervisor: ${teamInsight.supervisor || "Todos"} - Coordinador: ${filters.coordinador || "Todos"}`,color:THEME.primary}),
-              h(ImprovementKpiCard,{label:"Tipo de gestion",value:filters.managementTypeRuc || "Todas",caption:`Antiguedad filtrada: ${filters.antiguedadBucket || "Todas"}`,color:THEME.violet}),
+              h(ImprovementKpiCard,{label:"Grupo medido",value:selectedSmartGroupLabel ? "Inteligente" : (filters.quartile || "Todos"),caption:selectedSmartGroupLabel || `Antiguedad: ${filters.antiguedadBucket || "Todas"} - Gestion: ${filters.managementTypeRuc || "Todas"}`,color:THEME.violet}),
               h(ImprovementKpiCard,{label:"Promedio del equipo",value:teamInsight.generalCompliance !== null ? `${teamInsight.generalCompliance.toFixed(1)}%` : "Sin base",caption:`Asesores con mejora: ${teamInsight.improvementPct.toFixed(0)}%`,color:"#19C37D"}),
               h(ImprovementKpiCard,{label:"No tipificacion",value:String(teamInsight.totalNoTipification || 0),caption:"Alertas visibles con los filtros actuales",color:THEME.accent})
             ),
