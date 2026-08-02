@@ -31,6 +31,7 @@ const COMMUNICATIONS_KEY = "communications_v1";
 const FEEDBACK_KEY = "feedback_records_v2";
 const OPERATIONAL_INCIDENTS_KEY = "operational_incidents_v1";
 const SALES_VALIDATIONS_KEY = "sales_validations_v1";
+const COMMERCIAL_DEVELOPMENT_KEY = "commercial_development_v1";
 const CALIBRATION_SESSIONS_KEY = "calibration_sessions";
 const CALIBRATION_PARTICIPANTS_KEY = "calibration_participants";
 const CALIBRATION_EVALUATIONS_KEY = "calibration_evaluations";
@@ -137,6 +138,26 @@ function canManageSalesValidation(user) {
 }
 
 function canDeleteSalesValidation(user) {
+  return getRole(user) === "admin";
+}
+
+function canEditOperationalIncident(user) {
+  return ["admin", "analista", "formador"].includes(getRole(user));
+}
+
+function canDeleteOperationalIncident(user) {
+  return getRole(user) === "admin";
+}
+
+function canViewCommercialDevelopment(user) {
+  return ["admin", "analista", "supervisor", "formador"].includes(getRole(user));
+}
+
+function canManageCommercialDevelopment(user) {
+  return ["admin", "formador"].includes(getRole(user));
+}
+
+function canDeleteCommercialDevelopment(user) {
   return getRole(user) === "admin";
 }
 
@@ -1145,6 +1166,25 @@ async function writeSalesValidations(records) {
   invalidateFirebaseCache(SALES_VALIDATIONS_KEY);
 }
 
+function getFirstNamePrefix(value, fallback = "AGE") {
+  const first = String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .split(/\s+/)[0] || fallback;
+  return first.replace(/[^a-zA-Z]/g, "").slice(0, 3).toUpperCase().padEnd(3, "X");
+}
+
+function getSequentialNumberFromCode(code) {
+  const match = String(code || "").match(/(\d+)\s*$/);
+  return match ? Number(match[1]) || 0 : 0;
+}
+
+function buildNextSalesAgentCode(agentName, records = []) {
+  const maxRegistered = (records || []).reduce((max, record) => Math.max(max, getSequentialNumberFromCode(record?.agentCode || record?.codigoAgente)), 162);
+  return `${getFirstNamePrefix(agentName)}${maxRegistered + 1}`;
+}
+
 function normalizeSalesValidationPayload(payload = {}, existing = {}, currentUser = {}) {
   const now = nowIso();
   const audioStatus = String(payload.audioStatus || existing.audioStatus || "").trim();
@@ -1199,6 +1239,103 @@ function normalizeSalesValidationPayload(payload = {}, existing = {}, currentUse
     status: existing.status || "Activa",
     files: Array.isArray(existing.files) ? existing.files : [],
     auditTrail: Array.isArray(existing.auditTrail) ? existing.auditTrail : [],
+    createdAt: existing.createdAt || now,
+    updatedAt: now,
+    updatedBy: String(currentUser.usuario || "").trim(),
+    updatedByName: String(currentUser.nombre || "").trim()
+  };
+}
+
+async function readCommercialDevelopmentRecords() {
+  const records = await readCachedSharedJson(COMMERCIAL_DEVELOPMENT_KEY, []);
+  return Array.isArray(records) ? records : [];
+}
+
+async function writeCommercialDevelopmentRecords(records) {
+  await writeSharedRecord(COMMERCIAL_DEVELOPMENT_KEY, Array.isArray(records) ? records : []);
+  invalidateFirebaseCache(COMMERCIAL_DEVELOPMENT_KEY);
+}
+
+function buildNextCommercialDevelopmentCode(records = []) {
+  const maxRegistered = (records || []).reduce((max, record) => {
+    const match = String(record?.code || record?.codigo || "").match(/^ENT(\d+)$/i);
+    return Math.max(max, match ? Number(match[1]) || 0 : 0);
+  }, 0);
+  return `ENT${String(maxRegistered + 1).padStart(2, "0")}`;
+}
+
+function normalizeCommercialDevelopmentStatus(record = {}) {
+  const status = String(record.status || "Pendiente").trim() || "Pendiente";
+  if (normalizeText(status) === "finalizado" || normalizeText(status) === "eliminada") return status;
+  const createdAt = record.createdAt || record.interventionAt || record.fechaIntervencion || "";
+  const createdMs = createdAt ? new Date(createdAt).getTime() : 0;
+  if (createdMs && !Number.isNaN(createdMs) && Date.now() - createdMs >= 48 * 60 * 60 * 1000) {
+    return "Finalizado";
+  }
+  return status;
+}
+
+function normalizeCommercialDevelopmentPayload(payload = {}, existing = {}, currentUser = {}, records = []) {
+  const now = nowIso();
+  const clientId = normalizeClientId(payload.clientId || payload.platformId || existing.clientId || existing.platformId || currentUser.clientId || currentUser.platformId);
+  if (clientId !== DEFAULT_CLIENT_ID) throw new Error("Desarrollo comercial solo esta disponible para Entel.");
+  const executiveName = String(payload.executiveName || payload.asesor || payload.ejecutivo || existing.executiveName || "").trim();
+  const trainerName = String(payload.trainerName || payload.formador || existing.trainerName || currentUser.nombre || "").trim();
+  const interventionAt = String(payload.interventionAt || payload.fechaIntervencion || existing.interventionAt || now).trim();
+  if (!executiveName) throw new Error("El ejecutivo es obligatorio.");
+  if (!trainerName) throw new Error("El formador asignado es obligatorio.");
+  if (!interventionAt) throw new Error("La fecha y hora de intervencion es obligatoria.");
+  const id = normalizeId(payload.id || existing.id || generateNumericId());
+  const code = String(existing.code || payload.code || payload.codigo || "").trim() || buildNextCommercialDevelopmentCode(records);
+  const status = normalizeCommercialDevelopmentStatus({
+    ...existing,
+    status: String(payload.status || existing.status || "Pendiente").trim() || "Pendiente",
+    createdAt: existing.createdAt || payload.createdAt || now,
+    interventionAt
+  });
+  return {
+    ...existing,
+    id,
+    code,
+    clientId,
+    platformId: clientId,
+    clientName: String(payload.clientName || payload.platformName || existing.clientName || "Entel B2B").trim(),
+    platformName: String(payload.platformName || payload.clientName || existing.platformName || "Entel B2B").trim(),
+    executiveName,
+    campaign: String(payload.campaign || payload.campana || existing.campaign || "").trim(),
+    profile: String(payload.profile || payload.perfil || existing.profile || "").trim(),
+    supervisorName: String(payload.supervisorName || payload.supervisor || existing.supervisorName || existing.supervisor || "").trim(),
+    supervisor: String(payload.supervisor || payload.supervisorName || existing.supervisor || existing.supervisorName || "").trim(),
+    trainerName,
+    interventionAt,
+    status,
+    initialConnection: String(payload.initialConnection || existing.initialConnection || "").trim(),
+    initialProductivity: String(payload.initialProductivity || existing.initialProductivity || "").trim(),
+    dailySales: String(payload.dailySales || payload.initialSales || existing.dailySales || existing.initialSales || "").trim(),
+    initialSales: String(payload.initialSales || payload.dailySales || existing.initialSales || existing.dailySales || "").trim(),
+    reason: String(payload.reason || payload.motivo || existing.reason || "").trim(),
+    diagnosticDetail: String(payload.diagnosticDetail || payload.reasonDetail || existing.diagnosticDetail || existing.reasonDetail || "").trim(),
+    reasonDetail: String(payload.reasonDetail || payload.diagnosticDetail || existing.reasonDetail || existing.diagnosticDetail || "").trim(),
+    trainerObservation: String(payload.trainerObservation || payload.trainerObservations || existing.trainerObservation || existing.trainerObservations || "").trim(),
+    trainerObservations: String(payload.trainerObservations || payload.trainerObservation || existing.trainerObservations || existing.trainerObservation || "").trim(),
+    actionTaken: String(payload.actionTaken || existing.actionTaken || "").trim(),
+    expectedResult: String(payload.expectedResult || existing.expectedResult || "").trim(),
+    executiveCommitment: String(payload.executiveCommitment || existing.executiveCommitment || "").trim(),
+    trainerCommitment: String(payload.trainerCommitment || existing.trainerCommitment || "").trim(),
+    followInitialIndicator: String(payload.followInitialIndicator || payload.followConnection || existing.followInitialIndicator || existing.followConnection || "").trim(),
+    follow48hIndicator: String(payload.follow48hIndicator || payload.followProductivity || existing.follow48hIndicator || existing.followProductivity || "").trim(),
+    followConnection: String(payload.followConnection || payload.followInitialIndicator || existing.followConnection || existing.followInitialIndicator || "").trim(),
+    followProductivity: String(payload.followProductivity || payload.follow48hIndicator || existing.followProductivity || existing.follow48hIndicator || "").trim(),
+    followSales: String(payload.followSales || existing.followSales || "").trim(),
+    followResult: String(payload.followResult || existing.followResult || "").trim(),
+    followComments: String(payload.followComments || existing.followComments || "").trim(),
+    finalObservation: String(payload.finalObservation || payload.finalObservations || existing.finalObservation || existing.finalObservations || "").trim(),
+    finalObservations: String(payload.finalObservations || payload.finalObservation || existing.finalObservations || existing.finalObservation || "").trim(),
+    finalStatus: String(payload.finalStatus || existing.finalStatus || "").trim(),
+    closedAt: normalizeText(status) === "finalizado" ? (existing.closedAt || now) : "",
+    files: Array.isArray(existing.files) ? existing.files : [],
+    createdBy: existing.createdBy || String(currentUser.usuario || "").trim(),
+    createdByName: existing.createdByName || String(currentUser.nombre || "").trim(),
     createdAt: existing.createdAt || now,
     updatedAt: now,
     updatedBy: String(currentUser.usuario || "").trim(),
@@ -1765,6 +1902,101 @@ export const gasHandlers = {
     return record;
   },
 
+  async updateOperationalIncident(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    if (!canEditOperationalIncident(currentUser)) throw new Error("No tienes permisos para editar incidencias operativas.");
+    const id = normalizeId(payload.id);
+    if (!id) throw new Error("El id de la incidencia es obligatorio.");
+    const sourceType = normalizeText(payload.sourceType || payload.source || "");
+    const key = sourceType === "no tipification" || sourceType === "no tipificacion" || sourceType === "no_tipification"
+      ? "notip_records_v1"
+      : OPERATIONAL_INCIDENTS_KEY;
+    const records = await readCachedSharedJson(key, []);
+    const list = Array.isArray(records) ? records : [];
+    const index = list.findIndex(item => normalizeId(item?.id) === id);
+    if (index < 0) throw new Error("No se encontro la incidencia para editar.");
+    const existing = list[index] || {};
+    const now = nowIso();
+    let updated;
+    if (key === "notip_records_v1") {
+      const advisorName = String(payload.asesorNombre || payload.advisorName || payload.advisor_name || existing.asesorNombre || "").trim();
+      if (!advisorName) throw new Error("El asesor es obligatorio.");
+      const phoneNumber = String(payload.phoneNumber || payload.telefono || existing.phoneNumber || "").trim();
+      if (!phoneNumber) throw new Error("El numero de telefono es obligatorio.");
+      const callDateTime = payload.callDateTime || existing.callDateTime || existing.createdAt || "";
+      if (!String(callDateTime || "").trim()) throw new Error("La fecha y hora de la llamada es obligatoria.");
+      const callDuration = String(payload.callDuration || payload.duracion || existing.callDuration || "").trim();
+      if (!callDuration) throw new Error("La duracion de la llamada es obligatoria.");
+      updated = {
+        ...existing,
+        asesorNombre: advisorName,
+        advisorUser: String(payload.advisorUser || payload.advisor_id || existing.advisorUser || "").trim(),
+        supervisor: String(payload.supervisor || existing.supervisor || "").trim(),
+        coordinador: String(payload.coordinador || existing.coordinador || "").trim(),
+        antiguedad: Number(payload.antiguedad ?? existing.antiguedad ?? 0) || 0,
+        fechaIngreso: String(payload.fechaIngreso || existing.fechaIngreso || "").trim(),
+        clientId: normalizeClientId(payload.clientId || payload.platformId || existing.clientId || existing.platformId),
+        platformId: normalizeClientId(payload.platformId || payload.clientId || existing.platformId || existing.clientId),
+        clientName: String(payload.clientName || payload.platformName || existing.clientName || existing.platformName || "").trim(),
+        platformName: String(payload.platformName || payload.clientName || existing.platformName || existing.clientName || "").trim(),
+        managementTypeRuc: String(payload.managementTypeRuc || payload.campaignName || payload.campaign_name || existing.managementTypeRuc || "").trim(),
+        phoneNumber,
+        callDateTime: normalizeDateOrNow(callDateTime),
+        callDuration,
+        incidentType: "No tipificacion",
+        incidentCategory: "Incidencia operativa",
+        status: String(payload.status || existing.status || "Registrado").trim(),
+        updatedAt: now,
+        updatedBy: String(currentUser.usuario || "").trim(),
+        updatedByName: String(currentUser.nombre || "").trim()
+      };
+    } else {
+      const advisorName = String(payload.advisor_name || payload.advisorName || payload.asesorNombre || existing.advisor_name || "").trim();
+      if (!advisorName) throw new Error("El asesor o ejecutivo relacionado es obligatorio.");
+      updated = {
+        ...existing,
+        clientId: normalizeClientId(payload.clientId || payload.platformId || existing.clientId || existing.platformId),
+        platformId: normalizeClientId(payload.platformId || payload.clientId || existing.platformId || existing.clientId),
+        clientName: String(payload.clientName || payload.platformName || existing.clientName || existing.platformName || "").trim(),
+        platformName: String(payload.platformName || payload.clientName || existing.platformName || existing.clientName || "").trim(),
+        advisor_id: String(payload.advisor_id || payload.advisorUser || existing.advisor_id || "").trim(),
+        advisor_name: advisorName,
+        campaign_name: String(payload.campaign_name || payload.campaignName || existing.campaign_name || "").trim(),
+        call_id: String(payload.call_id || payload.callId || existing.call_id || "").trim(),
+        incident_type: "No conectado",
+        incident_category: "Incidencia operativa",
+        observation: String(payload.observation || payload.observacion || existing.observation || "").trim() || existing.observation || "",
+        status: String(payload.status || existing.status || "Registrado").trim(),
+        updated_at: now,
+        updated_by: String(currentUser.usuario || "").trim(),
+        updated_by_name: String(currentUser.nombre || "").trim()
+      };
+    }
+    const nextRecords = list.map(item => normalizeId(item?.id) === id ? updated : item);
+    await writeSharedRecord(key, nextRecords);
+    invalidateFirebaseCache(key);
+    return updated;
+  },
+
+  async deleteOperationalIncident(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    if (!canDeleteOperationalIncident(currentUser)) throw new Error("Solo el administrador puede eliminar incidencias operativas.");
+    const id = normalizeId(payload.id);
+    if (!id) throw new Error("El id de la incidencia es obligatorio.");
+    const sourceType = normalizeText(payload.sourceType || payload.source || "");
+    const key = sourceType === "no tipification" || sourceType === "no tipificacion" || sourceType === "no_tipification"
+      ? "notip_records_v1"
+      : OPERATIONAL_INCIDENTS_KEY;
+    const records = await readCachedSharedJson(key, []);
+    const list = Array.isArray(records) ? records : [];
+    const exists = list.some(item => normalizeId(item?.id) === id);
+    if (!exists) throw new Error("No se encontro la incidencia para eliminar.");
+    const nextRecords = list.filter(item => normalizeId(item?.id) !== id);
+    await writeSharedRecord(key, nextRecords);
+    invalidateFirebaseCache(key);
+    return { ok: true, id, sourceType: key === "notip_records_v1" ? "no_tipification" : "operational" };
+  },
+
   async listSalesValidations(payload = {}) {
     const currentUser = ensureCurrentUser(payload.currentUser);
     if (!canViewSalesValidation(currentUser)) throw new Error("No tienes permisos para ver validaciones de ventas.");
@@ -1783,6 +2015,9 @@ export const gasHandlers = {
     const index = id ? records.findIndex(item => normalizeId(item?.id) === id) : -1;
     const existing = index >= 0 ? records[index] : {};
     const normalized = normalizeSalesValidationPayload(payload, existing, currentUser);
+    if (index < 0 || !String(normalized.agentCode || "").trim()) {
+      normalized.agentCode = buildNextSalesAgentCode(normalized.agentName, records);
+    }
     const duplicateKey = getSalesValidationDuplicateKey(normalized);
     const duplicated = records.find(item =>
       normalizeId(item?.id) !== normalizeId(normalized.id) &&
@@ -1875,6 +2110,74 @@ export const gasHandlers = {
     };
     const nextRecords = records.map(item => normalizeId(item?.id) === id ? record : item);
     await writeSalesValidations(nextRecords);
+    return record;
+  },
+
+  async listCommercialDevelopment(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser || payload);
+    if (!canViewCommercialDevelopment(currentUser)) throw new Error("No tienes permisos para ver desarrollo comercial.");
+    const clientId = normalizeClientId(payload.clientId || payload.platformId || currentUser.clientId || currentUser.platformId);
+    if (clientId !== DEFAULT_CLIENT_ID) return [];
+    const records = await readCommercialDevelopmentRecords();
+    const role = getRole(currentUser);
+    return records
+      .filter(record => isRecordVisibleForClient(record, DEFAULT_CLIENT_ID))
+      .map(record => ({ ...record, status: normalizeCommercialDevelopmentStatus(record) }))
+      .filter(record => role === "admin" ? true : normalizeText(record?.status) !== "eliminada")
+      .sort((a, b) => new Date(b.updatedAt || b.interventionAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.interventionAt || a.createdAt || 0).getTime());
+  },
+
+  async saveCommercialDevelopment(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    if (!canManageCommercialDevelopment(currentUser)) throw new Error("No tienes permisos para registrar desarrollo comercial.");
+    const records = await readCommercialDevelopmentRecords();
+    const id = payload.id ? normalizeId(payload.id) : "";
+    const index = id ? records.findIndex(item => normalizeId(item?.id) === id) : -1;
+    const existing = index >= 0 ? records[index] : {};
+    if (index >= 0 && normalizeText(existing.status) === "eliminada") throw new Error("No se puede editar una ficha eliminada.");
+    const recordBase = normalizeCommercialDevelopmentPayload(payload, existing, currentUser, records);
+    const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+    let record = recordBase;
+    if (attachments.length) {
+      const storageResult = await uploadAttachmentsWithFirebaseFallback(
+        { id: record.id, commercialDevelopmentId: record.id, type: "commercial_development" },
+        attachments
+      );
+      record = buildFileFieldsFromSavedFiles(
+        record,
+        mergeFilesByIdentity(record.files, storageResult.savedFiles || []),
+        storageResult
+      );
+      record.attachmentStatus = storageResult.ok ? "completo" : "pendiente";
+    }
+    const nextRecords = index >= 0
+      ? records.map(item => normalizeId(item?.id) === normalizeId(record.id) ? record : item)
+      : [record, ...records];
+    await writeCommercialDevelopmentRecords(nextRecords);
+    return record;
+  },
+
+  async deleteCommercialDevelopment(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    if (!canDeleteCommercialDevelopment(currentUser)) throw new Error("Solo el administrador puede eliminar fichas de desarrollo comercial.");
+    const id = normalizeId(payload.id);
+    if (!id) throw new Error("El id de la ficha es obligatorio.");
+    const records = await readCommercialDevelopmentRecords();
+    const index = records.findIndex(item => normalizeId(item?.id) === id);
+    if (index < 0) throw new Error("No se encontro la ficha de desarrollo comercial.");
+    const now = nowIso();
+    const existing = records[index];
+    const record = {
+      ...existing,
+      status: "Eliminada",
+      deletedAt: now,
+      deletedBy: String(currentUser.usuario || "").trim(),
+      deletedByName: String(currentUser.nombre || "").trim(),
+      updatedAt: now,
+      updatedBy: String(currentUser.usuario || "").trim(),
+      updatedByName: String(currentUser.nombre || "").trim()
+    };
+    await writeCommercialDevelopmentRecords(records.map(item => normalizeId(item?.id) === id ? record : item));
     return record;
   },
 

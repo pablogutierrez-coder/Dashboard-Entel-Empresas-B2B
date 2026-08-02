@@ -472,10 +472,28 @@ async function clearHistoria(){
 
 async function saveStaffing(d){ return stoSet("staffing", d, false); }
 async function loadStaffing(){
-  const local = await stoGet("staffing", false);
-  if (Array.isArray(local) && local.length) return local;
-  const shared = await stoGet("staffing", true);
-  return Array.isArray(shared) ? shared : [];
+  const [local, shared] = await Promise.all([
+    stoGet("staffing", false).catch(() => []),
+    stoGet("staffing", true).catch(() => [])
+  ]);
+  const records = [
+    ...(Array.isArray(shared) ? shared : []),
+    ...(Array.isArray(local) ? local : [])
+  ];
+  const bestByKey = new Map();
+  records.filter(Boolean).forEach(record => {
+    const scoped = record?.clientId || record?.platformId || record?.tenantId
+      ? record
+      : tagRecordForPlatform(record, DEFAULT_PLATFORM_ID, "Entel B2B");
+    const key = [
+      normalizeClientId(scoped.clientId || scoped.platformId || scoped.tenantId),
+      normalizeName(scoped.asesor || scoped.nombre || scoped.usuarioAsignado || scoped.id || JSON.stringify(scoped).slice(0, 40))
+    ].join("|");
+    const current = bestByKey.get(key);
+    const richness = item => Object.values(item || {}).filter(value => String(value ?? "").trim()).length;
+    if (!current || richness(scoped) >= richness(current)) bestByKey.set(key, scoped);
+  });
+  return [...bestByKey.values()];
 }
 
 async function saveUsers(users){
@@ -740,6 +758,24 @@ async function saveOperationalIncidentEntry(payload){
   }
 }
 
+async function updateOperationalIncidentEntry(payload){
+  try{
+    return await runGoogleScript("updateOperationalIncident", payload);
+  }catch(err){
+    console.error("Error actualizando incidencia operativa:", err);
+    throw err;
+  }
+}
+
+async function deleteOperationalIncidentEntry(payload){
+  try{
+    return await runGoogleScript("deleteOperationalIncident", payload);
+  }catch(err){
+    console.error("Error eliminando incidencia operativa:", err);
+    throw err;
+  }
+}
+
 async function loadSalesValidations(currentUser){
   try{
     const data = await runGoogleScript("listSalesValidations", {currentUser});
@@ -763,6 +799,27 @@ async function deleteSalesValidationEntry(payload){
 
 async function restoreSalesValidationEntry(payload){
   return await runGoogleScriptWithTimeout("restoreSalesValidation", [payload], 30000);
+}
+
+async function loadCommercialDevelopmentRecords(currentUser){
+  try{
+    const data = await runGoogleScript("listCommercialDevelopment", {currentUser});
+    if (Array.isArray(data)) return data;
+    const direct = await directFirebaseReadShared("commercial_development_v1");
+    return Array.isArray(direct) ? direct : [];
+  }catch(err){
+    console.error("Error cargando desarrollo comercial:", err);
+    const direct = await directFirebaseReadShared("commercial_development_v1");
+    return Array.isArray(direct) ? direct : [];
+  }
+}
+
+async function saveCommercialDevelopmentEntry(payload){
+  return await runGoogleScriptWithTimeout("saveCommercialDevelopment", [payload], 60000);
+}
+
+async function deleteCommercialDevelopmentEntry(payload){
+  return await runGoogleScriptWithTimeout("deleteCommercialDevelopment", [payload], 30000);
 }
 
 async function loadLegendConcepts(){
@@ -1128,6 +1185,11 @@ function parseAppDate(value){
   const isoLocalMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (isoLocalMatch) {
     const date = new Date(Number(isoLocalMatch[1]), Number(isoLocalMatch[2]) - 1, Number(isoLocalMatch[3]), Number(isoLocalMatch[4]), Number(isoLocalMatch[5]), Number(isoLocalMatch[6] || 0));
+    return isNaN(date.getTime()) ? null : date;
+  }
+  const isoDateOnlyMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateOnlyMatch) {
+    const date = new Date(Number(isoDateOnlyMatch[1]), Number(isoDateOnlyMatch[2]) - 1, Number(isoDateOnlyMatch[3]));
     return isNaN(date.getTime()) ? null : date;
   }
   const parsed = new Date(text);
@@ -2146,7 +2208,7 @@ function canImportData(user){
 function canViewStaffingModule(user, platformId){
   const role = String(user?.rol||"").trim().toLowerCase();
   if (canImportData(user)) return true;
-  return isCulqiPlatform(platformId) && role === "formador";
+  return role === "formador";
 }
 
 function canViewDashboards(user){
@@ -2719,6 +2781,20 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPas
     h("div",{style:{marginBottom:30}},
       h("h1",{style:{fontSize:24,fontWeight:800,color:"#fff",marginBottom:6}},"Gestion de Usuarios"),
       h("span",{style:{fontSize:12,color:"#8b92a5"}},"Exclusivo para Administradores")
+    ),
+    h("div",{style:{...CARD,borderTop:`4px solid ${THEME.primary}`}},
+      h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:10,display:"flex",alignItems:"center",gap:8}},I("shield",14,"#8b92a5"),"Accesos por perfil"),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:12}},
+        [
+          ["Administrador","Gestiona usuarios, dotacion, Desarrollo Comercial, edita y elimina fichas."],
+          ["Formador","Accede a dotacion Entel y edita fichas de Desarrollo Comercial."],
+          ["Analista","Consulta Desarrollo Comercial y dashboards, sin eliminar fichas."],
+          ["Supervisor","Consulta seguimiento y resultados de Desarrollo Comercial."]
+        ].map(([title,desc]) => h("div",{key:title,style:{border:`1px solid ${THEME.border}`,background:"rgba(9,9,17,0.55)",borderRadius:14,padding:14}},
+          h("div",{style:{color:"#fff",fontWeight:900,fontSize:13,marginBottom:6}},title),
+          h("div",{style:{color:"#9fb0d8",fontSize:12,lineHeight:1.55}},desc)
+        ))
+      )
     ),
     h("div",{style:{...CARD,borderTop: `4px solid ${THEME.accent}`}},
       h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:10,display:"flex",alignItems:"center",gap:8}}, I("useradd",14,"#8b92a5"), "Crear nuevo usuario"),
@@ -5489,6 +5565,12 @@ function App(){
   const currentPlatformId = selectedPlatform?.id || DEFAULT_PLATFORM_ID;
   const currentPlatformName = getPlatformDisplayName(currentPlatformId);
   const isCulqiActive = isCulqiPlatform(currentPlatformId);
+  useEffect(() => {
+    reloadCommercialDevelopmentRecords().catch(error => {
+      console.error("No se pudo cargar desarrollo comercial:", error);
+      setCommercialDevelopmentRecords([]);
+    });
+  }, [currentUser?.usuario,currentUser?.rol,currentPlatformId]);
   applyPlatformVisualTheme(currentPlatformId);
   const scopedUsers = useMemo(() => filterUsersForPlatform(users, currentPlatformId), [users,currentPlatformId]);
   const scopedStaffing = useMemo(() => filterRecordsForPlatform(staffing, currentPlatformId), [staffing,currentPlatformId]);
@@ -5500,6 +5582,7 @@ function App(){
   const scopedNoTipificationRecords = useMemo(() => filterRecordsForPlatform(noTipificationRecords, currentPlatformId), [noTipificationRecords,currentPlatformId]);
   const scopedOperationalIncidents = useMemo(() => filterRecordsForPlatform(operationalIncidents, currentPlatformId), [operationalIncidents,currentPlatformId]);
   const scopedSalesValidations = useMemo(() => filterRecordsForPlatform(salesValidations, currentPlatformId), [salesValidations,currentPlatformId]);
+  const scopedCommercialDevelopmentRecords = useMemo(() => filterRecordsForPlatform(commercialDevelopmentRecords, currentPlatformId), [commercialDevelopmentRecords,currentPlatformId]);
   const advisorOptions = useMemo(() => buildAdvisorOptions(scopedStaffing, raw, historico, scopedFeedbackRecords), [scopedStaffing,raw,historico,scopedFeedbackRecords]);
   const advisorProfiles = useMemo(() => buildAdvisorProfiles(scopedStaffing, scopedUsers), [scopedStaffing,scopedUsers]);
   const melted = useMemo(() => melt(raw), [raw]);
@@ -6616,6 +6699,7 @@ function App(){
   const [noTipificationRecords,setNoTipificationRecords] = useState([]);
   const [operationalIncidents,setOperationalIncidents] = useState([]);
   const [salesValidations,setSalesValidations] = useState([]);
+  const [commercialDevelopmentRecords,setCommercialDevelopmentRecords] = useState([]);
   const [communicationRecords,setCommunicationRecords] = useState([]);
   const [focusedCommunicationId,setFocusedCommunicationId] = useState("");
   const [legendConcepts,setLegendConcepts] = useState([]);
@@ -7047,6 +7131,16 @@ function App(){
     return loaded;
   };
 
+  const reloadCommercialDevelopmentRecords = async() => {
+    if (!currentUser?.usuario || !canViewCommercialDevelopmentModule(currentUser, currentPlatformId)) {
+      setCommercialDevelopmentRecords([]);
+      return [];
+    }
+    const loaded = await loadCommercialDevelopmentRecords({...currentUser,clientId:currentPlatformId,platformId:currentPlatformId});
+    setCommercialDevelopmentRecords(loaded);
+    return loaded;
+  };
+
   const reloadLegend = async() => {
     const loaded = await loadLegendConcepts();
     setLegendConcepts(loaded);
@@ -7190,6 +7284,22 @@ function App(){
     return saved;
   };
 
+  const actualizarIncidenciaOperativa = async(payload) => {
+    const saved = await updateOperationalIncidentEntry({...payload,clientId:payload?.clientId || currentPlatformId,platformId:payload?.platformId || currentPlatformId,clientName:payload?.clientName || currentPlatformName,platformName:payload?.platformName || currentPlatformName});
+    await reloadOperationalIncidents();
+    await reloadNoTipificationRecords();
+    notify("s","Incidencia actualizada correctamente.");
+    return saved;
+  };
+
+  const eliminarIncidenciaOperativa = async(payload) => {
+    const deleted = await deleteOperationalIncidentEntry({...payload,currentUser});
+    await reloadOperationalIncidents();
+    await reloadNoTipificationRecords();
+    notify("s","Incidencia eliminada correctamente.");
+    return deleted;
+  };
+
   const guardarValidacionVenta = async(payload) => {
     const saved = await saveSalesValidationEntry({...payload,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName,platformName:currentPlatformName});
     await reloadSalesValidations();
@@ -7209,6 +7319,20 @@ function App(){
     await reloadSalesValidations();
     notify("s","Ficha de validación restaurada.");
     return restored;
+  };
+
+  const guardarDesarrolloComercial = async(payload) => {
+    const saved = await saveCommercialDevelopmentEntry({...payload,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName,platformName:currentPlatformName});
+    await reloadCommercialDevelopmentRecords();
+    notify("s",payload?.id ? "Ficha de desarrollo comercial actualizada." : "Ficha de desarrollo comercial registrada.");
+    return saved;
+  };
+
+  const eliminarDesarrolloComercial = async(payload) => {
+    const deleted = await deleteCommercialDevelopmentEntry({...payload,currentUser,clientId:currentPlatformId,platformId:currentPlatformId});
+    await reloadCommercialDevelopmentRecords();
+    notify("s","Ficha de desarrollo comercial eliminada.");
+    return deleted;
   };
 
   const eliminarEvaluacion = async(record) => {
@@ -7432,6 +7556,7 @@ function App(){
           canViewTeamFeedback(currentUser) && h("button",{style:{...BTN(view==="feedback"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="feedback"?"#fff":"#8b92a5"},onClick:()=>setView("feedback")},I("send",18,view==="feedback"?"#fff":"#8b92a5"),"FEEDBACKS"),
           canViewOperationalIncidents(currentUser) && h("button",{style:{...BTN(view==="incidents"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="incidents"?"#fff":"#8b92a5"},onClick:()=>setView("incidents")},I("alert",18,view==="incidents"?"#fff":"#8b92a5"),"INCIDENCIAS"),
           canViewSalesValidationModule(currentUser) && h("button",{style:{...BTN(view==="salesValidation"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="salesValidation"?"#fff":"#8b92a5"},onClick:()=>setView("salesValidation")},I("db",18,view==="salesValidation"?"#fff":"#8b92a5"),"VALIDACION DE VENTAS"),
+          canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && h("button",{style:{...BTN(view==="commercialDevelopment"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="commercialDevelopment"?"#fff":"#8b92a5"},onClick:()=>setView("commercialDevelopment")},I("trend",18,view==="commercialDevelopment"?"#fff":"#8b92a5"),"DESARROLLO COMERCIAL"),
           canViewCalibrationModule(currentUser) && h("button",{style:{...BTN(view==="calibration"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="calibration"?"#fff":"#8b92a5"},onClick:()=>setView("calibration")},I("sliders",18,view==="calibration"?"#fff":"#8b92a5"),"CALIBRACION DE CALIDAD"),
           h("button",{style:{...BTN(view==="communications"?"p":"out"),width:"100%",justifyContent:"space-between",padding:"16px 20px",color:view==="communications"?"#fff":"#8b92a5"},onClick:()=>setView("communications")},
             h("span",{style:{display:"inline-flex",alignItems:"center",gap:12}},I("file",18,view==="communications"?"#fff":"#8b92a5"),"COMUNICADOS"),
@@ -7439,7 +7564,7 @@ function App(){
           ),
           !["supervisor","formador"].includes(String(currentUser.rol||"").trim().toLowerCase()) && h("button",{style:{...BTN(view==="legend"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="legend"?"#fff":"#8b92a5"},onClick:()=>setView("legend")},I("spark",18,view==="legend"?"#fff":"#8b92a5"),"LEYENDA"),
           h("button",{style:{...BTN(view==="notifications"?"p":"out"),width:"100%",justifyContent:"space-between",padding:"16px 20px",color:view==="notifications"?"#fff":"#8b92a5"},onClick:()=>setView("notifications")},h("span",{style:{display:"inline-flex",alignItems:"center",gap:12}},I("bell",18,view==="notifications"?"#fff":"#8b92a5"),"NOTIFICACIONES"),unreadNotifications>0 && h("span",{style:{minWidth:22,height:22,borderRadius:999,background:THEME.accent,color:"#fff",fontSize:10,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 6px"}},unreadNotifications)),
-          canImportData(currentUser) && h("button",{style:{...BTN(view==="staffing"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="staffing"?"#fff":"#8b92a5"},onClick:()=>setView("staffing")},I("users",18,view==="staffing"?"#fff":"#8b92a5"),"GESTION DOTACION"),
+          canViewStaffingModule(currentUser,currentPlatformId) && h("button",{style:{...BTN(view==="staffing"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="staffing"?"#fff":"#8b92a5"},onClick:()=>setView("staffing")},I("users",18,view==="staffing"?"#fff":"#8b92a5"),"GESTION DOTACION"),
           canManageUsers(currentUser) && h("button",{style:{...BTN(view==="users"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="users"?"#fff":"#8b92a5"},onClick:()=>setView("users")},I("shield",18,view==="users"?"#fff":"#8b92a5"),"USUARIOS")
         ),
         h("div",{style:{marginTop:"auto",borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:24}},
@@ -7463,8 +7588,9 @@ function App(){
           view==="legend" && h(LegendCenter,{concepts:scopedLegendConcepts,onRefresh:reloadLegend}),
           view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords:scopedEvaluationRecords,staffing:scopedStaffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
           view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,onOpenFeedback:openFeedbackModal,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing:scopedStaffing}),
-          view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing:scopedStaffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,notify}),
+          view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing:scopedStaffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,onUpdate:actualizarIncidenciaOperativa,onDelete:eliminarIncidenciaOperativa,notify}),
           view==="salesValidation" && canViewSalesValidationModule(currentUser) && h(SalesValidationCenter,{records:scopedSalesValidations,currentUser,onSave:guardarValidacionVenta,onDelete:eliminarValidacionVenta,onRestore:restaurarValidacionVenta}),
+          view==="commercialDevelopment" && canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && h(CommercialDevelopmentCenter,{records:scopedCommercialDevelopmentRecords,currentUser,staffing:scopedStaffing,onSave:guardarDesarrolloComercial,onDelete:eliminarDesarrolloComercial}),
           view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users:scopedUsers,notify,clientId:currentPlatformId,clientName:currentPlatformName}),
           view==="staffing" && canViewStaffingModule(currentUser,currentPlatformId) && h(StaffingConfig,{staffing:scopedStaffing,setStaffing,onSaveStaffing:guardarDotacionScoped,clientId:currentPlatformId,clientName:currentPlatformName,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords:scopedEvaluationRecords,feedbackRecords:scopedFeedbackRecords,currentUser}),
           view==="users" && canManageUsers(currentUser) && h(UserManager,{users:scopedUsers,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,onResetPassword:resetearContrasenaUsuario,notify,staffing:scopedStaffing})
@@ -8476,6 +8602,33 @@ function matchesImprovementSmartGroup(row, smartGroup){
   return true;
 }
 
+function normalizeImprovementAdvisorFilter(value){
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (!value) return [];
+  return [value];
+}
+
+function advisorMatchesImprovementFilter(advisorName, advisorFilter){
+  const selectedAdvisors = normalizeImprovementAdvisorFilter(advisorFilter);
+  if (!selectedAdvisors.length) return true;
+  const normalizedAdvisor = normalizeName(advisorName);
+  return selectedAdvisors.some(value => normalizeName(value) === normalizedAdvisor);
+}
+
+function toggleImprovementAdvisorFilter(currentValue, advisorName){
+  const selectedAdvisors = normalizeImprovementAdvisorFilter(currentValue);
+  const normalizedAdvisor = normalizeName(advisorName);
+  if (!normalizedAdvisor) return selectedAdvisors;
+  const exists = selectedAdvisors.some(value => normalizeName(value) === normalizedAdvisor);
+  return exists
+    ? selectedAdvisors.filter(value => normalizeName(value) !== normalizedAdvisor)
+    : [...selectedAdvisors, advisorName];
+}
+
+function countActiveImprovementFilters(filters){
+  return Object.values(filters || {}).filter(value => Array.isArray(value) ? value.length : Boolean(value)).length;
+}
+
 function buildImprovementOptions(dataset){
   return {
     advisors: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.advisorName), ...(dataset.noTipificationRows || []).map(row => row.advisorName)]),
@@ -8492,8 +8645,7 @@ function buildEmptyImprovementFilters(currentUser){
   return {
     dateFrom: "",
     dateTo: "",
-    advisor: "",
-    smartGroup: "",
+    advisor: [],
     quartile: "",
     antiguedadBucket: "",
     supervisor: "",
@@ -8508,8 +8660,7 @@ function applyImprovementFilters(dataset, filters){
   const sectionRowsAfterDate = sectionRowsBeforeFilters.filter(row => isWithinDateRange(row.date, filters.dateFrom, filters.dateTo));
   const matchRow = row => {
     if (!isWithinDateRange(row.feedbackDate || row.callDateTime || row.date || row.lastActionDate || row.createdAt, filters.dateFrom, filters.dateTo)) return false;
-    if (filters.advisor && !sameOption(row.advisorName, filters.advisor)) return false;
-    if (filters.smartGroup && !matchesImprovementSmartGroup(row, filters.smartGroup)) return false;
+    if (!advisorMatchesImprovementFilter(row.advisorName, filters.advisor)) return false;
     if (filters.quartile && !sameOption(row.quartile, filters.quartile)) return false;
     if (filters.antiguedadBucket && getAntiguedadBucket(row.antiguedad) !== filters.antiguedadBucket) return false;
     if (filters.supervisor && !sameOption(row.supervisor, filters.supervisor)) return false;
@@ -8537,11 +8688,58 @@ function applyImprovementFilters(dataset, filters){
   return {feedbackRows:filteredFeedbackRows, sectionRows:filteredSectionRows, noTipificationRows:filteredNoTipificationRows};
 }
 
+function buildImprovementDashboardExportRows(filteredData){
+  const rows = [];
+  (filteredData?.feedbackRows || []).forEach(row => rows.push({
+    TipoRegistro: "Evaluacion",
+    Fecha: formatFeedbackDate(row.feedbackDate || row.createdAt),
+    Asesor: row.advisorName || "",
+    Supervisor: row.supervisor || "",
+    Coordinador: row.coordinador || "",
+    TipoGestion: row.managementTypeRuc || row.campaign || "",
+    Cuartil: row.quartile || "",
+    Nota: row.score ?? "",
+    Estado: row.statusLabel || row.currentStatusLabel || row.estado || "",
+    Auditor: row.analystName || row.auditorName || "",
+    Observacion: row.observacionGeneral || row.feedbackText || ""
+  }));
+  (filteredData?.sectionRows || []).forEach(row => rows.push({
+    TipoRegistro: "Detalle item",
+    Fecha: formatFeedbackDate(row.date),
+    Asesor: row.advisorName || "",
+    Supervisor: row.supervisor || "",
+    Coordinador: row.coordinador || "",
+    TipoGestion: row.managementTypeRuc || row.campaign || "",
+    Cuartil: row.quartile || "",
+    Item: row.sectionName || row.itemName || "",
+    SubItem: row.attribute || row.subItemName || "",
+    Resultado: row.result || "",
+    Peso: row.weight ?? "",
+    Puntaje: row.score ?? "",
+    Observacion: row.comment || row.observacion || ""
+  }));
+  (filteredData?.noTipificationRows || []).forEach(row => rows.push({
+    TipoRegistro: "Incidencia",
+    Fecha: formatFeedbackDate(row.callDateTime || row.createdAt),
+    Asesor: row.advisorName || "",
+    Supervisor: row.supervisor || "",
+    Coordinador: row.coordinador || "",
+    TipoGestion: row.managementTypeRuc || row.campaign || "",
+    TipoIncidencia: row.incidentType || "No tipificacion",
+    Telefono: row.phoneNumber || "",
+    Duracion: row.callDuration || "",
+    RegistradoPor: row.createdByName || row.monitorName || "",
+    Observacion: row.observation || ""
+  }));
+  return rows;
+}
+
 const NO_CONNECTED_OBSERVATION = "No se encuentra audio disponible en inConcert para realizar la evaluacion de calidad. Se registra la incidencia operativa 'No conectado' para seguimiento correspondiente.";
 const NO_TIPIFICATION_OBSERVATION = "La llamada no cuenta con tipificacion registrada para seguimiento operativo.";
 
 function normalizeOperationalIncident(record){
   return {
+    sourceType: "operational",
     id: String(record?.id || "").trim(),
     advisorName: normalizeName(record?.advisor_name || record?.advisorName || record?.asesorNombre || record?.asesor || ""),
     advisorId: String(record?.advisor_id || record?.advisorUser || "").trim(),
@@ -8549,6 +8747,9 @@ function normalizeOperationalIncident(record){
     monitorId: String(record?.monitor_id || record?.monitorUser || "").trim(),
     campaignName: String(record?.campaign_name || record?.campaignName || record?.campana || "").trim(),
     callId: String(record?.call_id || record?.callId || record?.case_id || record?.caseId || "").trim(),
+    phoneNumber: String(record?.phoneNumber || record?.telefono || "").trim(),
+    callDateTime: record?.callDateTime || record?.call_date_time || record?.created_at || record?.createdAt || "",
+    callDuration: String(record?.callDuration || record?.call_duration || record?.duracion || "").trim(),
     incidentType: String(record?.incident_type || record?.incidentType || "No conectado").trim(),
     incidentCategory: String(record?.incident_category || record?.incidentCategory || "Incidencia operativa").trim(),
     observation: String(record?.observation || record?.observacion || "").trim(),
@@ -8567,6 +8768,7 @@ function normalizeNoTipificationIncident(record){
   if (phoneNumber) observationParts.push(`Telefono: ${phoneNumber}`);
   if (duration) observationParts.push(`Duracion: ${duration}`);
   return {
+    sourceType: "no_tipification",
     id: String(record?.id || "").trim(),
     advisorName: normalizeName(advisorName),
     advisorId: String(record?.advisorUser || record?.advisor_id || "").trim(),
@@ -8574,6 +8776,9 @@ function normalizeNoTipificationIncident(record){
     monitorId: String(record?.createdBy || record?.monitor_id || "").trim(),
     campaignName: String(record?.managementTypeRuc || record?.campaign_name || record?.campana || "").trim(),
     callId: phoneNumber,
+    phoneNumber,
+    callDateTime: record?.callDateTime || record?.createdAt || record?.created_at || "",
+    callDuration: duration,
     incidentType: "No tipificacion",
     incidentCategory: "Incidencia operativa",
     observation: observationParts.join(" - ") || NO_TIPIFICATION_OBSERVATION,
@@ -8604,6 +8809,18 @@ const SALES_AUDIO_STATUS_OPTIONS = ["Sí, se encontró audio","No se encontró a
 const SALES_CONTRACT_STATUS_OPTIONS = ["Sí","No","Parcial","No aplica","No se pudo validar por falta de audio"];
 const SALES_RESULT_OPTIONS = ["Conforme","Conforme con observaciones","No conforme","Venta observada","Sin audio en InConcert","Pendiente de regularización","Pendiente de revisión"];
 const SALES_OMITTED_INFO_OPTIONS = ["Condiciones comerciales","Precio o cargo fijo","Descuento","Vigencia del descuento","IGV","Prorrateo","Permanencia","Cantidad de líneas o equipos","Aceptación final del cliente","Otra condición contractual"];
+function getFirstNamePrefix(value, fallback = "AGE"){
+  const first = String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().split(/\s+/)[0] || fallback;
+  return first.replace(/[^a-zA-Z]/g,"").slice(0,3).toUpperCase().padEnd(3,"X");
+}
+function getSequentialNumberFromCode(code){
+  const match = String(code || "").match(/(\d+)\s*$/);
+  return match ? Number(match[1]) || 0 : 0;
+}
+function buildNextSalesAgentCode(agentName, records){
+  const maxRegistered = (records || []).reduce((max, record) => Math.max(max, getSequentialNumberFromCode(record?.agentCode || record?.codigoAgente)), 162);
+  return `${getFirstNamePrefix(agentName)}${maxRegistered + 1}`;
+}
 
 function salesValidationRole(user){
   const role = String(user?.rol || user?.role || "").trim().toLowerCase();
@@ -8612,6 +8829,10 @@ function salesValidationRole(user){
 }
 function canViewSalesValidationModule(user){ return ["admin","analista","supervisor","formador","sistemas"].includes(salesValidationRole(user)); }
 function canManageSalesValidationModule(user){ return ["admin","analista"].includes(salesValidationRole(user)); }
+function commercialDevelopmentRole(user){ return salesValidationRole(user); }
+function canViewCommercialDevelopmentModule(user, platformId){ return normalizeClientId(platformId) === DEFAULT_PLATFORM_ID && ["admin","analista","supervisor","formador"].includes(commercialDevelopmentRole(user)); }
+function canManageCommercialDevelopmentModule(user){ return ["admin","formador"].includes(commercialDevelopmentRole(user)); }
+function canDeleteCommercialDevelopmentModule(user){ return commercialDevelopmentRole(user) === "admin"; }
 function salesHasAudio(record){ return normalizeComparableValue(record?.audioStatus).includes("si se encontro audio"); }
 function salesContractComplete(record){ return normalizeComparableValue(record?.contractReadingStatus) === "si"; }
 function salesTone(record){
@@ -8625,7 +8846,7 @@ function salesTone(record){
   return {color:"#19C37D"};
 }
 
-function SalesValidationModal({isOpen,onClose,onSave,record,currentUser,mode}){
+function SalesValidationModal({isOpen,onClose,onSave,record,currentUser,mode,records}){
   const isView = mode === "view";
   const [form,setForm] = useState({});
   const [files,setFiles] = useState([]);
@@ -8640,6 +8861,7 @@ function SalesValidationModal({isOpen,onClose,onSave,record,currentUser,mode}){
   const existingFiles = Array.isArray(record?.files) ? record.files : [];
   const requiresAudioObservation = normalizeComparableValue(form.audioStatus) !== "si se encontro audio";
   const requiresOmitted = ["no","parcial"].includes(normalizeComparableValue(form.contractReadingStatus));
+  const visibleAgentCode = record?.agentCode || form.agentCode || (form.agentName ? buildNextSalesAgentCode(form.agentName, records) : "");
   const update = (key,value) => setForm(prev => ({...prev,[key]:value}));
   const submit = async() => {
     if (isView) return;
@@ -8654,13 +8876,13 @@ function SalesValidationModal({isOpen,onClose,onSave,record,currentUser,mode}){
         const kind = mime.startsWith("audio/") ? "sales_validation_audio" : mime.startsWith("image/") ? "sales_validation_image" : "sales_validation_document";
         return prepareAttachment(file, kind);
       }))).filter(Boolean);
-      await onSave({...form,id:record?.id || "",attachments,currentUser});
+      await onSave({...form,agentCode:visibleAgentCode,id:record?.id || "",attachments,currentUser});
       onClose();
     }catch(error){ setErr(error?.message || "No se pudo guardar la validación."); }
     finally{ setSaving(false); }
   };
   const labelStyle = {fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em"};
-  const field = (label,key,props={}) => h("div",null,h("div",{style:labelStyle},label),h("input",{style:INP,value:form[key] || "",disabled:isView,type:props.type || "text",placeholder:props.placeholder || "",onChange:ev=>update(key,ev.target.value)}));
+  const field = (label,key,props={}) => h("div",null,h("div",{style:labelStyle},label),h("input",{style:INP,value:props.value !== undefined ? props.value : form[key] || "",disabled:isView || props.disabled,type:props.type || "text",placeholder:props.placeholder || "",onChange:ev=>update(key,ev.target.value)}));
   const select = (label,key,options) => h("div",null,h("div",{style:labelStyle},label),h("select",{style:SEL,value:form[key] || "",disabled:isView,onChange:ev=>update(key,ev.target.value)},options.map(item=>h("option",{key:item,value:item},item))));
   const renderFile = file => {
     const url = getAttachmentPlaybackUrl(file);
@@ -8668,7 +8890,7 @@ function SalesValidationModal({isOpen,onClose,onSave,record,currentUser,mode}){
     const image = isImageAttachment(file);
     return h("div",{key:file.id || file.name,style:{border:`1px solid ${THEME.border}`,borderRadius:12,padding:12,background:"rgba(9,9,17,0.55)",marginTop:10}},h("div",{style:{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center",marginBottom:audio || image ? 10 : 0}},h("strong",{style:{fontSize:12,color:"#fff",wordBreak:"break-word"}},file.name || "Adjunto"),url && h("a",{href:url,target:"_blank",rel:"noreferrer",style:{...BTN("out"),padding:"7px 10px",fontSize:9,textDecoration:"none"}},"ABRIR")),audio && url && h("audio",{src:url,controls:true,style:{width:"100%"}}),image && url && h("img",{src:url,style:{maxWidth:"100%",maxHeight:260,borderRadius:10,display:"block",objectFit:"contain"}}));
   };
-  return h("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:3000,display:"flex",justifyContent:"center",alignItems:"flex-start",overflowY:"auto",padding:"28px"}},h("div",{style:{...CARD,width:"min(1120px,96vw)",marginTop:10,borderTop:`4px solid ${salesTone(record || form).color}`}},h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:22}},h("div",null,h("h2",{style:{fontSize:28,color:"#fff",marginBottom:6}},isView ? "Ficha de validación de venta" : record?.id ? "Editar validación de venta" : "Nueva validación de venta"),h("p",{style:{color:"#9fb0d8",margin:0}},"Registro independiente de evidencias encontradas en InConcert.")),h("button",{style:BTN("out"),onClick:onClose},"CERRAR")),err && h("div",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.35)",borderRadius:12,padding:12,color:THEME.accent,marginBottom:16}},err),h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:16}},field("RUC del cliente *","ruc"),field("Nombre o razón social *","businessName"),field("Nombre del agente comercial *","agentName"),field("Código del agente","agentCode"),field("Fecha de venta *","saleDate",{type:"date"}),field("Campaña","campaign"),field("Producto vendido","product"),field("Cantidad de productos o líneas","quantity"),field("Número de llamada / InConcert","callId"),select("¿Se encontró audio en InConcert? *","audioStatus",SALES_AUDIO_STATUS_OPTIONS),select("Lectura o confirmación del contrato *","contractReadingStatus",SALES_CONTRACT_STATUS_OPTIONS),select("Resultado *","result",SALES_RESULT_OPTIONS)),requiresOmitted && h("div",{style:{marginTop:16}},h("div",{style:labelStyle},"Información contractual omitida"),h("select",{style:SEL,value:form.omittedContractInfo || "",disabled:isView,onChange:ev=>update("omittedContractInfo",ev.target.value)},h("option",{value:""},"Selecciona una condición"),SALES_OMITTED_INFO_OPTIONS.map(item=>h("option",{key:item,value:item},item)))),h("div",{style:{marginTop:16}},h("div",{style:labelStyle},"Observaciones de la validación"),h("textarea",{style:{...INP,minHeight:130,resize:"vertical"},value:form.observations || "",disabled:isView,placeholder:"Detalles encontrados, incidencias de audio, información omitida, diferencias y acciones correctivas.",onChange:ev=>update("observations",ev.target.value)})),h("div",{style:{marginTop:18}},h("div",{style:labelStyle},"Evidencias"),!isView && h("input",{type:"file",multiple:true,accept:".jpg,.jpeg,.png,.mp3,.wav,.m4a,.ogg,.pdf,image/jpeg,image/png,audio/mpeg,audio/wav,audio/mp4,audio/ogg,application/pdf",style:INP,onChange:ev=>setFiles([...ev.target.files])}),!!files.length && h("div",{style:{fontSize:12,color:"#9fb0d8",marginTop:8}},`${files.length} archivo(s) nuevos seleccionados.`),existingFiles.length ? existingFiles.map(renderFile) : h("div",{style:{fontSize:12,color:"#8b92a5",marginTop:10}},"Sin evidencias adjuntas.")),record?.id && h("div",{style:{marginTop:18,display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:12}},h("div",null,h("small",{style:{color:"#8b92a5",textTransform:"uppercase"}},"Validador"),h("div",{style:{color:"#fff",fontWeight:800}},record.validatorName || "-")),h("div",null,h("small",{style:{color:"#8b92a5",textTransform:"uppercase"}},"Registro"),h("div",{style:{color:"#fff",fontWeight:800}},formatDateTime(record.validationDate || record.createdAt))),h("div",null,h("small",{style:{color:"#8b92a5",textTransform:"uppercase"}},"Última modificación"),h("div",{style:{color:"#fff",fontWeight:800}},formatDateTime(record.updatedAt))),h("div",null,h("small",{style:{color:"#8b92a5",textTransform:"uppercase"}},"Modificado por"),h("div",{style:{color:"#fff",fontWeight:800}},record.updatedByName || "-"))),record?.auditTrail?.length && h("details",{style:{marginTop:18}},h("summary",{style:{cursor:"pointer",color:THEME.primary,fontWeight:800}},"Historial de auditoría"),h("div",{style:{marginTop:10,maxHeight:180,overflowY:"auto"}},record.auditTrail.slice().reverse().map(item=>h("div",{key:item.id,style:{fontSize:12,color:"#9fb0d8",borderBottom:"1px solid rgba(255,255,255,0.06)",padding:"8px 0"}},`${formatDateTime(item.createdAt)} - ${item.userName || "-"} - ${item.action}${item.field ? ` - ${item.field}: ${item.previousValue || "-"} -> ${item.newValue || "-"}` : ""}${item.reason ? ` - Motivo: ${item.reason}` : ""}`)))),!isView && h("div",{style:{display:"flex",justifyContent:"flex-end",gap:12,marginTop:22}},h("button",{style:BTN("out"),onClick:onClose,disabled:saving},"CANCELAR"),h("button",{style:BTN("pink"),onClick:submit,disabled:saving},saving ? "GUARDANDO..." : "GUARDAR VALIDACIÓN"))));
+  return h("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:3000,display:"flex",justifyContent:"center",alignItems:"flex-start",overflowY:"auto",padding:"28px"}},h("div",{style:{...CARD,width:"min(1120px,96vw)",marginTop:10,borderTop:`4px solid ${salesTone(record || form).color}`}},h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:22}},h("div",null,h("h2",{style:{fontSize:28,color:"#fff",marginBottom:6}},isView ? "Ficha de validación de venta" : record?.id ? "Editar validación de venta" : "Nueva validación de venta"),h("p",{style:{color:"#9fb0d8",margin:0}},"Registro independiente de evidencias encontradas en InConcert.")),h("button",{style:BTN("out"),onClick:onClose},"CERRAR")),err && h("div",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.35)",borderRadius:12,padding:12,color:THEME.accent,marginBottom:16}},err),h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:16}},field("RUC del cliente *","ruc"),field("Nombre o razón social *","businessName"),field("Nombre del agente comercial *","agentName"),field("Código del agente","agentCode",{value:visibleAgentCode,disabled:true}),field("Fecha de venta *","saleDate",{type:"date"}),field("Campaña","campaign"),field("Producto vendido","product"),field("Cantidad de productos o líneas","quantity"),field("Número de llamada / InConcert","callId"),select("¿Se encontró audio en InConcert? *","audioStatus",SALES_AUDIO_STATUS_OPTIONS),select("Lectura o confirmación del contrato *","contractReadingStatus",SALES_CONTRACT_STATUS_OPTIONS),select("Resultado *","result",SALES_RESULT_OPTIONS)),requiresOmitted && h("div",{style:{marginTop:16}},h("div",{style:labelStyle},"Información contractual omitida"),h("select",{style:SEL,value:form.omittedContractInfo || "",disabled:isView,onChange:ev=>update("omittedContractInfo",ev.target.value)},h("option",{value:""},"Selecciona una condición"),SALES_OMITTED_INFO_OPTIONS.map(item=>h("option",{key:item,value:item},item)))),h("div",{style:{marginTop:16}},h("div",{style:labelStyle},"Observaciones de la validación"),h("textarea",{style:{...INP,minHeight:130,resize:"vertical"},value:form.observations || "",disabled:isView,placeholder:"Detalles encontrados, incidencias de audio, información omitida, diferencias y acciones correctivas.",onChange:ev=>update("observations",ev.target.value)})),h("div",{style:{marginTop:18}},h("div",{style:labelStyle},"Evidencias"),!isView && h("input",{type:"file",multiple:true,accept:".jpg,.jpeg,.png,.mp3,.wav,.m4a,.ogg,.pdf,image/jpeg,image/png,audio/mpeg,audio/wav,audio/mp4,audio/ogg,application/pdf",style:INP,onChange:ev=>setFiles([...ev.target.files])}),!!files.length && h("div",{style:{fontSize:12,color:"#9fb0d8",marginTop:8}},`${files.length} archivo(s) nuevos seleccionados.`),existingFiles.length ? existingFiles.map(renderFile) : h("div",{style:{fontSize:12,color:"#8b92a5",marginTop:10}},"Sin evidencias adjuntas.")),record?.id && h("div",{style:{marginTop:18,display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:12}},h("div",null,h("small",{style:{color:"#8b92a5",textTransform:"uppercase"}},"Validador"),h("div",{style:{color:"#fff",fontWeight:800}},record.validatorName || "-")),h("div",null,h("small",{style:{color:"#8b92a5",textTransform:"uppercase"}},"Registro"),h("div",{style:{color:"#fff",fontWeight:800}},formatDateTime(record.validationDate || record.createdAt))),h("div",null,h("small",{style:{color:"#8b92a5",textTransform:"uppercase"}},"Última modificación"),h("div",{style:{color:"#fff",fontWeight:800}},formatDateTime(record.updatedAt))),h("div",null,h("small",{style:{color:"#8b92a5",textTransform:"uppercase"}},"Modificado por"),h("div",{style:{color:"#fff",fontWeight:800}},record.updatedByName || "-"))),record?.auditTrail?.length && h("details",{style:{marginTop:18}},h("summary",{style:{cursor:"pointer",color:THEME.primary,fontWeight:800}},"Historial de auditoría"),h("div",{style:{marginTop:10,maxHeight:180,overflowY:"auto"}},record.auditTrail.slice().reverse().map(item=>h("div",{key:item.id,style:{fontSize:12,color:"#9fb0d8",borderBottom:"1px solid rgba(255,255,255,0.06)",padding:"8px 0"}},`${formatDateTime(item.createdAt)} - ${item.userName || "-"} - ${item.action}${item.field ? ` - ${item.field}: ${item.previousValue || "-"} -> ${item.newValue || "-"}` : ""}${item.reason ? ` - Motivo: ${item.reason}` : ""}`)))),!isView && h("div",{style:{display:"flex",justifyContent:"flex-end",gap:12,marginTop:22}},h("button",{style:BTN("out"),onClick:onClose,disabled:saving},"CANCELAR"),h("button",{style:BTN("pink"),onClick:submit,disabled:saving},saving ? "GUARDANDO..." : "GUARDAR VALIDACIÓN"))));
 }
 
 function SalesValidationCenter({records,currentUser,onSave,onDelete,onRestore}){
@@ -8824,22 +9046,231 @@ function SalesValidationCenter({records,currentUser,onSave,onDelete,onRestore}){
         h("button",{style:BTN("out"),disabled:page>=pages,onClick:()=>setPage(p=>Math.min(pages,p+1))},"SIGUIENTE")
       )
     ),
-    h(SalesValidationModal,{isOpen:modal.open,onClose:()=>setModal({open:false,mode:"create",record:null}),onSave,record:modal.record,currentUser,mode:modal.mode})
+    h(SalesValidationModal,{isOpen:modal.open,onClose:()=>setModal({open:false,mode:"create",record:null}),onSave,record:modal.record,currentUser,mode:modal.mode,records})
   );
 }
 
-function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,staffing,onSave,onSaveNoTipification,notify}){
+const COMMERCIAL_DEVELOPMENT_STATUSES = ["Pendiente","En desarrollo","Finalizado"];
+const COMMERCIAL_DEVELOPMENT_REASONS = ["Conocimiento de producto","Habilidades comerciales","Manejo de base","Actitud o motivación","Gestión del tiempo","Herramientas operativas","Uso de IA / Prompts","Otro"];
+const COMMERCIAL_DEVELOPMENT_RESULTS = ["Cumplió la mejora esperada","Mejoró parcialmente","No presentó mejora","Pendiente de seguimiento"];
+function buildNextCommercialDevelopmentCode(records){
+  const maxRegistered = (records || []).reduce((max, record) => Math.max(max, getSequentialNumberFromCode(record?.code || record?.codigo)), 0);
+  return `ENT${String(maxRegistered + 1).padStart(2,"0")}`;
+}
+function isCommercialDevelopmentAutoClosed(record){
+  if (normalizeComparableValue(record?.status) === "finalizado") return false;
+  const createdMs = getDateMs(record?.createdAt || record?.interventionAt);
+  return createdMs && Date.now() - createdMs >= 48 * 60 * 60 * 1000;
+}
+function normalizeCommercialDevelopmentRecord(record){
+  const autoClosed = isCommercialDevelopmentAutoClosed(record);
+  return {...record,status:autoClosed ? "Finalizado" : (record?.status || "Pendiente"),autoClosed};
+}
+function CommercialDevelopmentModal({isOpen,onClose,onSave,record,currentUser,staffing,records}){
+  const isEdit = Boolean(record?.id);
+  const [form,setForm] = useState({});
+  const [files,setFiles] = useState([]);
+  const [saving,setSaving] = useState(false);
+  const [err,setErr] = useState("");
+  const advisorOptions = useMemo(() => getStaffingAdvisorOptions(staffing), [staffing]);
+  useEffect(()=>{
+    if (!isOpen) return;
+    setForm({
+      code: record?.code || buildNextCommercialDevelopmentCode(records),
+      executiveName: record?.executiveName || "",
+      campaign: record?.campaign || "",
+      profile: record?.profile || "RUC 10",
+      supervisor: record?.supervisor || "",
+      trainerName: record?.trainerName || currentUser?.nombre || "",
+      interventionAt: toDatetimeLocalValue(record?.interventionAt || new Date()),
+      status: record?.status || "Pendiente",
+      initialConnection: record?.initialConnection || "",
+      initialProductivity: record?.initialProductivity || "",
+      initialSales: record?.initialSales || "",
+      reason: record?.reason || "",
+      reasonDetail: record?.reasonDetail || "",
+      trainerObservations: record?.trainerObservations || "",
+      actionTaken: record?.actionTaken || "",
+      expectedResult: record?.expectedResult || "",
+      executiveCommitment: record?.executiveCommitment || "",
+      trainerCommitment: record?.trainerCommitment || "",
+      followConnection: record?.followConnection || "",
+      followProductivity: record?.followProductivity || "",
+      followSales: record?.followSales || "",
+      followResult: record?.followResult || "Pendiente de seguimiento",
+      followComments: record?.followComments || "",
+      finalObservations: record?.finalObservations || "",
+      finalStatus: record?.finalStatus || ""
+    });
+    setFiles([]);
+    setErr("");
+  },[isOpen,record?.id]);
+  if (!isOpen) return null;
+  const update = (key,value) => setForm(prev => {
+    const next = {...prev,[key]:value};
+    if (key === "executiveName") {
+      const profile = (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(value));
+      if (profile) {
+        next.supervisor = profile.supervisor || next.supervisor || "";
+        next.profile = profile.tipoGestionRuc || next.profile || "RUC 10";
+        next.campaign = profile.tipoGestionRuc || next.campaign || "";
+      }
+    }
+    return next;
+  });
+  const existingFiles = Array.isArray(record?.files) ? record.files : [];
+  const submit = async() => {
+    if (saving) return;
+    setErr("");
+    if (!String(form.executiveName || "").trim() || !String(form.trainerName || "").trim()) { setErr("Completa ejecutivo y formador asignado."); return; }
+    try{
+      setSaving(true);
+      const attachments = (await Promise.all(files.map(file => prepareAttachment(file, "commercial_development_evidence")))).filter(Boolean);
+      await onSave({...form,id:record?.id || "",attachments,currentUser});
+      onClose();
+    }catch(error){
+      setErr(error?.message || "No se pudo guardar la ficha de desarrollo comercial.");
+    }finally{
+      setSaving(false);
+    }
+  };
+  const labelStyle = {fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em"};
+  const input = (label,key,props={}) => h("div",null,h("div",{style:labelStyle},label),h("input",{style:INP,type:props.type || "text",value:props.value !== undefined ? props.value : form[key] || "",disabled:props.disabled,onChange:ev=>update(key,ev.target.value),placeholder:props.placeholder || ""}));
+  const textarea = (label,key,placeholder) => h("div",{style:{marginTop:14}},h("div",{style:labelStyle},label),h("textarea",{style:{...INP,minHeight:95,resize:"vertical"},value:form[key] || "",onChange:ev=>update(key,ev.target.value),placeholder:placeholder || ""}));
+  const select = (label,key,options) => h("div",null,h("div",{style:labelStyle},label),h("select",{style:SEL,value:form[key] || "",onChange:ev=>update(key,ev.target.value)},options.map(item=>h("option",{key:item,value:item},item))));
+  const renderFile = file => {
+    const url = getAttachmentPlaybackUrl(file);
+    return h("div",{key:file.id || file.name,style:{border:`1px solid ${THEME.border}`,borderRadius:12,padding:12,background:"rgba(9,9,17,0.55)",marginTop:10}},h("div",{style:{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center",marginBottom:isImageAttachment(file)?10:0}},h("strong",{style:{fontSize:12,color:"#fff",wordBreak:"break-word"}},file.name || "Evidencia"),url && h("a",{href:url,target:"_blank",rel:"noreferrer",style:{...BTN("out"),padding:"7px 10px",fontSize:9,textDecoration:"none"}},"ABRIR")),isImageAttachment(file) && url && h("img",{src:url,style:{maxWidth:"100%",maxHeight:280,borderRadius:10,display:"block",objectFit:"contain"}}));
+  };
+  return h("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:3020,display:"flex",justifyContent:"center",alignItems:"flex-start",overflowY:"auto",padding:"28px"}},
+    h("div",{style:{...CARD,width:"min(1120px,96vw)",marginTop:10,borderTop:`4px solid ${THEME.primary}`}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:22}},
+        h("div",null,h("h2",{style:{fontSize:28,color:"#fff",marginBottom:6}},isEdit ? "Editar ficha de desarrollo comercial" : "Nueva ficha de desarrollo comercial"),h("p",{style:{color:"#9fb0d8",margin:0}},"Registro de acompañamiento individual One to One.")),
+        h("button",{style:BTN("out"),onClick:onClose},"CERRAR")
+      ),
+      err && h("div",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.35)",borderRadius:12,padding:12,color:THEME.accent,marginBottom:16}},err),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:16}},
+        input("Código único","code",{disabled:true}),
+        h("div",null,h("div",{style:labelStyle},"Ejecutivo"),h("select",{style:SEL,value:form.executiveName || "",onChange:ev=>update("executiveName",ev.target.value)},h("option",{value:""},"Selecciona ejecutivo"),advisorOptions.map(name=>h("option",{key:name,value:name},name)))),
+        input("Campaña","campaign"),
+        select("Perfil","profile",["RUC 10","RUC 20"]),
+        input("Supervisor","supervisor"),
+        input("Formador asignado","trainerName"),
+        input("Fecha y hora de intervención","interventionAt",{type:"datetime-local"}),
+        select("Estado","status",COMMERCIAL_DEVELOPMENT_STATUSES),
+        select("Motivo principal","reason",["",...COMMERCIAL_DEVELOPMENT_REASONS])
+      ),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:16,marginTop:16}},
+        input("% Conexión inicial","initialConnection"),
+        input("% Productividad inicial","initialProductivity"),
+        input("Ventas del día","initialSales"),
+        input("% Conexión 24-48 hrs","followConnection"),
+        input("% Productividad 24-48 hrs","followProductivity"),
+        input("Ventas 24-48 hrs","followSales")
+      ),
+      textarea("Detalle breve del diagnóstico","reasonDetail"),
+      textarea("Observaciones del formador","trainerObservations","Diagnóstico realizado, oportunidades identificadas y contexto del ejecutivo."),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}},textarea("Acción realizada durante el One to One","actionTaken"),textarea("Resultado esperado","expectedResult")),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}},textarea("Compromiso del ejecutivo","executiveCommitment"),textarea("Compromiso del formador","trainerCommitment")),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginTop:14}},select("Resultado del seguimiento","followResult",COMMERCIAL_DEVELOPMENT_RESULTS),input("Estado final","finalStatus",{placeholder:"Cerrado por mejora / Requiere nueva intervención / Derivado al supervisor"})),
+      textarea("Comentarios del seguimiento","followComments"),
+      textarea("Observaciones finales","finalObservations"),
+      h("div",{style:{marginTop:18}},h("div",{style:labelStyle},"Pantallazo o evidencia de reunión"),h("input",{type:"file",multiple:false,accept:".jpg,.jpeg,.png,image/jpeg,image/png",style:INP,onChange:ev=>setFiles([...ev.target.files])}),!!files.length && h("div",{style:{fontSize:12,color:"#9fb0d8",marginTop:8}},`${files.length} archivo seleccionado.`),existingFiles.length ? existingFiles.map(renderFile) : h("div",{style:{fontSize:12,color:"#8b92a5",marginTop:10}},"Sin evidencia adjunta.")),
+      h("div",{style:{display:"flex",justifyContent:"flex-end",gap:12,marginTop:22}},h("button",{style:BTN("out"),onClick:onClose,disabled:saving},"CANCELAR"),h("button",{style:BTN("pink"),onClick:submit,disabled:saving},saving ? "GUARDANDO..." : "GUARDAR FICHA"))
+    )
+  );
+}
+
+function CommercialDevelopmentCenter({records,currentUser,staffing,onSave,onDelete}){
+  const [modal,setModal] = useState({open:false,record:null});
+  const [filters,setFilters] = useState({dateFrom:"",dateTo:"",trainer:"all",advisor:[],status:"all"});
+  const canManage = canManageCommercialDevelopmentModule(currentUser);
+  const canDelete = canDeleteCommercialDevelopmentModule(currentUser);
+  const rows = useMemo(() => (records || []).map(normalizeCommercialDevelopmentRecord), [records]);
+  const advisorOptions = useMemo(() => uniqueSortedValues(rows.map(row=>row.executiveName).concat(getStaffingAdvisorOptions(staffing))), [rows,staffing]);
+  const trainerOptions = useMemo(() => uniqueSortedValues(rows.map(row=>row.trainerName)), [rows]);
+  const selectedAdvisors = normalizeImprovementAdvisorFilter(filters.advisor);
+  const filtered = useMemo(() => rows.filter(row => {
+    if (!isWithinDateRange(row.interventionAt || row.createdAt, filters.dateFrom, filters.dateTo)) return false;
+    if (filters.trainer !== "all" && row.trainerName !== filters.trainer) return false;
+    if (selectedAdvisors.length && !selectedAdvisors.includes(row.executiveName)) return false;
+    if (filters.status !== "all" && normalizeComparableValue(row.status) !== normalizeComparableValue(filters.status)) return false;
+    return normalizeComparableValue(row.status) !== "eliminada";
+  }).sort((a,b)=>getDateMs(b.interventionAt || b.createdAt)-getDateMs(a.interventionAt || a.createdAt)), [rows,filters,selectedAdvisors]);
+  const statusChartConfig = useMemo(() => {
+    const data = Object.entries(grp(filtered,row=>row.status || "Sin estado")).map(([label,items])=>({label,value:items.length}));
+    return buildDoughnutChartConfig("Estados", data.map(x=>x.label), data.map(x=>x.value), [THEME.primary,"#FFC857","#19C37D","#FF4D5A"]);
+  },[filtered]);
+  const advisorChartConfig = useMemo(() => buildOperationalIncidentChartConfig("Fichas por ejecutivo", filtered, row=>row.executiveName || "Sin ejecutivo", "Fichas"), [filtered]);
+  const trainerChartConfig = useMemo(() => buildOperationalIncidentChartConfig("Fichas por formador", filtered, row=>row.trainerName || "Sin formador", "Fichas"), [filtered]);
+  const exportRows = () => exportCSV(filtered.map(r=>({Codigo:r.code,Fecha:formatDateTime(r.interventionAt),Ejecutivo:r.executiveName,Campana:r.campaign,Perfil:r.profile,Supervisor:r.supervisor,Formador:r.trainerName,Estado:r.status,Motivo:r.reason,ConexionInicial:r.initialConnection,ProductividadInicial:r.initialProductivity,VentasInicial:r.initialSales,ConexionSeguimiento:r.followConnection,ProductividadSeguimiento:r.followProductivity,VentasSeguimiento:r.followSales,ResultadoSeguimiento:r.followResult,Observaciones:r.trainerObservations})),"desarrollo_comercial_entel");
+  const deleteRecord = async(record) => { if (!confirm("Eliminar esta ficha de desarrollo comercial?")) return; await onDelete({id:record.id,currentUser}); };
+  return h("div",null,
+    h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:28}},
+      h("div",null,h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.35em",fontFamily:THEME.displayFont,marginBottom:10}},"ENTEL B2B"),h("h1",{style:{fontSize:42,color:"#fff",margin:"0 0 8px"}},"Desarrollo Comercial"),h("p",{style:{color:"#9fb0d8",lineHeight:1.7,margin:0}},"Mejora continua y acompañamiento individual de ejecutivos comerciales.")),
+      canManage && h("button",{style:BTN("pink"),onClick:()=>setModal({open:true,record:null})},I("plus",14,"#fff"),"NUEVA FICHA")
+    ),
+    h("div",{style:{...CARD,marginBottom:20}},
+      h("div",{style:{fontSize:14,color:"#fff",fontWeight:900,marginBottom:14}},"Mejora Continua"),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:14}},
+        h("input",{type:"date",style:INP,value:filters.dateFrom,onChange:ev=>setFilters({...filters,dateFrom:ev.target.value})}),
+        h("input",{type:"date",style:INP,value:filters.dateTo,onChange:ev=>setFilters({...filters,dateTo:ev.target.value})}),
+        h("select",{style:SEL,value:filters.trainer,onChange:ev=>setFilters({...filters,trainer:ev.target.value})},h("option",{value:"all"},"Todos los formadores"),trainerOptions.map(value=>h("option",{key:value,value},value))),
+        h("select",{style:SEL,value:filters.status,onChange:ev=>setFilters({...filters,status:ev.target.value})},h("option",{value:"all"},"Todos los estados"),COMMERCIAL_DEVELOPMENT_STATUSES.map(value=>h("option",{key:value,value},value)))
+      ),
+      h("div",{style:{marginTop:14,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10}},
+        advisorOptions.map(name=>h("label",{key:name,style:{display:"flex",alignItems:"center",gap:8,border:`1px solid ${THEME.border}`,borderRadius:12,padding:"10px 12px",color:"#d6d8e3",fontSize:12}},h("input",{type:"checkbox",checked:selectedAdvisors.includes(name),onChange:()=>setFilters(prev=>({...prev,advisor:toggleImprovementAdvisorFilter(prev.advisor,name)}))}),name))
+      ),
+      h("div",{style:{marginTop:14,display:"flex",gap:12,flexWrap:"wrap"}},h("button",{style:BTN("out"),onClick:()=>setFilters({dateFrom:"",dateTo:"",trainer:"all",advisor:[],status:"all"})},"LIMPIAR"),h("button",{style:BTN("s"),onClick:exportRows},"DESCARGAR CSV"))
+    ),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:18,marginBottom:20}},
+      h(ImprovementKpiCard,{label:"Fichas",value:filtered.length,caption:"Registros visibles",color:THEME.primary}),
+      h(ImprovementKpiCard,{label:"Pendientes",value:filtered.filter(r=>normalizeComparableValue(r.status)==="pendiente").length,caption:"Por desarrollar",color:"#FFC857"}),
+      h(ImprovementKpiCard,{label:"Finalizadas",value:filtered.filter(r=>normalizeComparableValue(r.status)==="finalizado").length,caption:"Cierre registrado",color:"#19C37D"})
+    ),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(360px,1fr))",gap:20,marginBottom:20}},
+      h(AnalyticsChart,{title:"Dashboard por estado",subtitle:"Distribución de la mejora continua.",config:statusChartConfig,height:280,emptyMessage:"Sin fichas para graficar."}),
+      h(AnalyticsChart,{title:"Mejora por asesor",subtitle:"Cantidad de fichas por ejecutivo.",config:advisorChartConfig,height:280,emptyMessage:"Sin asesores para graficar."}),
+      h(AnalyticsChart,{title:"Mejora por formador",subtitle:"Cantidad de fichas por formador.",config:trainerChartConfig,height:280,emptyMessage:"Sin formadores para graficar."})
+    ),
+    h("div",{style:CARD},
+      h("div",{style:{display:"flex",justifyContent:"space-between",gap:12,marginBottom:14}},h("h3",{style:{color:"#fff",margin:0}},"Fichas de mejora continua"),h("span",{style:{color:"#9fb0d8"}},`${filtered.length} registro(s)`)),
+      h(SimpleDataTable,{rows:filtered,emptyMessage:"No hay fichas de desarrollo comercial.",columns:[
+        {header:"Código",render:row=>row.code || "-"},
+        {header:"Fecha",render:row=>formatDateTime(row.interventionAt || row.createdAt)},
+        {header:"Ejecutivo",render:row=>row.executiveName || "-"},
+        {header:"Formador",render:row=>row.trainerName || "-"},
+        {header:"Estado",render:row=>row.status || "-"},
+        {header:"Motivo",render:row=>row.reason || "-"},
+        {header:"Acciones",render:row=>h("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},canManage && h("button",{style:{...BTN("out"),padding:"8px 10px"},onClick:()=>setModal({open:true,record:row})},"EDITAR"),canDelete && h("button",{style:{...BTN("out"),padding:"8px 10px",color:THEME.accent,border:"1px solid rgba(230,0,168,0.35)"},onClick:()=>deleteRecord(row)},"ELIMINAR"))}
+      ]})
+    ),
+    h(CommercialDevelopmentModal,{isOpen:modal.open,onClose:()=>setModal({open:false,record:null}),onSave,record:modal.record,currentUser,staffing,records})
+  );
+}
+
+function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,staffing,onSave,onSaveNoTipification,onUpdate,initialRecord,notify}){
   const [form,setForm] = useState({advisorName:"",campaignName:"",callId:"",incidentType:"No conectado",observation:NO_CONNECTED_OBSERVATION,phoneNumber:"",callDateTime:toDatetimeLocalValue(),callDuration:""});
   const [isSaving,setIsSaving] = useState(false);
   const [saveNotice,setSaveNotice] = useState(null);
   const availableAdvisors = Array.isArray(advisorOptions) ? advisorOptions : [];
+  const editMode = Boolean(initialRecord?.id);
 
   useEffect(() => {
     if (!isOpen) return;
-    setForm({advisorName:"",campaignName:"",callId:"",incidentType:"No conectado",observation:NO_CONNECTED_OBSERVATION,phoneNumber:"",callDateTime:toDatetimeLocalValue(),callDuration:""});
+    setForm(initialRecord?.id ? {
+      advisorName: initialRecord.advisorName || "",
+      campaignName: initialRecord.campaignName || "",
+      callId: initialRecord.callId || "",
+      incidentType: initialRecord.incidentType || "No conectado",
+      observation: initialRecord.observation || (normalizeComparableValue(initialRecord.incidentType)==="no tipificacion" ? NO_TIPIFICATION_OBSERVATION : NO_CONNECTED_OBSERVATION),
+      phoneNumber: initialRecord.phoneNumber || "",
+      callDateTime: toDatetimeLocalValue(initialRecord.callDateTime || initialRecord.createdAt),
+      callDuration: initialRecord.callDuration || ""
+    } : {advisorName:"",campaignName:"",callId:"",incidentType:"No conectado",observation:NO_CONNECTED_OBSERVATION,phoneNumber:"",callDateTime:toDatetimeLocalValue(),callDuration:""});
     setIsSaving(false);
     setSaveNotice(null);
-  }, [isOpen]);
+  }, [isOpen,initialRecord]);
 
   if (!isOpen) return null;
 
@@ -8864,7 +9295,33 @@ function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,sta
       setIsSaving(true);
       const profile = (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(form.advisorName)) || null;
       let saved = null;
-      if (form.incidentType === "No tipificacion") {
+      if (editMode) {
+        saved = await onUpdate({
+          id: initialRecord.id,
+          sourceType: initialRecord.sourceType,
+          advisorName: form.advisorName,
+          asesorNombre: form.advisorName,
+          advisor_id: profile?.usuarioAsignado || initialRecord.advisorId || "",
+          advisorUser: profile?.usuarioAsignado || initialRecord.advisorId || "",
+          supervisor: profile?.supervisor || "",
+          coordinador: profile?.coordinador || "",
+          antiguedad: profile?.antiguedad || 0,
+          fechaIngreso: profile?.fechaIngreso || "",
+          campaignName: form.campaignName,
+          campaign_name: form.campaignName,
+          managementTypeRuc: form.campaignName || profile?.tipoGestionRuc || "",
+          callId: form.callId,
+          call_id: form.callId,
+          phoneNumber: form.phoneNumber,
+          callDateTime: form.callDateTime ? new Date(form.callDateTime).toISOString() : initialRecord.createdAt,
+          callDuration: form.callDuration,
+          incidentType: form.incidentType,
+          incident_type: form.incidentType,
+          observation: form.observation,
+          status: initialRecord.status || "Registrado",
+          currentUser
+        });
+      } else if (form.incidentType === "No tipificacion") {
         if (!String(form.phoneNumber || "").trim()) {
           notify("e","El numero de telefono es obligatorio.");
           setIsSaving(false);
@@ -8907,7 +9364,7 @@ function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,sta
         });
       }
       if (!saved) throw new Error("No se pudo guardar la incidencia operativa.");
-      setSaveNotice({type:"success",message:`Incidencia registrada correctamente: ${form.incidentType}.`});
+      setSaveNotice({type:"success",message: editMode ? "Incidencia actualizada correctamente." : `Incidencia registrada correctamente: ${form.incidentType}.`});
       setTimeout(() => onClose(), 800);
     }catch(err){
       const message = err?.message || "No se pudo guardar la incidencia operativa.";
@@ -8922,7 +9379,7 @@ function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,sta
     h("div",{style:{background:"linear-gradient(180deg, rgba(18,19,29,0.98) 0%, rgba(22,12,40,0.98) 100%)",border:`1px solid ${THEME.border}`,borderRadius:20,padding:28,width:"100%",maxWidth:820,maxHeight:"90vh",overflowY:"auto",boxShadow:THEME.glowViolet}},
       h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:18,marginBottom:24}},
         h("div",null,
-          h("div",{style:{fontSize:22,fontWeight:800,color:"#fff",marginBottom:6}},"Registrar incidencia"),
+          h("div",{style:{fontSize:22,fontWeight:800,color:"#fff",marginBottom:6}},editMode ? "Editar incidencia" : "Registrar incidencia"),
           h("div",{style:{fontSize:12,color:"#8b92a5"}},"Incidencia operativa independiente. No abre ficha, no calcula puntaje y no cuenta como evaluacion.")
         ),
         h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:onClose},"CERRAR")
@@ -8931,7 +9388,7 @@ function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,sta
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:16,marginBottom:18}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Asesor / ejecutivo"),h("select",{style:SEL,value:form.advisorName,onChange:ev=>updateForm({advisorName:ev.target.value})},h("option",{value:""},"Selecciona un asesor"),availableAdvisors.map(name=>h("option",{key:name,value:name},name)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Campana"),h("input",{style:INP,value:form.campaignName,onChange:ev=>updateForm({campaignName:ev.target.value}),placeholder:"Ej: Empresas B2B"})),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Tipo de incidencia"),h("select",{style:SEL,value:form.incidentType,onChange:ev=>updateForm({incidentType:ev.target.value})},h("option",{value:"No conectado"},"No conectado"),h("option",{value:"No tipificacion"},"No tipificacion"))),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Tipo de incidencia"),h("select",{style:SEL,value:form.incidentType,onChange:ev=>updateForm({incidentType:ev.target.value}),disabled:editMode},h("option",{value:"No conectado"},"No conectado"),h("option",{value:"No tipificacion"},"No tipificacion"))),
         form.incidentType === "No conectado"
           ? h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Codigo de llamada / caso"),h("input",{style:INP,value:form.callId,onChange:ev=>updateForm({callId:ev.target.value}),placeholder:"ID llamada, gestion o caso"}))
           : h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Numero de telefono"),h("input",{style:INP,value:form.phoneNumber,onChange:ev=>updateForm({phoneNumber:ev.target.value}),placeholder:"Ej: 987654321"}))
@@ -8946,15 +9403,19 @@ function OperationalIncidentModal({isOpen,onClose,currentUser,advisorOptions,sta
       ),
       h("div",{style:{display:"flex",justifyContent:"flex-end",gap:12}},
         h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:onClose,disabled:isSaving},"CANCELAR"),
-        h("button",{style:{...BTN("pink"),padding:"10px 16px",opacity:isSaving?0.65:1},onClick:submit,disabled:isSaving},isSaving ? "GUARDANDO..." : "GUARDAR")
+        h("button",{style:{...BTN("pink"),padding:"10px 16px",opacity:isSaving?0.65:1},onClick:submit,disabled:isSaving},isSaving ? "GUARDANDO..." : (editMode ? "ACTUALIZAR" : "GUARDAR"))
       )
     )
   );
 }
 
-function OperationalIncidentsCenter({records,noTipificationRecords,currentUser,advisorOptions,staffing,onSave,onSaveNoTipification,notify}){
+function OperationalIncidentsCenter({records,noTipificationRecords,currentUser,advisorOptions,staffing,onSave,onSaveNoTipification,onUpdate,onDelete,notify}){
   const [modalOpen,setModalOpen] = useState(false);
+  const [editingIncident,setEditingIncident] = useState(null);
   const [filters,setFilters] = useState({dateFrom:"",dateTo:"",monitor:"all",advisor:"all",campaign:"all",type:"all",status:"all"});
+  const role = String(currentUser?.rol || "").trim().toLowerCase();
+  const canEditIncidents = ["admin","analista","formador"].includes(role);
+  const canDeleteIncidents = role === "admin";
   const rows = useMemo(() => [
     ...(Array.isArray(records) ? records : []).map(normalizeOperationalIncident),
     ...(Array.isArray(noTipificationRecords) ? noTipificationRecords : []).map(normalizeNoTipificationIncident)
@@ -8988,7 +9449,7 @@ function OperationalIncidentsCenter({records,noTipificationRecords,currentUser,a
         h("h1",{style:{fontSize:38,color:"#fff",margin:"0 0 8px"}},"Incidencias operativas"),
         h("div",{style:{color:"#9fb0d8",lineHeight:1.7,maxWidth:820}},"Registra y analiza No conectado y No tipificacion fuera de la ficha de calidad. No generan puntaje, no afectan promedio y no cuentan como evaluacion completada.")
       ),
-      h("button",{style:{...BTN("pink"),padding:"12px 16px"},onClick:()=>setModalOpen(true)},I("alert",14,"#fff"),"REGISTRAR INCIDENCIA")
+      h("button",{style:{...BTN("pink"),padding:"12px 16px"},onClick:()=>{setEditingIncident(null);setModalOpen(true);}},I("alert",14,"#fff"),"REGISTRAR INCIDENCIA")
     ),
     h("div",{style:{...CARD,padding:18,marginBottom:22}},
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:14}},
@@ -9026,10 +9487,14 @@ function OperationalIncidentsCenter({records,noTipificationRecords,currentUser,a
         {key:"campaignName",label:"Campana",render:row=>row.campaignName || "-"},
         {key:"incidentType",label:"Tipo"},
         {key:"observation",label:"Observacion",render:row=>h("div",{style:{maxWidth:360,lineHeight:1.5}},row.observation || "-")},
-        {key:"status",label:"Estado",render:row=>h("span",{style:{color:"#19C37D",fontWeight:900}},row.status || "Registrado")}
-      ]})
+        {key:"status",label:"Estado",render:row=>h("span",{style:{color:"#19C37D",fontWeight:900}},row.status || "Registrado")},
+        (canEditIncidents || canDeleteIncidents) && {key:"actions",label:"Acciones",render:row=>h("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
+          canEditIncidents && h("button",{style:{...BTN("out"),padding:"8px 10px"},onClick:()=>{setEditingIncident(row);setModalOpen(true);}},"EDITAR"),
+          canDeleteIncidents && h("button",{style:{...BTN("out"),padding:"8px 10px",color:THEME.accent,border:"1px solid rgba(230,0,168,0.35)"},onClick:async()=>{if(!confirm("Eliminar esta incidencia?")) return; await onDelete({id:row.id,sourceType:row.sourceType,currentUser});}},I("trash",12,THEME.accent),"ELIMINAR")
+        )}
+      ].filter(Boolean)})
     ),
-    h(OperationalIncidentModal,{isOpen:modalOpen,onClose:()=>setModalOpen(false),currentUser,advisorOptions,staffing,onSave,onSaveNoTipification,notify})
+    h(OperationalIncidentModal,{isOpen:modalOpen,onClose:()=>{setModalOpen(false);setEditingIncident(null);},currentUser,advisorOptions,staffing,onSave,onSaveNoTipification,onUpdate,initialRecord:editingIncident,notify})
   );
 }
 
@@ -10753,15 +11218,15 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
   const [trendComparison,setTrendComparison] = useState({baseMonth:"",comparedMonth:""});
   const dataset = useMemo(() => buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,noTipificationRecords,staffing,historico,users}), [currentUser,feedbackRecords,evaluationRecords,noTipificationRecords,staffing,historico,users]);
   const options = useMemo(() => buildImprovementOptions(dataset), [dataset]);
-  const selectedSmartGroupLabel = useMemo(() => (options.smartGroups || []).find(item => item.value === filters.smartGroup)?.label || "", [options,filters.smartGroup]);
+  const selectedAdvisors = normalizeImprovementAdvisorFilter(filters.advisor);
   const filtered = useMemo(() => applyImprovementFilters(dataset, filters), [dataset,filters]);
-  const advisorPoolForFilters = useMemo(() => applyImprovementFilters(dataset, {...filters,advisor:""}), [dataset,filters]);
+  const advisorPoolForFilters = useMemo(() => applyImprovementFilters(dataset, {...filters,advisor:[]}), [dataset,filters]);
   const contextualAdvisorOptions = useMemo(() => uniqueSortedValues([...(advisorPoolForFilters.feedbackRows || []).map(row => row.advisorName), ...(advisorPoolForFilters.noTipificationRows || []).map(row => row.advisorName)]), [advisorPoolForFilters]);
-  const activeAdvisor = filters.advisor || contextualAdvisorOptions[0] || options.advisors[0] || "";
-  const advisorFiltered = useMemo(() => applyImprovementFilters(dataset, {...filters,advisor:activeAdvisor}), [dataset,filters,activeAdvisor]);
+  const activeAdvisor = selectedAdvisors[0] || contextualAdvisorOptions[0] || options.advisors[0] || "";
+  const advisorFiltered = useMemo(() => applyImprovementFilters(dataset, {...filters,advisor:activeAdvisor ? [activeAdvisor] : []}), [dataset,filters,activeAdvisor]);
   const advisorInsight = useMemo(() => activeAdvisor ? buildAdvisorInsight(advisorFiltered.feedbackRows, advisorFiltered.sectionRows, advisorFiltered.noTipificationRows) : null, [activeAdvisor,advisorFiltered]);
   const effectiveSupervisor = filters.supervisor || "";
-  const groupFiltered = useMemo(() => applyImprovementFilters(dataset, {...filters,advisor:"",supervisor:effectiveSupervisor}), [dataset,filters,effectiveSupervisor]);
+  const groupFiltered = useMemo(() => applyImprovementFilters(dataset, {...filters,supervisor:effectiveSupervisor}), [dataset,filters,effectiveSupervisor]);
   const teamInsight = useMemo(() => buildTeamInsight(groupFiltered.feedbackRows, groupFiltered.sectionRows, groupFiltered.noTipificationRows), [groupFiltered]);
   const trendMonthOptions = useMemo(() => getTrendMonthOptions(teamInsight?.trend || []), [teamInsight]);
   const effectiveBaseMonth = trendComparison.baseMonth || (trendMonthOptions.length > 1 ? trendMonthOptions[trendMonthOptions.length - 2]?.value : trendMonthOptions[0]?.value) || "";
@@ -10897,6 +11362,15 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
     onOpenNoTipification(buildNoTipificationEntryContext(profile));
   };
 
+  const exportDashboardData = () => {
+    const rows = buildImprovementDashboardExportRows(filtered);
+    if (!rows.length) {
+      window.alert("No hay datos filtrados para descargar.");
+      return;
+    }
+    exportCSV(rows, "dashboard_mejora_entel");
+  };
+
   return h(Fragment,null,
     h("div",{style:{marginBottom:34}},
       h("div",{style:{fontSize:11,color:THEME.primary,textTransform:"uppercase",letterSpacing:"0.28em",fontWeight:800,marginBottom:12,fontFamily:THEME.displayFont}},"QUALITY SCOREBOARD"),
@@ -10907,9 +11381,10 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
       h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:18,flexWrap:"wrap"}},
         h("div",{style:{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}},
           h("button",{style:{...BTN(filtersOpen?"p":"out"),padding:"10px 14px"},onClick:()=>setFiltersOpen(prev=>!prev)},I("sliders",12,filtersOpen ? "#fff" : "#8b92a5"),filtersOpen ? "OCULTAR FILTROS" : "FILTROS"),
-          h("div",{style:{fontSize:11,color:"#8b92a5",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em"}},Object.values(filters).filter(Boolean).length," filtro(s) activo(s)")
+          h("div",{style:{fontSize:11,color:"#8b92a5",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em"}},countActiveImprovementFilters(filters)," filtro(s) activo(s)")
         ),
         h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},
+          h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:exportDashboardData},I("dl",12,"#fff"),"DESCARGAR CSV"),
           activeAdvisor && h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:()=>openAdvisorNoTipification(activeAdvisor)},I("alert",12,"#8b92a5"),"ALERTA NO TIPIFICACION"),
           activeAdvisor && h("button",{style:{...BTN("pink"),padding:"10px 14px"},onClick:()=>openAdvisorEvaluation(activeAdvisor)},I("file",12,"#fff"),"INGRESAR EVALUACION")
         )
@@ -10917,9 +11392,22 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
       filtersOpen && h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha desde"),h("input",{type:"date",style:INP,value:filters.dateFrom,onChange:ev=>setFilters(prev=>({...prev,dateFrom:ev.target.value}))})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha hasta"),h("input",{type:"date",style:INP,value:filters.dateTo,onChange:ev=>setFilters(prev=>({...prev,dateTo:ev.target.value}))})),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Asesor"),h("select",{style:SEL,value:filters.advisor,onChange:ev=>setFilters(prev=>({...prev,advisor:ev.target.value}))},h("option",{value:""},"Todos"),(contextualAdvisorOptions.length ? contextualAdvisorOptions : options.advisors).map(value=>h("option",{key:value,value},value)))),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Grupo inteligente"),h("select",{style:SEL,value:filters.smartGroup,onChange:ev=>setFilters(prev=>({...prev,smartGroup:ev.target.value,advisor:""}))},h("option",{value:""},"Todos los grupos"),options.smartGroups.map(item=>h("option",{key:item.value,value:item.value},item.label)))),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Cuartil"),h("select",{style:SEL,value:filters.quartile,onChange:ev=>setFilters(prev=>({...prev,quartile:ev.target.value,advisor:""}))},h("option",{value:""},"Todos"),options.quartiles.map(value=>h("option",{key:value,value},`${value} - ${value === "Q1" ? "Alto desempeno" : value === "Q2" ? "Medio-alto" : value === "Q3" ? "Medio-bajo" : "Bajo desempeno"}`)))),
+        h("div",null,
+          h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Asesores"),
+          h("div",{style:{...INP,height:"auto",minHeight:48,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8,maxHeight:190,overflowY:"auto"}},
+            h("label",{style:{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#fff",cursor:"pointer",fontWeight:700}},
+              h("input",{type:"checkbox",checked:!selectedAdvisors.length,onChange:()=>setFilters(prev=>({...prev,advisor:[]}))}),
+              h("span",null,"Todos")
+            ),
+            (contextualAdvisorOptions.length ? contextualAdvisorOptions : options.advisors).map(value=>h("label",{key:value,style:{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#c8d3ff",cursor:"pointer",lineHeight:1.25}},
+              h("input",{type:"checkbox",checked:selectedAdvisors.some(item=>normalizeName(item) === normalizeName(value)),onChange:()=>setFilters(prev=>({...prev,advisor:toggleImprovementAdvisorFilter(prev.advisor,value)}))}),
+              h("span",null,value)
+            )),
+            selectedAdvisors.length > 0 && h("button",{style:{...BTN("out"),padding:"7px 10px",alignSelf:"flex-start",marginTop:4},onClick:()=>setFilters(prev=>({...prev,advisor:[]}))},"LIMPIAR ASESORES")
+          ),
+          selectedAdvisors.length > 0 && h("div",{style:{fontSize:10,color:THEME.accent,marginTop:6,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em"}},selectedAdvisors.length," asesor(es) seleccionado(s)")
+        ),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Cuartil"),h("select",{style:SEL,value:filters.quartile,onChange:ev=>setFilters(prev=>({...prev,quartile:ev.target.value,advisor:[]}))},h("option",{value:""},"Todos"),options.quartiles.map(value=>h("option",{key:value,value},`${value} - ${value === "Q1" ? "Alto desempeno" : value === "Q2" ? "Medio-alto" : value === "Q3" ? "Medio-bajo" : "Bajo desempeno"}`)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Antiguedad"),h("select",{style:SEL,value:filters.antiguedadBucket,onChange:ev=>setFilters(prev=>({...prev,antiguedadBucket:ev.target.value}))},h("option",{value:""},"Todas"),options.antiguedadBuckets.map(value=>h("option",{key:value,value},value)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Supervisor"),h("select",{style:SEL,value:filters.supervisor,onChange:ev=>setFilters(prev=>({...prev,supervisor:ev.target.value}))},h("option",{value:""},"Todos"),options.supervisors.map(value=>h("option",{key:value,value},value)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Coordinador"),h("select",{style:SEL,value:filters.coordinador,onChange:ev=>setFilters(prev=>({...prev,coordinador:ev.target.value}))},h("option",{value:""},"Todos"),options.coordinadores.map(value=>h("option",{key:value,value},value)))),
@@ -10976,7 +11464,7 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
             h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:18,marginBottom:24}},
               h(ImprovementKpiCard,{label:"Cantidad de evaluaciones",value:String(teamInsight.totalEvaluations || 0),caption:"Evaluaciones guardadas con los filtros actuales",color:THEME.primary}),
               h(ImprovementKpiCard,{label:"Asesores evaluados",value:String(teamInsight.totalAdvisors),caption:`Supervisor: ${teamInsight.supervisor || "Todos"} - Coordinador: ${filters.coordinador || "Todos"}`,color:THEME.primary}),
-              h(ImprovementKpiCard,{label:"Grupo medido",value:selectedSmartGroupLabel ? "Inteligente" : (filters.quartile || "Todos"),caption:selectedSmartGroupLabel || `Antiguedad: ${filters.antiguedadBucket || "Todas"} - Gestion: ${filters.managementTypeRuc || "Todas"}`,color:THEME.violet}),
+              h(ImprovementKpiCard,{label:"Grupo medido",value:filters.quartile || "Todos",caption:`Antiguedad: ${filters.antiguedadBucket || "Todas"} - Gestion: ${filters.managementTypeRuc || "Todas"}`,color:THEME.violet}),
               h(ImprovementKpiCard,{label:"Promedio del equipo",value:teamInsight.generalCompliance !== null ? `${teamInsight.generalCompliance.toFixed(1)}%` : "Sin base",caption:`Asesores con mejora: ${teamInsight.improvementPct.toFixed(0)}%`,color:"#19C37D"}),
               h(ImprovementKpiCard,{label:"No tipificacion",value:String(teamInsight.totalNoTipification || 0),caption:"Alertas visibles con los filtros actuales",color:THEME.accent})
             ),
