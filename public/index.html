@@ -493,7 +493,7 @@ async function loadStaffing(){
     const richness = item => Object.values(item || {}).filter(value => String(value ?? "").trim()).length;
     if (!current || richness(scoped) >= richness(current)) bestByKey.set(key, scoped);
   });
-  return [...bestByKey.values()];
+  return removeDemoStaffingRows([...bestByKey.values()]);
 }
 
 async function saveUsers(users){
@@ -1159,6 +1159,20 @@ const DEMO_STAFF = ASESORES.map((a, i) => ({
   antiguedad: Math.floor(Math.random() * 36) + 3,
   fechaIngreso: ""
 }));
+
+function isDemoStaffingRecord(item){
+  const advisor = normalizeName(item?.asesor || item?.nombre || "");
+  if (!advisor) return false;
+  const isDemoAdvisor = ASESORES.some(name => normalizeName(name) === advisor);
+  if (!isDemoAdvisor) return false;
+  const supervisor = normalizeName(item?.supervisor || "");
+  const coordinator = normalizeName(item?.coordinador || "");
+  return supervisor.startsWith("SUPERVISOR ") || coordinator === normalizeName("COORD. OPERACIONES");
+}
+
+function removeDemoStaffingRows(records){
+  return (Array.isArray(records) ? records : []).filter(record => !isDemoStaffingRecord(record));
+}
 
 function parseAppDate(value){
   if (!value) return null;
@@ -4034,8 +4048,8 @@ function App(){
       if (st.length) {
         setStaffing(st);
       } else {
-        setStaffing(DEMO_STAFF);
-        await saveStaffing(DEMO_STAFF);
+        setStaffing([]);
+        console.info("[STAFFING]", "No se encontro dotacion real; demo deshabilitado.");
       }
     })();
   }, []);
@@ -5303,8 +5317,8 @@ function App(){
       if (st.length) {
         setStaffing(st);
       } else {
-        setStaffing(DEMO_STAFF);
-        await saveStaffing(DEMO_STAFF);
+        setStaffing([]);
+        console.info("[STAFFING]", "No se encontro dotacion real; demo deshabilitado.");
       }
     })();
   }, []);
@@ -5921,13 +5935,15 @@ function getDateMs(value){
 function isWithinDateRange(value, dateFrom, dateTo){
   const timestamp = getDateMs(value);
   if (!timestamp) return !dateFrom && !dateTo;
-  if (dateFrom) {
-    const startDate = parseAppDate(dateFrom);
+  const effectiveDateFrom = dateFrom || dateTo || "";
+  const effectiveDateTo = dateTo || dateFrom || "";
+  if (effectiveDateFrom) {
+    const startDate = parseAppDate(effectiveDateFrom);
     const start = startDate ? new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate(), 0, 0, 0, 0).getTime() : 0;
     if (timestamp < start) return false;
   }
-  if (dateTo) {
-    const endDate = parseAppDate(dateTo);
+  if (effectiveDateTo) {
+    const endDate = parseAppDate(effectiveDateTo);
     const end = endDate ? new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59, 999).getTime() : 0;
     if (timestamp > end) return false;
   }
@@ -6796,7 +6812,7 @@ function App(){
           });
           if (bootstrapUsers.length) setUsers(bootstrapUsers);
           let historicoData = Array.isArray(bootstrap.historico) ? bootstrap.historico : [];
-          let staffingData = Array.isArray(bootstrap.staffing) ? bootstrap.staffing : [];
+          let staffingData = removeDemoStaffingRows(Array.isArray(bootstrap.staffing) ? bootstrap.staffing : []);
           let feedbackData = Array.isArray(bootstrap.feedbackRecords) ? bootstrap.feedbackRecords : [];
           let evaluationData = Array.isArray(bootstrap.evaluationRecords) ? bootstrap.evaluationRecords : [];
           let noTipificationData = Array.isArray(bootstrap.noTipificationRecords) ? bootstrap.noTipificationRecords : [];
@@ -6836,8 +6852,8 @@ function App(){
           if (loadedStaffing.length) {
             setStaffing(loadedStaffing);
           } else {
-            setStaffing(DEMO_STAFF);
-            await saveStaffing(DEMO_STAFF);
+            setStaffing([]);
+            console.info("[STAFFING]", "No se encontro dotacion real; demo deshabilitado.");
           }
           return;
         }
@@ -6853,8 +6869,8 @@ function App(){
         if (loadedStaffing.length) {
           setStaffing(loadedStaffing);
         } else {
-          setStaffing(DEMO_STAFF);
-          await saveStaffing(DEMO_STAFF);
+          setStaffing([]);
+          console.info("[STAFFING]", "No se encontro dotacion real en fallback; demo deshabilitado.");
         }
       } catch (err) {
         const message = err?.message || "No se pudo cargar todos los datos de la plataforma.";
@@ -6871,7 +6887,8 @@ function App(){
         if (fallbackData.staffing.length) {
           setStaffing(fallbackData.staffing);
         } else {
-          setStaffing(DEMO_STAFF);
+          setStaffing([]);
+          console.info("[STAFFING]", "No se encontro dotacion real tras error; demo deshabilitado.");
         }
       }
     })();
@@ -11056,6 +11073,50 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
   );
 }
 
+function buildEntelStaffingRowsFromActivity(evaluationRecords, feedbackRecords, clientId, clientName){
+  const platformId = normalizeClientId(clientId || DEFAULT_PLATFORM_ID);
+  const platformName = clientName || getPlatformDisplayName(platformId);
+  const byAdvisor = new Map();
+  const isRemovedRecord = record => {
+    const status = normalizeComparableValue(record?.status || record?.estado || record?.state || "");
+    return record?.deleted === true || record?.isDeleted === true || ["eliminada","eliminado","deleted","borrada","borrado"].includes(status);
+  };
+  const addRecord = (record, sourceType) => {
+    const advisorName = normalizeName(
+      record?.asesor ||
+      record?.asesorNombre ||
+      record?.assessor ||
+      record?.assessorName ||
+      record?.advisorName ||
+      record?.advisor ||
+      record?.nombreAsesor ||
+      record?.ejecutivo
+    );
+    if (!advisorName || isRemovedRecord(record)) return;
+    const key = normalizeComparableValue(advisorName);
+    const current = byAdvisor.get(key) || {};
+    const rawManagement = record?.tipoGestionRuc || record?.tipoGestion || record?.managementTypeRuc || record?.managementType || record?.campaign;
+    const normalizedRuc = normalizeEntelRucType(rawManagement) || current.tipoGestionRuc || "RUC 10";
+    const next = {
+      ...current,
+      asesor: advisorName,
+      supervisor: normalizeName(record?.supervisor || record?.supervisorNombre || current.supervisor || ""),
+      coordinador: normalizeName(record?.coordinador || record?.coordinator || record?.coordinadorNombre || current.coordinador || ""),
+      antiguedad: Number(record?.antiguedad || current.antiguedad || 0),
+      fechaIngreso: record?.fechaIngreso || current.fechaIngreso || "",
+      tipoGestionRuc: normalizedRuc,
+      campaign: normalizedRuc,
+      dni: record?.dni || current.dni || "",
+      estado: normalizeProfileStatus(current.estado || record?.estado || "activo"),
+      recoveredFrom: current.recoveredFrom || sourceType
+    };
+    byAdvisor.set(key, tagRecordForPlatform(next, platformId, platformName));
+  };
+  (Array.isArray(evaluationRecords) ? evaluationRecords : []).forEach(record => addRecord(record, "evaluaciones"));
+  (Array.isArray(feedbackRecords) ? feedbackRecords : []).forEach(record => addRecord(record, "feedbacks"));
+  return [...byAdvisor.values()].filter(item => normalizeName(item?.asesor)).filter(item => !isDemoStaffingRecord(item));
+}
+
 function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName,notify,onOpenFeedback,onOpenEvaluation,onOpenEvaluationHistory,onOpenNoTipification,evaluationRecords,feedbackRecords,currentUser}){
   const [form,setForm] = useState({asesor:"",supervisor:"",coordinador:"",antiguedad:"",fechaIngreso:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
   const [editingAdvisor,setEditingAdvisor] = useState("");
@@ -11067,6 +11128,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
   const isCulqiStaffing = isCulqiPlatform(clientId);
   const defaultManagementType = isCulqiStaffing ? "" : "RUC 10";
   const visibleStaffing = useMemo(() => (staffing || [])
+    .filter(item => !isDemoStaffingRecord(item))
     .filter(item => normalizeName(item?.asesor))
     .filter(item => {
       if (isCulqiStaffing) return true;
@@ -11078,6 +11140,24 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
       const normalizedRuc = normalizeEntelRucType(item?.tipoGestionRuc || item?.campaign) || defaultManagementType;
       return {...item,tipoGestionRuc:normalizedRuc,campaign:normalizedRuc};
     }), [staffing,isCulqiStaffing,defaultManagementType]);
+  const activityStaffing = useMemo(() => isCulqiStaffing ? [] : buildEntelStaffingRowsFromActivity(evaluationRecords, feedbackRecords, clientId, clientName), [isCulqiStaffing,evaluationRecords,feedbackRecords,clientId,clientName]);
+  const displayedStaffing = useMemo(() => {
+    const byAdvisor = new Map();
+    const mergeRecords = (base, next) => {
+      const merged = {...base, ...next};
+      ["supervisor","coordinador","tipoGestionRuc","campaign","dni","fechaIngreso","usuarioAsignado","clientId","clientName"].forEach(field => {
+        if (!String(merged?.[field] ?? "").trim() && String(base?.[field] ?? "").trim()) merged[field] = base[field];
+      });
+      if (!Number(merged.antiguedad) && Number(base?.antiguedad)) merged.antiguedad = base.antiguedad;
+      return merged;
+    };
+    [...activityStaffing, ...visibleStaffing].forEach(item => {
+      const key = normalizeComparableValue(item?.asesor);
+      if (!key) return;
+      byAdvisor.set(key, byAdvisor.has(key) ? mergeRecords(byAdvisor.get(key), item) : item);
+    });
+    return [...byAdvisor.values()].sort((a,b) => normalizeName(a?.asesor).localeCompare(normalizeName(b?.asesor)));
+  }, [activityStaffing, visibleStaffing]);
   useEffect(() => {
     if (isCulqiStaffing && ["RUC 10","RUC 20"].includes(String(form.tipoGestionRuc || "").trim())) {
       setForm(prev => ({...prev,tipoGestionRuc:""}));
@@ -11122,7 +11202,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
     if (!form.asesor.trim() || !form.supervisor.trim()) { notify("e","Completa asesor y supervisor."); return; }
     if (String(form.dni || "").trim() && !/^\d{8}$/.test(String(form.dni).trim())) { notify("e","El DNI debe tener 8 digitos."); return; }
     const newItem = tagRecordForPlatform({...form,asesor:form.asesor.trim().toUpperCase(),antiguedad:+form.antiguedad || 0,estado:normalizeProfileStatus(form.estado || "activo")}, clientId || DEFAULT_PLATFORM_ID, clientName);
-    const updated = [...visibleStaffing, newItem];
+    const updated = [...displayedStaffing, newItem];
     const saved = await savePlatformStaffing(updated);
     if (saved === false) { notify("e","No se pudo guardar staffing."); return; }
     if (typeof setStaffing === "function" && typeof onSaveStaffing !== "function") setStaffing(updated);
@@ -11146,7 +11226,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
   const saveEdit = async asesor => {
     if (!String(editForm.supervisor || "").trim()) { notify("e","El supervisor es obligatorio."); return; }
     if (String(editForm.dni || "").trim() && !/^\d{8}$/.test(String(editForm.dni).trim())) { notify("e","El DNI debe tener 8 digitos."); return; }
-    const updated = visibleStaffing.map(item => item.asesor === asesor ? {
+    const updated = displayedStaffing.map(item => item.asesor === asesor ? {
       ...item,
       supervisor: String(editForm.supervisor || "").trim(),
       coordinador: String(editForm.coordinador || "").trim(),
@@ -11163,14 +11243,14 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
   const toggleStatus = async(item) => {
     if (!canChangeStatus) return;
     const nextStatus = isStaffingActive(item) ? "cesado" : "activo";
-    const updated = visibleStaffing.map(row => row.asesor === item.asesor ? {...row, estado: nextStatus} : row);
+    const updated = displayedStaffing.map(row => row.asesor === item.asesor ? {...row, estado: nextStatus} : row);
     const targetItem = {...item, estado: nextStatus};
     const saved = await saveStaffingAndUserStatus(updated, targetItem, nextStatus, "No se pudo actualizar el estado.");
     if (!saved) return;
     notify("s", nextStatus === "cesado" ? "Perfil cesado. Historial conservado y acceso bloqueado." : "Perfil activado nuevamente.");
   };
   const remove = async(asesor) => {
-    const updated = visibleStaffing.filter(s => s.asesor !== asesor);
+    const updated = displayedStaffing.filter(s => s.asesor !== asesor);
     const saved = await savePlatformStaffing(updated);
     if (saved === false) { notify("e","No se pudo eliminar el asesor."); return; }
     if (typeof setStaffing === "function" && typeof onSaveStaffing !== "function") setStaffing(updated);
@@ -11197,12 +11277,12 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
       h("button",{style:{...BTN("p"),justifyContent:"center"},onClick:add}, I("plus",14,"#fff"), "AGREGAR ASESOR")
     ),
     h("div",{style:CARD},
-      h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:20}}, visibleStaffing.length, " asesores registrados"),
+      h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:20}}, displayedStaffing.length, " asesores registrados"),
       h("div",{style:{overflowX:"auto"}},
         h("table",{style:{width:"100%",borderCollapse:"collapse"}},
           h("thead",null,h("tr",null,["Asesor","DNI","Supervisor","Coordinador","Antiguedad",isCulqiStaffing ? "Campana" : "Tipo gestion","Estado","Evaluaciones ingresadas","Acciones"].map(hd => h("th",{key:hd,style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}, hd)))),
           h("tbody",null,
-            visibleStaffing.map(s => {
+            displayedStaffing.map(s => {
               const advisorEvaluations = getAdvisorEvaluationHistory(evaluationRecords, s.asesor);
               const advisorFeedbacks = getAdvisorFeedbackHistory(feedbackRecords, s.asesor);
               const isEditing = editingAdvisor === s.asesor;
