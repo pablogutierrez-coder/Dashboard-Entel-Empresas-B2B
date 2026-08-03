@@ -5797,6 +5797,17 @@ function normalizeComparableValue(value){
     .toLowerCase();
 }
 
+function normalizeEntelRucType(value){
+  const normalized = normalizeComparableValue(value).replace(/\s+/g, "");
+  if (normalized === "ruc10" || normalized.includes("ruc10")) return "RUC 10";
+  if (normalized === "ruc20" || normalized.includes("ruc20")) return "RUC 20";
+  return "";
+}
+
+function isEntelRucType(value){
+  return Boolean(normalizeEntelRucType(value));
+}
+
 function formatDateTime(value){
   if (!value) return "-";
   const date = new Date(value);
@@ -5911,11 +5922,13 @@ function isWithinDateRange(value, dateFrom, dateTo){
   const timestamp = getDateMs(value);
   if (!timestamp) return !dateFrom && !dateTo;
   if (dateFrom) {
-    const start = new Date(dateFrom + "T00:00:00").getTime();
+    const startDate = parseAppDate(dateFrom);
+    const start = startDate ? new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate(), 0, 0, 0, 0).getTime() : 0;
     if (timestamp < start) return false;
   }
   if (dateTo) {
-    const end = new Date(dateTo + "T23:59:59").getTime();
+    const endDate = parseAppDate(dateTo);
+    const end = endDate ? new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59, 999).getTime() : 0;
     if (timestamp > end) return false;
   }
   return true;
@@ -8007,6 +8020,7 @@ function buildNoTipificationByAdvisor(noTipificationRows){
 
 function buildAdvisorInsight(feedbackRows, sectionRows, noTipificationRows){
   if (!feedbackRows.length) return null;
+  const evaluationRows = (feedbackRows || []).filter(row => row.sourceType === "evaluation");
   const latest = getLatestFeedbackRow(feedbackRows);
   const scoreSeries = buildEvaluationScoreSeries(sectionRows);
   const weeklyTrend = buildTrendByPeriod(sectionRows);
@@ -8031,7 +8045,7 @@ function buildAdvisorInsight(feedbackRows, sectionRows, noTipificationRows){
     fechaIngreso: latest?.fechaIngreso || "-",
     quartile,
     quartileColor: getQuartileColor(quartile),
-    evaluationCount: feedbackRows.length,
+    evaluationCount: evaluationRows.length,
     feedbackCount: getManagementCounter(feedbackRows, "Feedback"),
     reinforcementCount: getManagementCounter(feedbackRows, "Refuerzo"),
     clinicCount: getManagementCounter(feedbackRows, "Clinica de calidad"),
@@ -8177,10 +8191,14 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
     const advisorName = evaluation?.asesorNombre || linkedFeedback?.asesorNombre || linkedFeedback?.assessor || "-";
     const staffingItem = (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
     const isOjt = isOjtEvaluationRecord(evaluation);
-    const campaign = isOjt ? "OJT" : (evaluation?.campaign || linkedFeedback?.campaign || staffingItem?.tipoGestionRuc || staffingItem?.campaign || "");
+    const campaignSource = evaluation?.managementTypeRuc || evaluation?.tipoGestionRuc || evaluation?.campaign || linkedFeedback?.managementTypeRuc || linkedFeedback?.tipoGestionRuc || linkedFeedback?.campaign || staffingItem?.tipoGestionRuc || staffingItem?.campaign || "";
+    const normalizedRuc = normalizeEntelRucType(campaignSource);
+    const campaign = isOjt ? "OJT" : (normalizedRuc || campaignSource || "");
     const score = extractEvaluationPct(evaluation?.resultadoGeneral);
     const historicalQuartile = quartileLookup[normalizeName(advisorName)] || {};
     const quartile = getQuartileFromScore(score) || historicalQuartile.quartile || "";
+    const supervisor = evaluation?.supervisor || evaluation?.supervisorName || linkedFeedback?.supervisor || linkedFeedback?.supervisorName || staffingItem?.supervisor || "";
+    const coordinador = evaluation?.coordinador || evaluation?.coordinator || linkedFeedback?.coordinador || linkedFeedback?.coordinator || staffingItem?.coordinador || "";
     return {
       ...(linkedFeedback || {}),
       id: `evaluation-${evaluation.id}`,
@@ -8188,8 +8206,8 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
       evaluationMode: isOjt ? "ojt" : "operacion",
       isOjt,
       advisorName,
-      supervisor: isOjt ? "OJT" : (staffingItem?.supervisor || ""),
-      coordinador: isOjt ? (evaluation?.formadorNombre || "") : (staffingItem?.coordinador || ""),
+      supervisor: isOjt ? "OJT" : supervisor,
+      coordinador: isOjt ? (evaluation?.formadorNombre || "") : coordinador,
       antiguedad: Number(staffingItem?.antiguedad || 0) || 0,
       fechaIngreso: staffingItem?.fechaIngreso || "",
       managementTypeRuc: campaign || "",
@@ -8223,7 +8241,8 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
     .map(record => {
       const advisorName = record?.asesorNombre || record?.assessor || "-";
       const staffingItem = (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
-      const campaign = record?.campaign || staffingItem?.tipoGestionRuc || staffingItem?.campaign || "";
+      const campaignSource = record?.managementTypeRuc || record?.tipoGestionRuc || record?.campaign || staffingItem?.tipoGestionRuc || staffingItem?.campaign || "";
+      const campaign = normalizeEntelRucType(campaignSource) || campaignSource || "";
       const score = extractEvaluationPct(record?.resultadoGeneral);
       const historicalQuartile = quartileLookup[normalizeName(advisorName)] || {};
       return {
@@ -8299,6 +8318,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
     .map(item => {
       const advisorName = item?.asesorNombre || "-";
       const staffingItem = (staffing || []).find(entry => normalizeName(entry?.asesor) === normalizeName(advisorName));
+      const managementTypeRuc = normalizeEntelRucType(item?.managementTypeRuc || item?.tipoGestionRuc || staffingItem?.tipoGestionRuc || staffingItem?.campaign) || item?.managementTypeRuc || staffingItem?.tipoGestionRuc || "";
       return {
         ...item,
         advisorName,
@@ -8306,7 +8326,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
         coordinador: item?.coordinador || staffingItem?.coordinador || "",
         antiguedad: Number(item?.antiguedad || staffingItem?.antiguedad || 0) || 0,
         fechaIngreso: item?.fechaIngreso || staffingItem?.fechaIngreso || "",
-        managementTypeRuc: item?.managementTypeRuc || staffingItem?.tipoGestionRuc || "",
+        managementTypeRuc,
         quartile: quartileLookup[normalizeName(advisorName)]?.quartile || ""
       };
     });
@@ -8630,12 +8650,14 @@ function countActiveImprovementFilters(filters){
 }
 
 function buildImprovementOptions(dataset){
+  const rucOptions = uniqueSortedValues([...(dataset.feedbackRows || []).map(row => normalizeEntelRucType(row.managementTypeRuc)), ...(dataset.noTipificationRows || []).map(row => normalizeEntelRucType(row.managementTypeRuc))])
+    .filter(value => value === "RUC 10" || value === "RUC 20");
   return {
     advisors: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.advisorName), ...(dataset.noTipificationRows || []).map(row => row.advisorName)]),
     supervisors: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.supervisor), ...(dataset.noTipificationRows || []).map(row => row.supervisor)]),
     coordinadores: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.coordinador), ...(dataset.noTipificationRows || []).map(row => row.coordinador)]),
     antiguedadBuckets: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => getAntiguedadBucket(row.antiguedad)), ...(dataset.noTipificationRows || []).map(row => getAntiguedadBucket(row.antiguedad))]),
-    managementTypesRuc: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.managementTypeRuc), ...(dataset.noTipificationRows || []).map(row => row.managementTypeRuc)]),
+    managementTypesRuc: rucOptions.length ? rucOptions : ["RUC 10","RUC 20"],
     quartiles: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.quartile), ...(dataset.noTipificationRows || []).map(row => row.quartile)]).filter(value => /^Q[1-4]$/.test(value)),
     smartGroups: buildImprovementSmartGroupOptions(dataset)
   };
@@ -8665,7 +8687,7 @@ function applyImprovementFilters(dataset, filters){
     if (filters.antiguedadBucket && getAntiguedadBucket(row.antiguedad) !== filters.antiguedadBucket) return false;
     if (filters.supervisor && !sameOption(row.supervisor, filters.supervisor)) return false;
     if (filters.coordinador && !sameOption(row.coordinador, filters.coordinador)) return false;
-    if (filters.managementTypeRuc && !sameOption(row.managementTypeRuc, filters.managementTypeRuc)) return false;
+    if (filters.managementTypeRuc && normalizeEntelRucType(row.managementTypeRuc) !== normalizeEntelRucType(filters.managementTypeRuc)) return false;
     return true;
   };
   const filteredFeedbackRows = (dataset.feedbackRows || []).filter(matchRow);
@@ -8688,50 +8710,60 @@ function applyImprovementFilters(dataset, filters){
   return {feedbackRows:filteredFeedbackRows, sectionRows:filteredSectionRows, noTipificationRows:filteredNoTipificationRows};
 }
 
+function getWeekOfMonthNumber(value){
+  const date = parseAppDate(value);
+  if (!date) return 0;
+  return Math.min(4, Math.max(1, Math.ceil(date.getDate() / 7)));
+}
+
+function formatAveragePct(values){
+  const valid = (values || []).map(Number).filter(value => !Number.isNaN(value));
+  if (!valid.length) return "";
+  return `${averageNumeric(valid).toFixed(1)}%`;
+}
+
+function compactObservationText(values){
+  const unique = getUniqueSample(values, 4);
+  return unique.join(" | ");
+}
+
 function buildImprovementDashboardExportRows(filteredData){
-  const rows = [];
-  (filteredData?.feedbackRows || []).forEach(row => rows.push({
-    TipoRegistro: "Evaluacion",
-    Fecha: formatFeedbackDate(row.feedbackDate || row.createdAt),
-    Asesor: row.advisorName || "",
-    Supervisor: row.supervisor || "",
-    Coordinador: row.coordinador || "",
-    TipoGestion: row.managementTypeRuc || row.campaign || "",
-    Cuartil: row.quartile || "",
-    Nota: row.score ?? "",
-    Estado: row.statusLabel || row.currentStatusLabel || row.estado || "",
-    Auditor: row.analystName || row.auditorName || "",
-    Observacion: row.observacionGeneral || row.feedbackText || ""
-  }));
-  (filteredData?.sectionRows || []).forEach(row => rows.push({
-    TipoRegistro: "Detalle item",
-    Fecha: formatFeedbackDate(row.date),
-    Asesor: row.advisorName || "",
-    Supervisor: row.supervisor || "",
-    Coordinador: row.coordinador || "",
-    TipoGestion: row.managementTypeRuc || row.campaign || "",
-    Cuartil: row.quartile || "",
-    Item: row.sectionName || row.itemName || "",
-    SubItem: row.attribute || row.subItemName || "",
-    Resultado: row.result || "",
-    Peso: row.weight ?? "",
-    Puntaje: row.score ?? "",
-    Observacion: row.comment || row.observacion || ""
-  }));
-  (filteredData?.noTipificationRows || []).forEach(row => rows.push({
-    TipoRegistro: "Incidencia",
-    Fecha: formatFeedbackDate(row.callDateTime || row.createdAt),
-    Asesor: row.advisorName || "",
-    Supervisor: row.supervisor || "",
-    Coordinador: row.coordinador || "",
-    TipoGestion: row.managementTypeRuc || row.campaign || "",
-    TipoIncidencia: row.incidentType || "No tipificacion",
-    Telefono: row.phoneNumber || "",
-    Duracion: row.callDuration || "",
-    RegistradoPor: row.createdByName || row.monitorName || "",
-    Observacion: row.observation || ""
-  }));
-  return rows;
+  const sourceRows = (filteredData?.feedbackRows || []).filter(row => row.sourceType === "evaluation");
+  const evaluationRows = sourceRows.length ? sourceRows : (filteredData?.feedbackRows || []);
+  const grouped = new Map();
+  evaluationRows.forEach(row => {
+    const advisor = normalizeName(row.advisorName);
+    if (!advisor) return;
+    const ruc = normalizeEntelRucType(row.managementTypeRuc || row.campaign) || row.managementTypeRuc || row.campaign || "";
+    const key = `${ruc}||${advisor}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        ruc,
+        advisor,
+        quartile: row.quartile || "",
+        weeks: {1:[],2:[],3:[],4:[]},
+        observations: []
+      });
+    }
+    const bucket = grouped.get(key);
+    const week = getWeekOfMonthNumber(row.feedbackDate || row.createdAt || row.lastActionDate);
+    const score = Number(row.score);
+    if (week && !Number.isNaN(score)) bucket.weeks[week].push(score);
+    if (!bucket.quartile && row.quartile) bucket.quartile = row.quartile;
+    bucket.observations.push(row.observacionGeneral || row.feedbackText || row.compromisoMejora || "");
+  });
+  return [...grouped.values()]
+    .sort((a,b)=>a.ruc.localeCompare(b.ruc, "es") || a.advisor.localeCompare(b.advisor, "es"))
+    .map(item => ({
+      RUC: item.ruc,
+      Asesor: item.advisor,
+      Cuartil: item.quartile || "",
+      "Evaluaciones semana 1": formatAveragePct(item.weeks[1]),
+      "Evaluaciones semana 2": formatAveragePct(item.weeks[2]),
+      "Evaluaciones semana 3": formatAveragePct(item.weeks[3]),
+      "Evaluaciones semana 4": formatAveragePct(item.weeks[4]),
+      Observaciones: compactObservationText(item.observations)
+    }));
 }
 
 const NO_CONNECTED_OBSERVATION = "No se encuentra audio disponible en inConcert para realizar la evaluacion de calidad. Se registra la incidencia operativa 'No conectado' para seguimiento correspondiente.";
@@ -11034,6 +11066,18 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
   const canChangeStatus = role === "admin";
   const isCulqiStaffing = isCulqiPlatform(clientId);
   const defaultManagementType = isCulqiStaffing ? "" : "RUC 10";
+  const visibleStaffing = useMemo(() => (staffing || [])
+    .filter(item => normalizeName(item?.asesor))
+    .filter(item => {
+      if (isCulqiStaffing) return true;
+      const rawManagement = String(item?.tipoGestionRuc || item?.campaign || "").trim();
+      return !rawManagement || isEntelRucType(rawManagement);
+    })
+    .map(item => {
+      if (isCulqiStaffing) return item;
+      const normalizedRuc = normalizeEntelRucType(item?.tipoGestionRuc || item?.campaign) || defaultManagementType;
+      return {...item,tipoGestionRuc:normalizedRuc,campaign:normalizedRuc};
+    }), [staffing,isCulqiStaffing,defaultManagementType]);
   useEffect(() => {
     if (isCulqiStaffing && ["RUC 10","RUC 20"].includes(String(form.tipoGestionRuc || "").trim())) {
       setForm(prev => ({...prev,tipoGestionRuc:""}));
@@ -11078,7 +11122,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
     if (!form.asesor.trim() || !form.supervisor.trim()) { notify("e","Completa asesor y supervisor."); return; }
     if (String(form.dni || "").trim() && !/^\d{8}$/.test(String(form.dni).trim())) { notify("e","El DNI debe tener 8 digitos."); return; }
     const newItem = tagRecordForPlatform({...form,asesor:form.asesor.trim().toUpperCase(),antiguedad:+form.antiguedad || 0,estado:normalizeProfileStatus(form.estado || "activo")}, clientId || DEFAULT_PLATFORM_ID, clientName);
-    const updated = [...staffing, newItem];
+    const updated = [...visibleStaffing, newItem];
     const saved = await savePlatformStaffing(updated);
     if (saved === false) { notify("e","No se pudo guardar staffing."); return; }
     if (typeof setStaffing === "function" && typeof onSaveStaffing !== "function") setStaffing(updated);
@@ -11102,7 +11146,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
   const saveEdit = async asesor => {
     if (!String(editForm.supervisor || "").trim()) { notify("e","El supervisor es obligatorio."); return; }
     if (String(editForm.dni || "").trim() && !/^\d{8}$/.test(String(editForm.dni).trim())) { notify("e","El DNI debe tener 8 digitos."); return; }
-    const updated = staffing.map(item => item.asesor === asesor ? {
+    const updated = visibleStaffing.map(item => item.asesor === asesor ? {
       ...item,
       supervisor: String(editForm.supervisor || "").trim(),
       coordinador: String(editForm.coordinador || "").trim(),
@@ -11119,14 +11163,14 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
   const toggleStatus = async(item) => {
     if (!canChangeStatus) return;
     const nextStatus = isStaffingActive(item) ? "cesado" : "activo";
-    const updated = staffing.map(row => row.asesor === item.asesor ? {...row, estado: nextStatus} : row);
+    const updated = visibleStaffing.map(row => row.asesor === item.asesor ? {...row, estado: nextStatus} : row);
     const targetItem = {...item, estado: nextStatus};
     const saved = await saveStaffingAndUserStatus(updated, targetItem, nextStatus, "No se pudo actualizar el estado.");
     if (!saved) return;
     notify("s", nextStatus === "cesado" ? "Perfil cesado. Historial conservado y acceso bloqueado." : "Perfil activado nuevamente.");
   };
   const remove = async(asesor) => {
-    const updated = staffing.filter(s => s.asesor !== asesor);
+    const updated = visibleStaffing.filter(s => s.asesor !== asesor);
     const saved = await savePlatformStaffing(updated);
     if (saved === false) { notify("e","No se pudo eliminar el asesor."); return; }
     if (typeof setStaffing === "function" && typeof onSaveStaffing !== "function") setStaffing(updated);
@@ -11153,12 +11197,12 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
       h("button",{style:{...BTN("p"),justifyContent:"center"},onClick:add}, I("plus",14,"#fff"), "AGREGAR ASESOR")
     ),
     h("div",{style:CARD},
-      h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:20}}, staffing.length, " asesores registrados"),
+      h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:20}}, visibleStaffing.length, " asesores registrados"),
       h("div",{style:{overflowX:"auto"}},
         h("table",{style:{width:"100%",borderCollapse:"collapse"}},
           h("thead",null,h("tr",null,["Asesor","DNI","Supervisor","Coordinador","Antiguedad",isCulqiStaffing ? "Campana" : "Tipo gestion","Estado","Evaluaciones ingresadas","Acciones"].map(hd => h("th",{key:hd,style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}, hd)))),
           h("tbody",null,
-            staffing.map(s => {
+            visibleStaffing.map(s => {
               const advisorEvaluations = getAdvisorEvaluationHistory(evaluationRecords, s.asesor);
               const advisorFeedbacks = getAdvisorFeedbackHistory(feedbackRecords, s.asesor);
               const isEditing = editingAdvisor === s.asesor;
@@ -11215,6 +11259,7 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
   const [filters,setFilters] = useState(() => buildEmptyImprovementFilters(currentUser));
   const [scope,setScope] = useState("individual");
   const [filtersOpen,setFiltersOpen] = useState(false);
+  const [advisorListOpen,setAdvisorListOpen] = useState(false);
   const [trendComparison,setTrendComparison] = useState({baseMonth:"",comparedMonth:""});
   const dataset = useMemo(() => buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,noTipificationRecords,staffing,historico,users}), [currentUser,feedbackRecords,evaluationRecords,noTipificationRecords,staffing,historico,users]);
   const options = useMemo(() => buildImprovementOptions(dataset), [dataset]);
@@ -11394,16 +11439,22 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha hasta"),h("input",{type:"date",style:INP,value:filters.dateTo,onChange:ev=>setFilters(prev=>({...prev,dateTo:ev.target.value}))})),
         h("div",null,
           h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Asesores"),
-          h("div",{style:{...INP,height:"auto",minHeight:48,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8,maxHeight:190,overflowY:"auto"}},
-            h("label",{style:{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#fff",cursor:"pointer",fontWeight:700}},
-              h("input",{type:"checkbox",checked:!selectedAdvisors.length,onChange:()=>setFilters(prev=>({...prev,advisor:[]}))}),
-              h("span",null,"Todos")
+          h("div",{style:{position:"relative"}},
+            h("button",{type:"button",style:{...INP,width:"100%",height:48,textAlign:"left",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",color:"#fff"},onClick:()=>setAdvisorListOpen(prev=>!prev)},
+              h("span",null,selectedAdvisors.length ? `${selectedAdvisors.length} asesor(es) seleccionado(s)` : "Todos"),
+              h("span",{style:{color:"#8b92a5",fontSize:12}},advisorListOpen ? "OCULTAR" : "VER")
             ),
-            (contextualAdvisorOptions.length ? contextualAdvisorOptions : options.advisors).map(value=>h("label",{key:value,style:{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#c8d3ff",cursor:"pointer",lineHeight:1.25}},
-              h("input",{type:"checkbox",checked:selectedAdvisors.some(item=>normalizeName(item) === normalizeName(value)),onChange:()=>setFilters(prev=>({...prev,advisor:toggleImprovementAdvisorFilter(prev.advisor,value)}))}),
-              h("span",null,value)
-            )),
-            selectedAdvisors.length > 0 && h("button",{style:{...BTN("out"),padding:"7px 10px",alignSelf:"flex-start",marginTop:4},onClick:()=>setFilters(prev=>({...prev,advisor:[]}))},"LIMPIAR ASESORES")
+            advisorListOpen && h("div",{style:{position:"absolute",zIndex:20,top:"calc(100% + 8px)",left:0,right:0,background:"#090911",border:`1px solid ${THEME.border}`,borderRadius:14,padding:12,boxShadow:"0 18px 38px rgba(0,0,0,0.35)",maxHeight:240,overflowY:"auto"}},
+              h("label",{style:{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#fff",cursor:"pointer",fontWeight:700,padding:"8px 6px"}},
+                h("input",{type:"checkbox",checked:!selectedAdvisors.length,onChange:()=>setFilters(prev=>({...prev,advisor:[]}))}),
+                h("span",null,"Todos")
+              ),
+              (contextualAdvisorOptions.length ? contextualAdvisorOptions : options.advisors).map(value=>h("label",{key:value,style:{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#c8d3ff",cursor:"pointer",lineHeight:1.25,padding:"8px 6px",borderTop:"1px solid rgba(255,255,255,0.04)"}},
+                h("input",{type:"checkbox",checked:selectedAdvisors.some(item=>normalizeName(item) === normalizeName(value)),onChange:()=>setFilters(prev=>({...prev,advisor:toggleImprovementAdvisorFilter(prev.advisor,value)}))}),
+                h("span",null,value)
+              )),
+              selectedAdvisors.length > 0 && h("button",{style:{...BTN("out"),padding:"7px 10px",alignSelf:"flex-start",marginTop:8},onClick:()=>setFilters(prev=>({...prev,advisor:[]}))},"LIMPIAR ASESORES")
+            )
           ),
           selectedAdvisors.length > 0 && h("div",{style:{fontSize:10,color:THEME.accent,marginTop:6,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em"}},selectedAdvisors.length," asesor(es) seleccionado(s)")
         ),
@@ -11411,7 +11462,7 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Antiguedad"),h("select",{style:SEL,value:filters.antiguedadBucket,onChange:ev=>setFilters(prev=>({...prev,antiguedadBucket:ev.target.value}))},h("option",{value:""},"Todas"),options.antiguedadBuckets.map(value=>h("option",{key:value,value},value)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Supervisor"),h("select",{style:SEL,value:filters.supervisor,onChange:ev=>setFilters(prev=>({...prev,supervisor:ev.target.value}))},h("option",{value:""},"Todos"),options.supervisors.map(value=>h("option",{key:value,value},value)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Coordinador"),h("select",{style:SEL,value:filters.coordinador,onChange:ev=>setFilters(prev=>({...prev,coordinador:ev.target.value}))},h("option",{value:""},"Todos"),options.coordinadores.map(value=>h("option",{key:value,value},value)))),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Tipo de gestion"),h("select",{style:SEL,value:filters.managementTypeRuc,onChange:ev=>setFilters(prev=>({...prev,managementTypeRuc:ev.target.value}))},h("option",{value:""},"Todos"),options.managementTypesRuc.map(value=>h("option",{key:value,value},value))))
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Tipo de gestion"),h("select",{style:SEL,value:filters.managementTypeRuc,onChange:ev=>setFilters(prev=>({...prev,managementTypeRuc:ev.target.value}))},h("option",{value:""},"Todos"),["RUC 10","RUC 20"].map(value=>h("option",{key:value,value},value))))
       )
     ),
     h("div",{style:{display:"flex",gap:12,marginBottom:24,flexWrap:"wrap"}},
