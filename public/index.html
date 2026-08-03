@@ -11143,11 +11143,30 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
   const activityStaffing = useMemo(() => isCulqiStaffing ? [] : buildEntelStaffingRowsFromActivity(evaluationRecords, feedbackRecords, clientId, clientName), [isCulqiStaffing,evaluationRecords,feedbackRecords,clientId,clientName]);
   const displayedStaffing = useMemo(() => {
     const byAdvisor = new Map();
+    const tokenList = value => normalizeComparableValue(value).split(" ").filter(Boolean);
+    const nameMatchScore = (left, right) => {
+      const a = tokenList(left);
+      const b = tokenList(right);
+      if (!a.length || !b.length) return 0;
+      const bSet = new Set(b);
+      const matches = a.filter(token => bSet.has(token)).length;
+      return matches / Math.max(a.length, b.length);
+    };
+    const isWeakOrgValue = (value, advisorName = "") => {
+      const normalized = normalizeComparableValue(value);
+      const advisorKey = normalizeComparableValue(advisorName);
+      return !normalized || normalized === "-" || normalized === advisorKey || normalized === "supervisor entel";
+    };
     const mergeRecords = (base, next) => {
       const merged = {...base, ...next};
-      ["supervisor","coordinador","tipoGestionRuc","campaign","dni","fechaIngreso","usuarioAsignado","clientId","clientName"].forEach(field => {
-        if (!String(merged?.[field] ?? "").trim() && String(base?.[field] ?? "").trim()) merged[field] = base[field];
+      const advisorKey = normalizeComparableValue(next?.asesor || base?.asesor || "");
+      ["supervisor","coordinador"].forEach(field => {
+        if (isWeakOrgValue(next?.[field], advisorKey) && !isWeakOrgValue(base?.[field], advisorKey)) merged[field] = base[field];
       });
+      ["tipoGestionRuc","campaign","dni","fechaIngreso","usuarioAsignado","clientId","clientName"].forEach(field => {
+        if (!String(next?.[field] ?? "").trim() && String(base?.[field] ?? "").trim()) merged[field] = base[field];
+      });
+      if (isWeakOrgValue(merged.coordinador, advisorKey) && !isWeakOrgValue(merged.supervisor, advisorKey)) merged.coordinador = merged.supervisor;
       if (!Number(merged.antiguedad) && Number(base?.antiguedad)) merged.antiguedad = base.antiguedad;
       return merged;
     };
@@ -11156,7 +11175,30 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
       if (!key) return;
       byAdvisor.set(key, byAdvisor.has(key) ? mergeRecords(byAdvisor.get(key), item) : item);
     });
-    return [...byAdvisor.values()].sort((a,b) => normalizeName(a?.asesor).localeCompare(normalizeName(b?.asesor)));
+    const rows = [...byAdvisor.values()];
+    const strongRows = rows.filter(row => !isWeakOrgValue(row?.supervisor, row?.asesor) || !isWeakOrgValue(row?.coordinador, row?.asesor) || String(row?.dni || "").trim());
+    const enrichedRows = rows.map(row => {
+      const weakSupervisor = isWeakOrgValue(row?.supervisor, row?.asesor);
+      const weakCoordinator = isWeakOrgValue(row?.coordinador, row?.asesor);
+      const missingDni = !String(row?.dni || "").trim();
+      if (!weakSupervisor && !weakCoordinator && !missingDni) return row;
+      const bestMatch = strongRows
+        .filter(candidate => candidate !== row)
+        .map(candidate => ({candidate, score: nameMatchScore(row?.asesor, candidate?.asesor)}))
+        .filter(match => match.score >= 0.45)
+        .sort((a,b) => b.score - a.score)[0]?.candidate;
+      if (!bestMatch) return row;
+      const next = {...row};
+      if (weakSupervisor && !isWeakOrgValue(bestMatch.supervisor, bestMatch.asesor)) next.supervisor = bestMatch.supervisor;
+      if (weakCoordinator && !isWeakOrgValue(bestMatch.coordinador, bestMatch.asesor)) next.coordinador = bestMatch.coordinador;
+      if (isWeakOrgValue(next.coordinador, next.asesor) && !isWeakOrgValue(next.supervisor, next.asesor)) next.coordinador = next.supervisor;
+      if (missingDni && String(bestMatch.dni || "").trim()) next.dni = bestMatch.dni;
+      if (!Number(next.antiguedad) && Number(bestMatch.antiguedad)) next.antiguedad = bestMatch.antiguedad;
+      if (!String(next.fechaIngreso || "").trim() && String(bestMatch.fechaIngreso || "").trim()) next.fechaIngreso = bestMatch.fechaIngreso;
+      if (!String(next.usuarioAsignado || "").trim() && String(bestMatch.usuarioAsignado || "").trim()) next.usuarioAsignado = bestMatch.usuarioAsignado;
+      return next;
+    });
+    return enrichedRows.sort((a,b) => normalizeName(a?.asesor).localeCompare(normalizeName(b?.asesor)));
   }, [activityStaffing, visibleStaffing]);
   useEffect(() => {
     if (isCulqiStaffing && ["RUC 10","RUC 20"].includes(String(form.tipoGestionRuc || "").trim())) {
