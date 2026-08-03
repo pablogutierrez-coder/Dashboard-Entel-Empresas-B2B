@@ -11106,7 +11106,7 @@ function buildEntelStaffingRowsFromActivity(evaluationRecords, feedbackRecords, 
       fechaIngreso: record?.fechaIngreso || current.fechaIngreso || "",
       tipoGestionRuc: normalizedRuc,
       campaign: normalizedRuc,
-      dni: record?.dni || current.dni || "",
+      dni: record?.dni || record?.nroDocumento || record?.numeroDocumento || record?.documento || record?.documentNumber || current.dni || "",
       estado: normalizeProfileStatus(current.estado || record?.estado || "activo"),
       recoveredFrom: current.recoveredFrom || sourceType
     };
@@ -11192,7 +11192,9 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
       if (weakSupervisor && !isWeakOrgValue(bestMatch.supervisor, bestMatch.asesor)) next.supervisor = bestMatch.supervisor;
       if (weakCoordinator && !isWeakOrgValue(bestMatch.coordinador, bestMatch.asesor)) next.coordinador = bestMatch.coordinador;
       if (isWeakOrgValue(next.coordinador, next.asesor) && !isWeakOrgValue(next.supervisor, next.asesor)) next.coordinador = next.supervisor;
-      if (missingDni && String(bestMatch.dni || "").trim()) next.dni = bestMatch.dni;
+      if (missingDni && String(bestMatch.dni || bestMatch.nroDocumento || bestMatch.numeroDocumento || bestMatch.documento || bestMatch.documentNumber || "").trim()) {
+        next.dni = bestMatch.dni || bestMatch.nroDocumento || bestMatch.numeroDocumento || bestMatch.documento || bestMatch.documentNumber;
+      }
       if (!Number(next.antiguedad) && Number(bestMatch.antiguedad)) next.antiguedad = bestMatch.antiguedad;
       if (!String(next.fechaIngreso || "").trim() && String(bestMatch.fechaIngreso || "").trim()) next.fechaIngreso = bestMatch.fechaIngreso;
       if (!String(next.usuarioAsignado || "").trim() && String(bestMatch.usuarioAsignado || "").trim()) next.usuarioAsignado = bestMatch.usuarioAsignado;
@@ -11336,7 +11338,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
                 style:{borderBottom:"1px solid rgba(255,255,255,0.03)"}
               },
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#fff",fontWeight:700}}, s.asesor),
-                h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? h("input",{style:{...INP,padding:"10px 12px"},placeholder:"12345678",value:editForm.dni,onChange:ev=>setEditForm(prev=>({...prev,dni:ev.target.value.replace(/[^\d]/g,"").slice(0,8)}))}) : (s.dni || "-")),
+                h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? h("input",{style:{...INP,padding:"10px 12px"},placeholder:"12345678",value:editForm.dni,onChange:ev=>setEditForm(prev=>({...prev,dni:ev.target.value.replace(/[^\d]/g,"").slice(0,8)}))}) : (s.dni || s.nroDocumento || s.numeroDocumento || s.documento || s.documentNumber || "-")),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? h("input",{style:{...INP,padding:"10px 12px"},value:editForm.supervisor,onChange:ev=>setEditForm(prev=>({...prev,supervisor:ev.target.value}))}) : (s.supervisor || "-")),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? h("input",{style:{...INP,padding:"10px 12px"},value:editForm.coordinador,onChange:ev=>setEditForm(prev=>({...prev,coordinador:ev.target.value}))}) : (s.coordinador || "-")),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, s.antiguedad || 0, " meses"),
