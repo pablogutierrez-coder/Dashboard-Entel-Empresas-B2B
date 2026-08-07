@@ -555,24 +555,44 @@ function normalizeEvaluationSections(sections, formType, clientId = DEFAULT_CLIE
       detalleAuditado: stored.detalleAuditado || "",
       oportunidadMejora: stored.oportunidadMejora || "",
       evidencia: stored.evidencia || "",
-      puntaje: stored.puntaje !== undefined ? stored.puntaje : templateSection.puntaje
+      puntaje: stored.puntaje !== undefined ? stored.puntaje : templateSection.puntaje,
+      puntajeReponderado: stored.puntajeReponderado !== undefined ? stored.puntajeReponderado : stored.aporteReponderado,
+      aporteReponderado: stored.aporteReponderado !== undefined ? stored.aporteReponderado : stored.puntajeReponderado
     };
   });
 }
 
 function calculateEvaluationScore(sections, formType, clientId = DEFAULT_CLIENT_ID) {
   let applicableWeight = 0;
-  let achievedWeight = 0;
+  let rawAchievedWeight = 0;
   for (const section of normalizeEvaluationSections(sections, formType, clientId)) {
     const weight = Number(section.pesoSub || 0) || 0;
     const result = normalizeText(section.resultado);
     if (!weight || !result || result === "no aplica") continue;
     applicableWeight += weight;
-    if (result === "cumple") achievedWeight += weight;
+    if (result === "cumple") rawAchievedWeight += weight;
   }
-  const pct = applicableWeight ? achievedWeight / applicableWeight * 100 : 0;
+  const redistributedFactor = applicableWeight ? 100 / applicableWeight : 0;
+  const achievedWeight = applicableWeight ? rawAchievedWeight * redistributedFactor : 0;
+  const pct = achievedWeight;
   const label = pct >= 90 ? "Excelente" : pct >= 80 ? "Cumple" : pct >= 60 ? "En seguimiento" : "Critico";
-  return { applicableWeight, achievedWeight, pct, label, text: `${pct.toFixed(1)}% - ${label}` };
+  return { applicableWeight, rawAchievedWeight, achievedWeight, normalizedAchievedWeight: achievedWeight, redistributedFactor, pct, label, text: `${pct.toFixed(1)}% - ${label}` };
+}
+
+function applyRedistributedSectionScores(sections, applicableWeight) {
+  const factor = applicableWeight ? 100 / applicableWeight : 0;
+  return (Array.isArray(sections) ? sections : []).map(section => {
+    const result = normalizeText(section?.resultado);
+    const weight = Number(section?.pesoSub || 0) || 0;
+    const rawScore = result === "cumple" ? weight : result === "no cumple" ? 0 : "";
+    const redistributedScore = result === "cumple" && factor ? weight * factor : result === "no cumple" ? 0 : "";
+    return {
+      ...section,
+      puntaje: section?.puntaje !== undefined ? section.puntaje : rawScore,
+      puntajeReponderado: redistributedScore,
+      aporteReponderado: redistributedScore
+    };
+  });
 }
 
 function normalizeEvaluationRecordForRuntime(record) {
@@ -581,6 +601,7 @@ function normalizeEvaluationRecordForRuntime(record) {
   const clientId = normalizeClientId(record.clientId || record.platformId);
   const secciones = normalizeEvaluationSections(record.secciones, evaluationFormType, clientId);
   const score = calculateEvaluationScore(secciones, evaluationFormType, clientId);
+  const scoredSections = applyRedistributedSectionScores(secciones, score.applicableWeight);
   const appliesCeroTolerancia = Boolean(record.appliesCeroTolerancia) ||
     evaluationFormType === "mala_practica" ||
     (Array.isArray(record.zeroToleranceItems) && record.zeroToleranceItems.some(item => normalizeText(item?.resultado) === "cumple"));
@@ -590,9 +611,10 @@ function normalizeEvaluationRecordForRuntime(record) {
     platformId: clientId,
     evaluationFormType,
     tipoFicha: EVALUATION_FORM_TYPES[evaluationFormType]?.label || "Venta",
-    secciones,
+    secciones: scoredSections,
     pesoAplicable: score.applicableWeight,
-    puntajeLogrado: score.achievedWeight,
+    puntajeLogrado: appliesCeroTolerancia ? 0 : score.achievedWeight,
+    puntajeLogradoBruto: score.rawAchievedWeight,
     resultadoGeneral: appliesCeroTolerancia ? "0.0% - Cero tolerancia" : score.text,
     appliesCeroTolerancia
   };
@@ -744,6 +766,7 @@ async function persistEvaluation(record) {
   const clientId = normalizeClientId(record?.clientId || record?.platformId);
   const secciones = normalizeEvaluationSections(record?.secciones, evaluationFormType, clientId);
   const score = calculateEvaluationScore(secciones, evaluationFormType, clientId);
+  const scoredSections = applyRedistributedSectionScores(secciones, score.applicableWeight);
   const appliesCeroTolerancia = Boolean(record?.appliesCeroTolerancia) ||
     evaluationFormType === "mala_practica" ||
     (Array.isArray(record?.zeroToleranceItems) && record.zeroToleranceItems.some(item => normalizeText(item?.resultado) === "cumple"));
@@ -755,9 +778,10 @@ async function persistEvaluation(record) {
     platformId: clientId,
     evaluationFormType,
     tipoFicha: EVALUATION_FORM_TYPES[evaluationFormType]?.label || "Venta",
-    secciones,
+    secciones: scoredSections,
     pesoAplicable: score.applicableWeight,
-    puntajeLogrado: score.achievedWeight,
+    puntajeLogrado: appliesCeroTolerancia ? 0 : score.achievedWeight,
+    puntajeLogradoBruto: score.rawAchievedWeight,
     resultadoGeneral: appliesCeroTolerancia ? "0.0% - Cero tolerancia" : score.text,
     appliesCeroTolerancia,
     updatedAt: nowIso()

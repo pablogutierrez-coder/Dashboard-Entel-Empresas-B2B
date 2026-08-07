@@ -2295,6 +2295,8 @@ function calculateEvaluationSummary(secciones, zeroToleranceItems, formType, cli
   return {
     ...baseSummary,
     appliesCeroTolerancia: true,
+    achievedWeight: 0,
+    normalizedAchievedWeight: 0,
     pct: 0,
     label: "Cero tolerancia",
     text: "0.0% - Cero tolerancia"
@@ -7788,19 +7790,24 @@ function normalizeEvaluationSectionsForScoring(secciones, formType, clientId = D
 
 function calculateWeightedEvaluationScore(secciones, formType, clientId = DEFAULT_PLATFORM_ID){
   let applicableWeight = 0;
-  let achievedWeight = 0;
+  let rawAchievedWeight = 0;
   normalizeEvaluationSectionsForScoring(secciones, formType, clientId).forEach(section => {
     const weight = Number(section?.pesoSub || 0) || 0;
     const result = normalizeComparableValue(section?.resultado);
     if (!weight || !result || result === "no aplica") return;
     applicableWeight += weight;
-    if (result === "cumple") achievedWeight += weight;
+    if (result === "cumple") rawAchievedWeight += weight;
   });
-  const pct = applicableWeight ? achievedWeight / applicableWeight * 100 : 0;
+  const redistributedFactor = applicableWeight ? 100 / applicableWeight : 0;
+  const achievedWeight = applicableWeight ? rawAchievedWeight * redistributedFactor : 0;
+  const pct = achievedWeight;
   const label = pct >= 90 ? "Excelente" : pct >= 80 ? "Cumple" : pct >= 60 ? "En seguimiento" : "Critico";
   return {
     applicableWeight,
+    rawAchievedWeight,
     achievedWeight,
+    normalizedAchievedWeight: achievedWeight,
+    redistributedFactor,
     pct,
     label,
     text: `${pct.toFixed(1)}% - ${label}`
@@ -9989,13 +9996,21 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
         tipoFicha: EVALUATION_FORM_TYPES[selectedPayloadFormType]?.label || "Venta",
         tipoGestion: isOjtMode ? "Evaluacion OJT" : "Evaluacion de calidad",
         estadoEvaluacion: closeAfterSave ? "closed" : form.estadoEvaluacion,
-        secciones: normalizeEvaluationSectionsForScoring(form.secciones, selectedPayloadFormType, form.clientId || clientId).map(section => ({
-          ...section,
-          detalleAuditado: String(section.detalleAuditado || "").trim(),
-          oportunidadMejora: "",
-          evidencia: "",
-          puntaje: normalizeComparableValue(section.resultado) === "cumple" ? Number(section.pesoSub || 0) || 0 : normalizeComparableValue(section.resultado) === "no cumple" ? 0 : ""
-        })),
+        secciones: normalizeEvaluationSectionsForScoring(form.secciones, selectedPayloadFormType, form.clientId || clientId).map(section => {
+          const result = normalizeComparableValue(section.resultado);
+          const weight = Number(section.pesoSub || 0) || 0;
+          const rawScore = result === "cumple" ? weight : result === "no cumple" ? 0 : "";
+          const redistributedScore = result === "cumple" && summary.redistributedFactor ? weight * summary.redistributedFactor : result === "no cumple" ? 0 : "";
+          return {
+            ...section,
+            detalleAuditado: String(section.detalleAuditado || "").trim(),
+            oportunidadMejora: "",
+            evidencia: "",
+            puntaje: rawScore,
+            puntajeReponderado: redistributedScore,
+            aporteReponderado: redistributedScore
+          };
+        }),
         zeroToleranceItems: (form.zeroToleranceItems || []).map(item => ({
           ...item,
           resultado: String(item.resultado || "").trim() || "No aplica"
@@ -10138,7 +10153,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:16,marginBottom:22}},
         h(ImprovementKpiCard,{label:"Resultado final",value:`${summary.pct.toFixed(1)}%`,caption:summary.label,color:summary.pct >= 80 ? "#19C37D" : summary.pct >= 60 ? THEME.primary : THEME.accent}),
         h(ImprovementKpiCard,{label:"Peso aplicable",value:`${summary.applicableWeight.toFixed(1)}%`,caption:"No aplica se excluye del denominador",color:THEME.violet}),
-        h(ImprovementKpiCard,{label:"Puntaje logrado",value:`${summary.achievedWeight.toFixed(1)}%`,caption:"Suma de sub-items marcados como Cumple",color:THEME.primary})
+        h(ImprovementKpiCard,{label:"Puntaje logrado",value:`${summary.achievedWeight.toFixed(1)}%`,caption:"Puntaje reponderado sobre 100%",color:THEME.primary})
       ),
       summary.appliesCeroTolerancia && h("div",{style:{background:"rgba(255,77,90,0.14)",border:"1px solid rgba(255,77,90,0.30)",borderRadius:14,padding:"14px 16px",marginBottom:22,color:"#FF6B7A",fontSize:12,fontWeight:700,lineHeight:1.7}},
         "Esta evaluacion sera anulada automaticamente por activacion de un criterio de Cero Tolerancia. La nota final sera 0%."
@@ -10159,7 +10174,9 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
             sections.map(section => {
               const sectionIndex = form.secciones.findIndex(item => normalizeName(item.nombreSeccion) === normalizeName(section.nombreSeccion));
               const current = sectionIndex > -1 ? form.secciones[sectionIndex] : section;
-              const computedPoints = normalizeComparableValue(current?.resultado) === "cumple" ? Number(current?.pesoSub || 0).toFixed(1) + "%" : normalizeComparableValue(current?.resultado) === "no cumple" ? "0%" : "No aplica";
+              const currentResult = normalizeComparableValue(current?.resultado);
+              const redistributedPoints = currentResult === "cumple" && summary.redistributedFactor ? (Number(current?.pesoSub || 0) * summary.redistributedFactor) : 0;
+              const computedPoints = currentResult === "cumple" ? redistributedPoints.toFixed(1) + "%" : currentResult === "no cumple" ? "0%" : "No aplica";
               return h("div",{key:current.nombreSeccion,style:{background:"rgba(9,9,17,0.72)",border: `1px solid ${THEME.border}`,borderRadius:14,padding:"16px 16px 14px"}},
                 h("div",{style:{display:"grid",gridTemplateColumns:"minmax(0,1.3fr) 120px 180px 120px",gap:12,alignItems:"center"}},
                   h("div",null,
@@ -10462,7 +10479,7 @@ function CalibrationEvaluationRoom({session,currentUser,onSubmit,notify,onBack})
   const [saving,setSaving] = useState(false);
   const summary = calculateEvaluationSummary(sections, zeroItems, session.evaluation_type);
   const audioFile = getCalibrationAudioFile(session);
-  const updateSection = (index, result) => setSections(prev => prev.map((section,idx)=>idx===index ? {...section,resultado:result,puntaje:normalizeComparableValue(result)==="cumple" ? Number(section.pesoSub || 0) : 0} : section));
+  const updateSection = (index, result) => setSections(prev => prev.map((section,idx)=>idx===index ? {...section,resultado:result,puntaje:normalizeComparableValue(result)==="cumple" ? Number(section.pesoSub || 0) : normalizeComparableValue(result)==="no cumple" ? 0 : ""} : section));
   const submit = async() => {
     if (locked) return;
     if (status !== "live") { notify("e","La calibracion aun no esta En vivo."); return; }
@@ -10504,7 +10521,7 @@ function CalibrationEvaluationRoom({session,currentUser,onSubmit,notify,onBack})
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14,marginBottom:18}},
       h(ImprovementKpiCard,{label:"Resultado",value:`${summary.pct.toFixed(1)}%`,caption:summary.label,color:summary.pct >= 80 ? "#19C37D" : THEME.accent}),
       h(ImprovementKpiCard,{label:"Peso aplicable",value:`${summary.applicableWeight.toFixed(1)}%`,caption:"No aplica excluido",color:THEME.violet}),
-      h(ImprovementKpiCard,{label:"Puntaje",value:`${summary.achievedWeight.toFixed(1)}%`,caption:"Puntos logrados",color:THEME.primary})
+      h(ImprovementKpiCard,{label:"Puntaje",value:`${summary.achievedWeight.toFixed(1)}%`,caption:"Puntaje reponderado",color:THEME.primary})
     ),
     h("div",{style:{...CARD,marginBottom:18}},
       h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}},
