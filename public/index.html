@@ -7399,14 +7399,14 @@ function App(){
   const guardarDesarrolloComercial = async(payload) => {
     const saved = await saveCommercialDevelopmentEntry({...payload,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName,platformName:currentPlatformName});
     await reloadCommercialDevelopmentRecords();
-    notify("s",payload?.id ? "Ficha de desarrollo comercial actualizada." : "Ficha de desarrollo comercial registrada.");
+    notify("s",payload?.id ? "Ficha de seguimiento actualizada." : "Ficha de seguimiento registrada.");
     return saved;
   };
 
   const eliminarDesarrolloComercial = async(payload) => {
     const deleted = await deleteCommercialDevelopmentEntry({...payload,currentUser,clientId:currentPlatformId,platformId:currentPlatformId});
     await reloadCommercialDevelopmentRecords();
-    notify("s","Ficha de desarrollo comercial eliminada.");
+    notify("s","Ficha de seguimiento eliminada.");
     return deleted;
   };
 
@@ -7631,7 +7631,7 @@ function App(){
           !isCommercialDevelopmentActive && canViewTeamFeedback(currentUser) && h("button",{style:{...BTN(view==="feedback"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="feedback"?"#fff":"#8b92a5"},onClick:()=>setView("feedback")},I("send",18,view==="feedback"?"#fff":"#8b92a5"),"FEEDBACKS"),
           !isCommercialDevelopmentActive && canViewOperationalIncidents(currentUser) && h("button",{style:{...BTN(view==="incidents"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="incidents"?"#fff":"#8b92a5"},onClick:()=>setView("incidents")},I("alert",18,view==="incidents"?"#fff":"#8b92a5"),"INCIDENCIAS"),
           !isCommercialDevelopmentActive && canViewSalesValidationModule(currentUser) && h("button",{style:{...BTN(view==="salesValidation"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="salesValidation"?"#fff":"#8b92a5"},onClick:()=>setView("salesValidation")},I("db",18,view==="salesValidation"?"#fff":"#8b92a5"),"VALIDACION DE VENTAS"),
-          canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && h("button",{style:{...BTN(view==="commercialDevelopment"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="commercialDevelopment"?"#fff":"#8b92a5"},onClick:()=>setView("commercialDevelopment")},I("trend",18,view==="commercialDevelopment"?"#fff":"#8b92a5"),"DESARROLLO COMERCIAL"),
+          canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && h("button",{style:{...BTN(view==="commercialDevelopment"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="commercialDevelopment"?"#fff":"#8b92a5"},onClick:()=>setView("commercialDevelopment")},I("trend",18,view==="commercialDevelopment"?"#fff":"#8b92a5"),"SEGUIMIENTO"),
           !isCommercialDevelopmentActive && canViewCalibrationModule(currentUser) && h("button",{style:{...BTN(view==="calibration"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="calibration"?"#fff":"#8b92a5"},onClick:()=>setView("calibration")},I("sliders",18,view==="calibration"?"#fff":"#8b92a5"),"CALIBRACION DE CALIDAD"),
           h("button",{style:{...BTN(view==="communications"?"p":"out"),width:"100%",justifyContent:"space-between",padding:"16px 20px",color:view==="communications"?"#fff":"#8b92a5"},onClick:()=>setView("communications")},
             h("span",{style:{display:"inline-flex",alignItems:"center",gap:12}},I("file",18,view==="communications"?"#fff":"#8b92a5"),"COMUNICADOS"),
@@ -9229,7 +9229,7 @@ function CommercialDevelopmentModal({isOpen,onClose,onSave,record,currentUser,st
       await onSave({...form,id:record?.id || "",attachments,currentUser});
       onClose();
     }catch(error){
-      setErr(error?.message || "No se pudo guardar la ficha de desarrollo comercial.");
+      setErr(error?.message || "No se pudo guardar la ficha de seguimiento.");
     }finally{
       setSaving(false);
     }
@@ -9245,7 +9245,7 @@ function CommercialDevelopmentModal({isOpen,onClose,onSave,record,currentUser,st
   return h("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:3020,display:"flex",justifyContent:"center",alignItems:"flex-start",overflowY:"auto",padding:"28px"}},
     h("div",{style:{...CARD,width:"min(1120px,96vw)",marginTop:10,borderTop:`4px solid ${THEME.primary}`}},
       h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:22}},
-        h("div",null,h("h2",{style:{fontSize:28,color:"#fff",marginBottom:6}},isEdit ? "Editar ficha de desarrollo comercial" : "Nueva ficha de desarrollo comercial"),h("p",{style:{color:"#9fb0d8",margin:0}},"Registro de acompañamiento individual One to One.")),
+        h("div",null,h("h2",{style:{fontSize:28,color:"#fff",marginBottom:6}},isEdit ? "Editar ficha de seguimiento" : "Ficha de seguimiento"),h("p",{style:{color:"#9fb0d8",margin:0}},"Registro de acompañamiento individual One to One.")),
         h("button",{style:BTN("out"),onClick:onClose},"CERRAR")
       ),
       err && h("div",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.35)",borderRadius:12,padding:12,color:THEME.accent,marginBottom:16}},err),
@@ -9301,17 +9301,17 @@ function CommercialDevelopmentCenter({records,currentUser,staffing,onSave,onDele
     const data = Object.entries(grp(filtered,row=>row.status || "Sin estado")).map(([label,items])=>({label,value:items.length}));
     return buildDoughnutChartConfig("Estados", data.map(x=>x.label), data.map(x=>x.value), [THEME.primary,"#FFC857","#19C37D","#FF4D5A"]);
   },[filtered]);
-  const advisorChartConfig = useMemo(() => buildOperationalIncidentChartConfig("Fichas por ejecutivo", filtered, row=>row.executiveName || "Sin ejecutivo", "Fichas"), [filtered]);
-  const trainerChartConfig = useMemo(() => buildOperationalIncidentChartConfig("Fichas por formador", filtered, row=>row.trainerName || "Sin formador", "Fichas"), [filtered]);
+  const advisorChartConfig = useMemo(() => buildOperationalIncidentChartConfig("Seguimientos por ejecutivo", filtered, row=>row.executiveName || "Sin ejecutivo", "Seguimientos"), [filtered]);
+  const trainerChartConfig = useMemo(() => buildOperationalIncidentChartConfig("Seguimientos por formador", filtered, row=>row.trainerName || "Sin formador", "Seguimientos"), [filtered]);
   const exportRows = () => exportCSV(filtered.map(r=>({Codigo:r.code,Fecha:formatDateTime(r.interventionAt),Ejecutivo:r.executiveName,Campana:r.campaign,Perfil:r.profile,Supervisor:r.supervisor,Formador:r.trainerName,Estado:r.status,Motivo:r.reason,ConexionInicial:r.initialConnection,ProductividadInicial:r.initialProductivity,VentasInicial:r.initialSales,ConexionSeguimiento:r.followConnection,ProductividadSeguimiento:r.followProductivity,VentasSeguimiento:r.followSales,ResultadoSeguimiento:r.followResult,Observaciones:r.trainerObservations})),"desarrollo_comercial");
-  const deleteRecord = async(record) => { if (!confirm("Eliminar esta ficha de desarrollo comercial?")) return; await onDelete({id:record.id,currentUser}); };
+  const deleteRecord = async(record) => { if (!confirm("Eliminar esta ficha de seguimiento?")) return; await onDelete({id:record.id,currentUser}); };
   return h("div",null,
     h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:28}},
-      h("div",null,h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.35em",fontFamily:THEME.displayFont,marginBottom:10}},String(clientName || "Desarrollo Comercial").toUpperCase()),h("h1",{style:{fontSize:42,color:"#fff",margin:"0 0 8px"}},"Desarrollo Comercial"),h("p",{style:{color:"#9fb0d8",lineHeight:1.7,margin:0}},"Mejora continua y acompañamiento individual de ejecutivos comerciales.")),
-      canManage && h("button",{style:BTN("pink"),onClick:()=>setModal({open:true,record:null})},I("plus",14,"#fff"),"NUEVA FICHA")
+      h("div",null,h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.35em",fontFamily:THEME.displayFont,marginBottom:10}},String(clientName || "Desarrollo Comercial").toUpperCase()),h("h1",{style:{fontSize:42,color:"#fff",margin:"0 0 8px"}},"Seguimiento"),h("p",{style:{color:"#9fb0d8",lineHeight:1.7,margin:0}},"Acompañamiento individual de ejecutivos comerciales.")),
+      canManage && h("button",{style:BTN("pink"),onClick:()=>setModal({open:true,record:null})},I("plus",14,"#fff"),"NUEVO SEGUIMIENTO")
     ),
     h("div",{style:{...CARD,marginBottom:20}},
-      h("div",{style:{fontSize:14,color:"#fff",fontWeight:900,marginBottom:14}},"Mejora Continua"),
+      h("div",{style:{fontSize:14,color:"#fff",fontWeight:900,marginBottom:14}},"Seguimiento"),
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:14}},
         h("input",{type:"date",style:INP,value:filters.dateFrom,onChange:ev=>setFilters({...filters,dateFrom:ev.target.value})}),
         h("input",{type:"date",style:INP,value:filters.dateTo,onChange:ev=>setFilters({...filters,dateTo:ev.target.value})}),
@@ -9324,18 +9324,18 @@ function CommercialDevelopmentCenter({records,currentUser,staffing,onSave,onDele
       h("div",{style:{marginTop:14,display:"flex",gap:12,flexWrap:"wrap"}},h("button",{style:BTN("out"),onClick:()=>setFilters({dateFrom:"",dateTo:"",trainer:"all",advisor:[],status:"all"})},"LIMPIAR"),h("button",{style:BTN("s"),onClick:exportRows},"DESCARGAR CSV"))
     ),
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:18,marginBottom:20}},
-      h(ImprovementKpiCard,{label:"Fichas",value:filtered.length,caption:"Registros visibles",color:THEME.primary}),
+      h(ImprovementKpiCard,{label:"Seguimientos",value:filtered.length,caption:"Registros visibles",color:THEME.primary}),
       h(ImprovementKpiCard,{label:"Pendientes",value:filtered.filter(r=>normalizeComparableValue(r.status)==="pendiente").length,caption:"Por desarrollar",color:"#FFC857"}),
       h(ImprovementKpiCard,{label:"Finalizadas",value:filtered.filter(r=>normalizeComparableValue(r.status)==="finalizado").length,caption:"Cierre registrado",color:"#19C37D"})
     ),
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(360px,1fr))",gap:20,marginBottom:20}},
-      h(AnalyticsChart,{title:"Dashboard por estado",subtitle:"Distribución de la mejora continua.",config:statusChartConfig,height:280,emptyMessage:"Sin fichas para graficar."}),
-      h(AnalyticsChart,{title:"Mejora por asesor",subtitle:"Cantidad de fichas por ejecutivo.",config:advisorChartConfig,height:280,emptyMessage:"Sin asesores para graficar."}),
-      h(AnalyticsChart,{title:"Mejora por formador",subtitle:"Cantidad de fichas por formador.",config:trainerChartConfig,height:280,emptyMessage:"Sin formadores para graficar."})
+      h(AnalyticsChart,{title:"Dashboard por estado",subtitle:"Distribución del seguimiento.",config:statusChartConfig,height:280,emptyMessage:"Sin seguimientos para graficar."}),
+      h(AnalyticsChart,{title:"Seguimiento por asesor",subtitle:"Cantidad de seguimientos por ejecutivo.",config:advisorChartConfig,height:280,emptyMessage:"Sin asesores para graficar."}),
+      h(AnalyticsChart,{title:"Seguimiento por formador",subtitle:"Cantidad de seguimientos por formador.",config:trainerChartConfig,height:280,emptyMessage:"Sin formadores para graficar."})
     ),
     h("div",{style:CARD},
-      h("div",{style:{display:"flex",justifyContent:"space-between",gap:12,marginBottom:14}},h("h3",{style:{color:"#fff",margin:0}},"Fichas de mejora continua"),h("span",{style:{color:"#9fb0d8"}},`${filtered.length} registro(s)`)),
-      h(SimpleDataTable,{rows:filtered,emptyMessage:"No hay fichas de desarrollo comercial.",columns:[
+      h("div",{style:{display:"flex",justifyContent:"space-between",gap:12,marginBottom:14}},h("h3",{style:{color:"#fff",margin:0}},"Fichas de seguimiento"),h("span",{style:{color:"#9fb0d8"}},`${filtered.length} registro(s)`)),
+      h(SimpleDataTable,{rows:filtered,emptyMessage:"No hay fichas de seguimiento.",columns:[
         {header:"Código",render:row=>row.code || "-"},
         {header:"Fecha",render:row=>formatDateTime(row.interventionAt || row.createdAt)},
         {header:"Ejecutivo",render:row=>row.executiveName || "-"},
