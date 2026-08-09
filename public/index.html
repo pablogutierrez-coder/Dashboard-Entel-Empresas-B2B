@@ -2406,9 +2406,9 @@ const PLATFORM_OPTIONS = [
   },
   {
     id: "desarrollo_comercial",
-    title: "Desarrollo Comercial",
+    title: "Seguimiento",
     client: "IA Learning Solutions",
-    description: "Espacio independiente para gestionar procesos, fichas y tableros de desarrollo comercial.",
+    description: "Espacio independiente para gestionar fichas y tableros de seguimiento comercial.",
     status: "Disponible",
     enabled: true,
     icon: "trend"
@@ -2837,10 +2837,10 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPas
       h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:10,display:"flex",alignItems:"center",gap:8}},I("shield",14,"#8b92a5"),"Accesos por perfil"),
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:12}},
         [
-          ["Administrador","Gestiona usuarios, dotacion, Desarrollo Comercial, edita y elimina fichas."],
-          ["Formador","Accede a dotacion Entel y edita fichas de Desarrollo Comercial."],
-          ["Analista","Consulta Desarrollo Comercial y dashboards, sin eliminar fichas."],
-          ["Supervisor","Consulta seguimiento y resultados de Desarrollo Comercial."]
+          ["Administrador","Gestiona usuarios, dotacion, seguimiento, edita y elimina fichas."],
+          ["Formador","Accede a dotacion y edita fichas de seguimiento."],
+          ["Analista","Consulta seguimiento y dashboards, sin eliminar fichas."],
+          ["Supervisor","Consulta seguimiento y resultados."]
         ].map(([title,desc]) => h("div",{key:title,style:{border:`1px solid ${THEME.border}`,background:"rgba(9,9,17,0.55)",borderRadius:14,padding:14}},
           h("div",{style:{color:"#fff",fontWeight:900,fontSize:13,marginBottom:6}},title),
           h("div",{style:{color:"#9fb0d8",fontSize:12,lineHeight:1.55}},desc)
@@ -7622,7 +7622,7 @@ function App(){
       },
         h("div",{style:{display:"flex",alignItems:"center",gap:14,marginBottom:40,paddingLeft:8}},
           h("div",{style:{width:40,height:40,borderRadius:isCulqiActive ? 999 : 12,background:isCulqiActive ? "#FF8A00" : THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:isCulqiActive ? "0 10px 28px rgba(255,90,0,0.38)" : "0 10px 26px rgba(29,43,255,0.24)",color:"#fff",fontSize:isCulqiActive ? 25 : undefined,fontWeight:900,lineHeight:1}},isCulqiActive ? "Q" : I(isCommercialDevelopmentActive ? "trend" : "bar",20,THEME.white)),
-          h("div",{style:{fontSize:24,fontWeight:700,color:THEME.text,letterSpacing:"0.04em",fontFamily:THEME.displayFont,textTransform:"uppercase"}},isCulqiActive ? "CULQI " : isCommercialDevelopmentActive ? "DESARROLLO " : "AN ",h("span",{style:{color:isCulqiActive ? "#FF8A00" : THEME.primary}},isCulqiActive ? "FULL" : isCommercialDevelopmentActive ? "COMERCIAL" : "CALIDAD"))
+          h("div",{style:{fontSize:24,fontWeight:700,color:THEME.text,letterSpacing:"0.04em",fontFamily:THEME.displayFont,textTransform:"uppercase"}},isCulqiActive ? "CULQI " : isCommercialDevelopmentActive ? "SEGUIMIENTO" : "AN ",!isCommercialDevelopmentActive && h("span",{style:{color:isCulqiActive ? "#FF8A00" : THEME.primary}},isCulqiActive ? "FULL" : "CALIDAD"))
         ),
         h("div",{style:{display:"flex",flexDirection:"column",gap:10,flex:1}},
           !isCommercialDevelopmentActive && currentUser.rol === "asesor" && h("button",{style:{...BTN(view==="advisor"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="advisor"?"#fff":"#8b92a5"},onClick:()=>setView("advisor")},I("users",18,view==="advisor"?"#fff":"#8b92a5"),"MI PERFIL"),
