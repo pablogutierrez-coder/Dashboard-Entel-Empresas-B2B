@@ -2057,6 +2057,10 @@ function isCulqiPlatform(platformId){
   return String(platformId || "").trim() === CULQI_PLATFORM_ID;
 }
 
+function isCommercialDevelopmentPlatform(platformId){
+  return String(platformId || "").trim() === COMMERCIAL_DEVELOPMENT_PLATFORM_ID;
+}
+
 function applyPlatformVisualTheme(platformId){
   if (isCulqiPlatform(platformId)) {
     Object.assign(THEME,CULQI_THEME_VALUES);
@@ -2080,7 +2084,7 @@ function applyPlatformVisualTheme(platformId){
   Object.assign(CARD,BASE_CARD_VALUES);
   Object.assign(INP,BASE_INP_VALUES);
   Object.assign(SEL,BASE_SEL_VALUES);
-  if (document?.documentElement) document.documentElement.dataset.platform = DEFAULT_PLATFORM_ID;
+  if (document?.documentElement) document.documentElement.dataset.platform = isCommercialDevelopmentPlatform(platformId) ? COMMERCIAL_DEVELOPMENT_PLATFORM_ID : DEFAULT_PLATFORM_ID;
 }
 
 const BTN = t => {
@@ -2399,11 +2403,21 @@ const PLATFORM_OPTIONS = [
     status: "Disponible",
     enabled: true,
     icon: "db"
+  },
+  {
+    id: "desarrollo_comercial",
+    title: "Desarrollo Comercial",
+    client: "IA Learning Solutions",
+    description: "Espacio independiente para gestionar procesos, fichas y tableros de desarrollo comercial.",
+    status: "Disponible",
+    enabled: true,
+    icon: "trend"
   }
 ];
 
 const DEFAULT_PLATFORM_ID = "entel_b2b";
 const CULQI_PLATFORM_ID = "culqi_bcp";
+const COMMERCIAL_DEVELOPMENT_PLATFORM_ID = "desarrollo_comercial";
 
 function getPlatformById(id){
   return PLATFORM_OPTIONS.find(item => item.id === id) || PLATFORM_OPTIONS[0];
@@ -2426,10 +2440,15 @@ function filterRecordsForPlatform(records, platformId){
   return (Array.isArray(records) ? records : []).filter(record => isRecordVisibleForPlatform(record, platformId));
 }
 
-const CULQI_PRIMARY_LOGIN = "pablo.gutierrez";
+const PRIMARY_ADMIN_LOGIN = "pablo.gutierrez";
+const CULQI_PRIMARY_LOGIN = PRIMARY_ADMIN_LOGIN;
 
 function isPrimaryCulqiUser(user){
   return normalizeLoginKey(user?.usuario) === normalizeLoginKey(CULQI_PRIMARY_LOGIN);
+}
+
+function isPrimaryPlatformAdmin(user){
+  return normalizeLoginKey(user?.usuario) === normalizeLoginKey(PRIMARY_ADMIN_LOGIN);
 }
 
 function filterUsersForPlatform(records, platformId){
@@ -2448,6 +2467,22 @@ function filterUsersForPlatform(records, platformId){
         clientName: getPlatformDisplayName(CULQI_PLATFORM_ID),
         platformName: getPlatformDisplayName(CULQI_PLATFORM_ID)
       }));
+    return normalizeUsersList(scoped);
+  }
+  if (isCommercialDevelopmentPlatform(platformId)) {
+    const platformUsers = list.filter(user => isRecordVisibleForPlatform(user, COMMERCIAL_DEVELOPMENT_PLATFORM_ID));
+    const hasPrimaryInPlatform = platformUsers.some(isPrimaryPlatformAdmin);
+    const primaryFallback = hasPrimaryInPlatform ? null : list.find(user => isPrimaryPlatformAdmin(user));
+    const scoped = [
+      ...(primaryFallback ? [primaryFallback] : []),
+      ...platformUsers
+    ].map(user => ({
+      ...user,
+      clientId: COMMERCIAL_DEVELOPMENT_PLATFORM_ID,
+      platformId: COMMERCIAL_DEVELOPMENT_PLATFORM_ID,
+      clientName: getPlatformDisplayName(COMMERCIAL_DEVELOPMENT_PLATFORM_ID),
+      platformName: getPlatformDisplayName(COMMERCIAL_DEVELOPMENT_PLATFORM_ID)
+    }));
     return normalizeUsersList(scoped);
   }
   return list.filter(user => isRecordVisibleForPlatform(user, platformId || DEFAULT_PLATFORM_ID));
@@ -5599,6 +5634,12 @@ function App(){
   const scopedOperationalIncidents = useMemo(() => filterRecordsForPlatform(operationalIncidents, currentPlatformId), [operationalIncidents,currentPlatformId]);
   const scopedSalesValidations = useMemo(() => filterRecordsForPlatform(salesValidations, currentPlatformId), [salesValidations,currentPlatformId]);
   const scopedCommercialDevelopmentRecords = useMemo(() => filterRecordsForPlatform(commercialDevelopmentRecords, currentPlatformId), [commercialDevelopmentRecords,currentPlatformId]);
+  useEffect(() => {
+    reloadCommercialDevelopmentRecords().catch(error => {
+      console.error("No se pudo cargar desarrollo comercial:", error);
+      setCommercialDevelopmentRecords([]);
+    });
+  }, [currentUser?.usuario,currentUser?.rol,currentPlatformId]);
   const advisorOptions = useMemo(() => buildAdvisorOptions(scopedStaffing, raw, historico, scopedFeedbackRecords), [scopedStaffing,raw,historico,scopedFeedbackRecords]);
   const advisorProfiles = useMemo(() => buildAdvisorProfiles(scopedStaffing, scopedUsers), [scopedStaffing,scopedUsers]);
   const melted = useMemo(() => melt(raw), [raw]);
@@ -7207,7 +7248,7 @@ function App(){
 
   const handleLogin = user => {
     setCurrentUser(user);
-    setView(getDefaultViewForUser(user));
+    setView(isCommercialDevelopmentPlatform(selectedPlatform?.id) && canViewCommercialDevelopmentModule(user, selectedPlatform?.id) ? "commercialDevelopment" : getDefaultViewForUser(user));
   };
 
   const clearData = () => {
@@ -7220,6 +7261,7 @@ function App(){
   const currentPlatformId = selectedPlatform?.id || DEFAULT_PLATFORM_ID;
   const currentPlatformName = getPlatformDisplayName(currentPlatformId);
   const isCulqiActive = isCulqiPlatform(currentPlatformId);
+  const isCommercialDevelopmentActive = isCommercialDevelopmentPlatform(currentPlatformId);
   applyPlatformVisualTheme(currentPlatformId);
   const scopedUsers = useMemo(() => filterUsersForPlatform(users, currentPlatformId), [users,currentPlatformId]);
   const scopedStaffing = useMemo(() => filterRecordsForPlatform(staffing, currentPlatformId), [staffing,currentPlatformId]);
@@ -7231,6 +7273,7 @@ function App(){
   const scopedNoTipificationRecords = useMemo(() => filterRecordsForPlatform(noTipificationRecords, currentPlatformId), [noTipificationRecords,currentPlatformId]);
   const scopedOperationalIncidents = useMemo(() => filterRecordsForPlatform(operationalIncidents, currentPlatformId), [operationalIncidents,currentPlatformId]);
   const scopedSalesValidations = useMemo(() => filterRecordsForPlatform(salesValidations, currentPlatformId), [salesValidations,currentPlatformId]);
+  const scopedCommercialDevelopmentRecords = useMemo(() => filterRecordsForPlatform(commercialDevelopmentRecords, currentPlatformId), [commercialDevelopmentRecords,currentPlatformId]);
   const advisorOptions = useMemo(() => buildAdvisorOptions(scopedStaffing, raw, historico, scopedFeedbackRecords), [scopedStaffing,raw,historico,scopedFeedbackRecords]);
   const advisorProfiles = useMemo(() => buildAdvisorProfiles(scopedStaffing, scopedUsers), [scopedStaffing,scopedUsers]);
   const melted = useMemo(() => melt(raw), [raw]);
@@ -7578,18 +7621,18 @@ function App(){
         }
       },
         h("div",{style:{display:"flex",alignItems:"center",gap:14,marginBottom:40,paddingLeft:8}},
-          h("div",{style:{width:40,height:40,borderRadius:isCulqiActive ? 999 : 12,background:isCulqiActive ? "#FF8A00" : THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:isCulqiActive ? "0 10px 28px rgba(255,90,0,0.38)" : "0 10px 26px rgba(29,43,255,0.24)",color:"#fff",fontSize:isCulqiActive ? 25 : undefined,fontWeight:900,lineHeight:1}},isCulqiActive ? "Q" : I("bar",20,THEME.white)),
-          h("div",{style:{fontSize:24,fontWeight:700,color:THEME.text,letterSpacing:"0.04em",fontFamily:THEME.displayFont,textTransform:"uppercase"}},isCulqiActive ? "CULQI " : "AN ",h("span",{style:{color:isCulqiActive ? "#FF8A00" : THEME.primary}},isCulqiActive ? "FULL" : "CALIDAD"))
+          h("div",{style:{width:40,height:40,borderRadius:isCulqiActive ? 999 : 12,background:isCulqiActive ? "#FF8A00" : THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:isCulqiActive ? "0 10px 28px rgba(255,90,0,0.38)" : "0 10px 26px rgba(29,43,255,0.24)",color:"#fff",fontSize:isCulqiActive ? 25 : undefined,fontWeight:900,lineHeight:1}},isCulqiActive ? "Q" : I(isCommercialDevelopmentActive ? "trend" : "bar",20,THEME.white)),
+          h("div",{style:{fontSize:24,fontWeight:700,color:THEME.text,letterSpacing:"0.04em",fontFamily:THEME.displayFont,textTransform:"uppercase"}},isCulqiActive ? "CULQI " : isCommercialDevelopmentActive ? "DESARROLLO " : "AN ",h("span",{style:{color:isCulqiActive ? "#FF8A00" : THEME.primary}},isCulqiActive ? "FULL" : isCommercialDevelopmentActive ? "COMERCIAL" : "CALIDAD"))
         ),
         h("div",{style:{display:"flex",flexDirection:"column",gap:10,flex:1}},
-          currentUser.rol === "asesor" && h("button",{style:{...BTN(view==="advisor"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="advisor"?"#fff":"#8b92a5"},onClick:()=>setView("advisor")},I("users",18,view==="advisor"?"#fff":"#8b92a5"),"MI PERFIL"),
-          canViewImprovementDashboard(currentUser) && h("button",{style:{...BTN(view==="improvement"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="improvement"?"#fff":"#8b92a5"},onClick:()=>setView("improvement")},I("trend",18,view==="improvement"?"#fff":"#8b92a5"),"DASHBOARD MEJORA"),
-          canViewDashboards(currentUser) && h("button",{style:{...BTN(view==="evaluations"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="evaluations"?"#fff":"#8b92a5"},onClick:()=>setView("evaluations")},I("hist",18,view==="evaluations"?"#fff":"#8b92a5"),"EVALUACIONES"),
-          canViewTeamFeedback(currentUser) && h("button",{style:{...BTN(view==="feedback"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="feedback"?"#fff":"#8b92a5"},onClick:()=>setView("feedback")},I("send",18,view==="feedback"?"#fff":"#8b92a5"),"FEEDBACKS"),
-          canViewOperationalIncidents(currentUser) && h("button",{style:{...BTN(view==="incidents"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="incidents"?"#fff":"#8b92a5"},onClick:()=>setView("incidents")},I("alert",18,view==="incidents"?"#fff":"#8b92a5"),"INCIDENCIAS"),
-          canViewSalesValidationModule(currentUser) && h("button",{style:{...BTN(view==="salesValidation"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="salesValidation"?"#fff":"#8b92a5"},onClick:()=>setView("salesValidation")},I("db",18,view==="salesValidation"?"#fff":"#8b92a5"),"VALIDACION DE VENTAS"),
+          !isCommercialDevelopmentActive && currentUser.rol === "asesor" && h("button",{style:{...BTN(view==="advisor"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="advisor"?"#fff":"#8b92a5"},onClick:()=>setView("advisor")},I("users",18,view==="advisor"?"#fff":"#8b92a5"),"MI PERFIL"),
+          !isCommercialDevelopmentActive && canViewImprovementDashboard(currentUser) && h("button",{style:{...BTN(view==="improvement"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="improvement"?"#fff":"#8b92a5"},onClick:()=>setView("improvement")},I("trend",18,view==="improvement"?"#fff":"#8b92a5"),"DASHBOARD MEJORA"),
+          !isCommercialDevelopmentActive && canViewDashboards(currentUser) && h("button",{style:{...BTN(view==="evaluations"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="evaluations"?"#fff":"#8b92a5"},onClick:()=>setView("evaluations")},I("hist",18,view==="evaluations"?"#fff":"#8b92a5"),"EVALUACIONES"),
+          !isCommercialDevelopmentActive && canViewTeamFeedback(currentUser) && h("button",{style:{...BTN(view==="feedback"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="feedback"?"#fff":"#8b92a5"},onClick:()=>setView("feedback")},I("send",18,view==="feedback"?"#fff":"#8b92a5"),"FEEDBACKS"),
+          !isCommercialDevelopmentActive && canViewOperationalIncidents(currentUser) && h("button",{style:{...BTN(view==="incidents"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="incidents"?"#fff":"#8b92a5"},onClick:()=>setView("incidents")},I("alert",18,view==="incidents"?"#fff":"#8b92a5"),"INCIDENCIAS"),
+          !isCommercialDevelopmentActive && canViewSalesValidationModule(currentUser) && h("button",{style:{...BTN(view==="salesValidation"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="salesValidation"?"#fff":"#8b92a5"},onClick:()=>setView("salesValidation")},I("db",18,view==="salesValidation"?"#fff":"#8b92a5"),"VALIDACION DE VENTAS"),
           canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && h("button",{style:{...BTN(view==="commercialDevelopment"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="commercialDevelopment"?"#fff":"#8b92a5"},onClick:()=>setView("commercialDevelopment")},I("trend",18,view==="commercialDevelopment"?"#fff":"#8b92a5"),"DESARROLLO COMERCIAL"),
-          canViewCalibrationModule(currentUser) && h("button",{style:{...BTN(view==="calibration"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="calibration"?"#fff":"#8b92a5"},onClick:()=>setView("calibration")},I("sliders",18,view==="calibration"?"#fff":"#8b92a5"),"CALIBRACION DE CALIDAD"),
+          !isCommercialDevelopmentActive && canViewCalibrationModule(currentUser) && h("button",{style:{...BTN(view==="calibration"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="calibration"?"#fff":"#8b92a5"},onClick:()=>setView("calibration")},I("sliders",18,view==="calibration"?"#fff":"#8b92a5"),"CALIBRACION DE CALIDAD"),
           h("button",{style:{...BTN(view==="communications"?"p":"out"),width:"100%",justifyContent:"space-between",padding:"16px 20px",color:view==="communications"?"#fff":"#8b92a5"},onClick:()=>setView("communications")},
             h("span",{style:{display:"inline-flex",alignItems:"center",gap:12}},I("file",18,view==="communications"?"#fff":"#8b92a5"),"COMUNICADOS"),
             unreadCommunications>0 && h("span",{style:{minWidth:22,height:22,borderRadius:999,background:THEME.primary,color:"#fff",fontSize:10,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 6px"}},unreadCommunications)
@@ -7613,17 +7656,17 @@ function App(){
         h("div",{style:{position:"absolute",top:-150,left:-100,width:600,height:600,background:isCulqiActive ? "radial-gradient(circle, rgba(255,138,0,0.13) 0%, transparent 60%)" : "radial-gradient(circle, rgba(29,43,255,0.10) 0%, transparent 60%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"absolute",top:120,right:-80,width:420,height:420,background:isCulqiActive ? "radial-gradient(circle, rgba(110,27,115,0.24) 0%, transparent 62%)" : "radial-gradient(circle, rgba(91,31,214,0.11) 0%, transparent 62%)",pointerEvents:"none",zIndex:0}}),
         h("div",{style:{position:"relative",zIndex:1,maxWidth:1280,margin:"0 auto"}},
-          view==="advisor" && currentUser.rol==="asesor" && h(AdvisorPortal,{currentUser,users:scopedUsers,staffing:scopedStaffing,feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,raw,historico,notify,onFeedbackUpdated:reloadFeedbackRecords,onOpenPreview:openPreviewModal,onOpenEvaluation:openEvaluationModal}),
-          view==="improvement" && canViewImprovementDashboard(currentUser) && h(ContinuousImprovementDashboard,{currentUser,feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,evaluationsLoading:false,noTipificationRecords:scopedNoTipificationRecords,staffing:scopedStaffing,historico,users:scopedUsers,onOpenEvaluation:openEvaluationModal,onOpenNoTipification:openNoTipificationModal}),
+          !isCommercialDevelopmentActive && view==="advisor" && currentUser.rol==="asesor" && h(AdvisorPortal,{currentUser,users:scopedUsers,staffing:scopedStaffing,feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,raw,historico,notify,onFeedbackUpdated:reloadFeedbackRecords,onOpenPreview:openPreviewModal,onOpenEvaluation:openEvaluationModal}),
+          !isCommercialDevelopmentActive && view==="improvement" && canViewImprovementDashboard(currentUser) && h(ContinuousImprovementDashboard,{currentUser,feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,evaluationsLoading:false,noTipificationRecords:scopedNoTipificationRecords,staffing:scopedStaffing,historico,users:scopedUsers,onOpenEvaluation:openEvaluationModal,onOpenNoTipification:openNoTipificationModal}),
           view==="communications" && h(CommunicationsCenter,{records:scopedCommunicationRecords,currentUser,onSave:guardarComunicado,onDelete:eliminarComunicado,onAddComment:comentarComunicado,onDeleteComment:eliminarComentarioComunicado,onMarkRead:marcarComunicadoLeido,onRefresh:reloadCommunications,notify,users:scopedUsers,focusedCommunicationId}),
           view==="notifications" && h(NotificationCenter,{currentUser,notifications:scopedNotifications,onRefresh:reloadNotifications,onOpenNotificationTarget:openNotificationTarget}),
           view==="legend" && h(LegendCenter,{concepts:scopedLegendConcepts,onRefresh:reloadLegend}),
-          view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords:scopedEvaluationRecords,staffing:scopedStaffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
-          view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,onOpenFeedback:openFeedbackModal,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing:scopedStaffing}),
-          view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing:scopedStaffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,onUpdate:actualizarIncidenciaOperativa,onDelete:eliminarIncidenciaOperativa,notify}),
-          view==="salesValidation" && canViewSalesValidationModule(currentUser) && h(SalesValidationCenter,{records:scopedSalesValidations,currentUser,onSave:guardarValidacionVenta,onDelete:eliminarValidacionVenta,onRestore:restaurarValidacionVenta}),
-          view==="commercialDevelopment" && canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && h(CommercialDevelopmentCenter,{records:scopedCommercialDevelopmentRecords,currentUser,staffing:scopedStaffing,onSave:guardarDesarrolloComercial,onDelete:eliminarDesarrolloComercial}),
-          view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users:scopedUsers,notify,clientId:currentPlatformId,clientName:currentPlatformName}),
+          !isCommercialDevelopmentActive && view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords:scopedEvaluationRecords,staffing:scopedStaffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
+          !isCommercialDevelopmentActive && view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,onOpenFeedback:openFeedbackModal,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing:scopedStaffing}),
+          !isCommercialDevelopmentActive && view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing:scopedStaffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,onUpdate:actualizarIncidenciaOperativa,onDelete:eliminarIncidenciaOperativa,notify}),
+          !isCommercialDevelopmentActive && view==="salesValidation" && canViewSalesValidationModule(currentUser) && h(SalesValidationCenter,{records:scopedSalesValidations,currentUser,onSave:guardarValidacionVenta,onDelete:eliminarValidacionVenta,onRestore:restaurarValidacionVenta}),
+          view==="commercialDevelopment" && canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && h(CommercialDevelopmentCenter,{records:scopedCommercialDevelopmentRecords,currentUser,staffing:scopedStaffing,onSave:guardarDesarrolloComercial,onDelete:eliminarDesarrolloComercial,clientName:currentPlatformName}),
+          !isCommercialDevelopmentActive && view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users:scopedUsers,notify,clientId:currentPlatformId,clientName:currentPlatformName}),
           view==="staffing" && canViewStaffingModule(currentUser,currentPlatformId) && h(StaffingConfig,{staffing:scopedStaffing,setStaffing,onSaveStaffing:guardarDotacionScoped,clientId:currentPlatformId,clientName:currentPlatformName,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords:scopedEvaluationRecords,feedbackRecords:scopedFeedbackRecords,currentUser}),
           view==="users" && canManageUsers(currentUser) && h(UserManager,{users:scopedUsers,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,onResetPassword:resetearContrasenaUsuario,notify,staffing:scopedStaffing})
         )
@@ -7722,6 +7765,7 @@ const EVALUATION_FORM_TEMPLATES_BY_CLIENT = {
 
 function normalizeClientId(value){
   const raw = String(value || DEFAULT_PLATFORM_ID).trim();
+  if (raw === COMMERCIAL_DEVELOPMENT_PLATFORM_ID) return COMMERCIAL_DEVELOPMENT_PLATFORM_ID;
   return raw === CULQI_PLATFORM_ID ? CULQI_PLATFORM_ID : DEFAULT_PLATFORM_ID;
 }
 
@@ -8886,7 +8930,7 @@ function salesValidationRole(user){
 function canViewSalesValidationModule(user){ return ["admin","analista","supervisor","formador","sistemas"].includes(salesValidationRole(user)); }
 function canManageSalesValidationModule(user){ return ["admin","analista"].includes(salesValidationRole(user)); }
 function commercialDevelopmentRole(user){ return salesValidationRole(user); }
-function canViewCommercialDevelopmentModule(user, platformId){ return normalizeClientId(platformId) === DEFAULT_PLATFORM_ID && ["admin","analista","supervisor","formador"].includes(commercialDevelopmentRole(user)); }
+function canViewCommercialDevelopmentModule(user, platformId){ return normalizeClientId(platformId) === COMMERCIAL_DEVELOPMENT_PLATFORM_ID && ["admin","analista","supervisor","formador"].includes(commercialDevelopmentRole(user)); }
 function canManageCommercialDevelopmentModule(user){ return ["admin","formador"].includes(commercialDevelopmentRole(user)); }
 function canDeleteCommercialDevelopmentModule(user){ return commercialDevelopmentRole(user) === "admin"; }
 function salesHasAudio(record){ return normalizeComparableValue(record?.audioStatus).includes("si se encontro audio"); }
@@ -9237,7 +9281,7 @@ function CommercialDevelopmentModal({isOpen,onClose,onSave,record,currentUser,st
   );
 }
 
-function CommercialDevelopmentCenter({records,currentUser,staffing,onSave,onDelete}){
+function CommercialDevelopmentCenter({records,currentUser,staffing,onSave,onDelete,clientName = "Desarrollo Comercial"}){
   const [modal,setModal] = useState({open:false,record:null});
   const [filters,setFilters] = useState({dateFrom:"",dateTo:"",trainer:"all",advisor:[],status:"all"});
   const canManage = canManageCommercialDevelopmentModule(currentUser);
@@ -9259,11 +9303,11 @@ function CommercialDevelopmentCenter({records,currentUser,staffing,onSave,onDele
   },[filtered]);
   const advisorChartConfig = useMemo(() => buildOperationalIncidentChartConfig("Fichas por ejecutivo", filtered, row=>row.executiveName || "Sin ejecutivo", "Fichas"), [filtered]);
   const trainerChartConfig = useMemo(() => buildOperationalIncidentChartConfig("Fichas por formador", filtered, row=>row.trainerName || "Sin formador", "Fichas"), [filtered]);
-  const exportRows = () => exportCSV(filtered.map(r=>({Codigo:r.code,Fecha:formatDateTime(r.interventionAt),Ejecutivo:r.executiveName,Campana:r.campaign,Perfil:r.profile,Supervisor:r.supervisor,Formador:r.trainerName,Estado:r.status,Motivo:r.reason,ConexionInicial:r.initialConnection,ProductividadInicial:r.initialProductivity,VentasInicial:r.initialSales,ConexionSeguimiento:r.followConnection,ProductividadSeguimiento:r.followProductivity,VentasSeguimiento:r.followSales,ResultadoSeguimiento:r.followResult,Observaciones:r.trainerObservations})),"desarrollo_comercial_entel");
+  const exportRows = () => exportCSV(filtered.map(r=>({Codigo:r.code,Fecha:formatDateTime(r.interventionAt),Ejecutivo:r.executiveName,Campana:r.campaign,Perfil:r.profile,Supervisor:r.supervisor,Formador:r.trainerName,Estado:r.status,Motivo:r.reason,ConexionInicial:r.initialConnection,ProductividadInicial:r.initialProductivity,VentasInicial:r.initialSales,ConexionSeguimiento:r.followConnection,ProductividadSeguimiento:r.followProductivity,VentasSeguimiento:r.followSales,ResultadoSeguimiento:r.followResult,Observaciones:r.trainerObservations})),"desarrollo_comercial");
   const deleteRecord = async(record) => { if (!confirm("Eliminar esta ficha de desarrollo comercial?")) return; await onDelete({id:record.id,currentUser}); };
   return h("div",null,
     h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:28}},
-      h("div",null,h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.35em",fontFamily:THEME.displayFont,marginBottom:10}},"ENTEL B2B"),h("h1",{style:{fontSize:42,color:"#fff",margin:"0 0 8px"}},"Desarrollo Comercial"),h("p",{style:{color:"#9fb0d8",lineHeight:1.7,margin:0}},"Mejora continua y acompañamiento individual de ejecutivos comerciales.")),
+      h("div",null,h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.35em",fontFamily:THEME.displayFont,marginBottom:10}},String(clientName || "Desarrollo Comercial").toUpperCase()),h("h1",{style:{fontSize:42,color:"#fff",margin:"0 0 8px"}},"Desarrollo Comercial"),h("p",{style:{color:"#9fb0d8",lineHeight:1.7,margin:0}},"Mejora continua y acompañamiento individual de ejecutivos comerciales.")),
       canManage && h("button",{style:BTN("pink"),onClick:()=>setModal({open:true,record:null})},I("plus",14,"#fff"),"NUEVA FICHA")
     ),
     h("div",{style:{...CARD,marginBottom:20}},

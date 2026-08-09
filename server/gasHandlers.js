@@ -402,6 +402,7 @@ const EVALUATION_FORM_TYPES = {
 
 const DEFAULT_CLIENT_ID = "entel_b2b";
 const CULQI_CLIENT_ID = "culqi_bcp";
+const COMMERCIAL_DEVELOPMENT_CLIENT_ID = "desarrollo_comercial";
 
 const EVALUATION_FORM_TEMPLATES = {
   venta: [
@@ -478,7 +479,9 @@ const EVALUATION_FORM_TEMPLATES_BY_CLIENT = {
 
 function normalizeClientId(value) {
   const raw = String(value || DEFAULT_CLIENT_ID).trim();
-  return raw === CULQI_CLIENT_ID ? CULQI_CLIENT_ID : DEFAULT_CLIENT_ID;
+  if (raw === CULQI_CLIENT_ID) return CULQI_CLIENT_ID;
+  if (raw === COMMERCIAL_DEVELOPMENT_CLIENT_ID) return COMMERCIAL_DEVELOPMENT_CLIENT_ID;
+  return DEFAULT_CLIENT_ID;
 }
 
 function getEvaluationTemplatesForClient(clientId) {
@@ -1302,7 +1305,7 @@ function normalizeCommercialDevelopmentStatus(record = {}) {
 function normalizeCommercialDevelopmentPayload(payload = {}, existing = {}, currentUser = {}, records = []) {
   const now = nowIso();
   const clientId = normalizeClientId(payload.clientId || payload.platformId || existing.clientId || existing.platformId || currentUser.clientId || currentUser.platformId);
-  if (clientId !== DEFAULT_CLIENT_ID) throw new Error("Desarrollo comercial solo esta disponible para Entel.");
+  if (clientId !== COMMERCIAL_DEVELOPMENT_CLIENT_ID) throw new Error("Desarrollo comercial solo esta disponible en su plataforma independiente.");
   const executiveName = String(payload.executiveName || payload.asesor || payload.ejecutivo || existing.executiveName || "").trim();
   const trainerName = String(payload.trainerName || payload.formador || existing.trainerName || currentUser.nombre || "").trim();
   const interventionAt = String(payload.interventionAt || payload.fechaIntervencion || existing.interventionAt || now).trim();
@@ -1323,8 +1326,8 @@ function normalizeCommercialDevelopmentPayload(payload = {}, existing = {}, curr
     code,
     clientId,
     platformId: clientId,
-    clientName: String(payload.clientName || payload.platformName || existing.clientName || "Entel B2B").trim(),
-    platformName: String(payload.platformName || payload.clientName || existing.platformName || "Entel B2B").trim(),
+    clientName: String(payload.clientName || payload.platformName || existing.clientName || "Desarrollo Comercial").trim(),
+    platformName: String(payload.platformName || payload.clientName || existing.platformName || "Desarrollo Comercial").trim(),
     executiveName,
     campaign: String(payload.campaign || payload.campana || existing.campaign || "").trim(),
     profile: String(payload.profile || payload.perfil || existing.profile || "").trim(),
@@ -2141,11 +2144,11 @@ export const gasHandlers = {
     const currentUser = ensureCurrentUser(payload.currentUser || payload);
     if (!canViewCommercialDevelopment(currentUser)) throw new Error("No tienes permisos para ver desarrollo comercial.");
     const clientId = normalizeClientId(payload.clientId || payload.platformId || currentUser.clientId || currentUser.platformId);
-    if (clientId !== DEFAULT_CLIENT_ID) return [];
+    if (clientId !== COMMERCIAL_DEVELOPMENT_CLIENT_ID) return [];
     const records = await readCommercialDevelopmentRecords();
     const role = getRole(currentUser);
     return records
-      .filter(record => isRecordVisibleForClient(record, DEFAULT_CLIENT_ID))
+      .filter(record => isRecordVisibleForClient(record, COMMERCIAL_DEVELOPMENT_CLIENT_ID))
       .map(record => ({ ...record, status: normalizeCommercialDevelopmentStatus(record) }))
       .filter(record => role === "admin" ? true : normalizeText(record?.status) !== "eliminada")
       .sort((a, b) => new Date(b.updatedAt || b.interventionAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.interventionAt || a.createdAt || 0).getTime());
