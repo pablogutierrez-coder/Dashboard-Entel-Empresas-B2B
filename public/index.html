@@ -2980,7 +2980,7 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
       h("div",{style:{position:"absolute",inset:0,background:"radial-gradient(circle at 78% 12%, rgba(230,0,168,0.18), transparent 32%), radial-gradient(circle at 15% 82%, rgba(29,43,255,0.22), transparent 42%)",pointerEvents:"none"}}),
       h("div",{style:{width:"100%",maxWidth:440,position:"relative",zIndex:1}},
       h("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-start",marginBottom:34}},
-        BrandLogo({width:178,height:104,style:{marginBottom:20}}),
+        BrandLogo({width:178,height:104,style:{marginBottom:20,marginLeft:-64}}),
         h("div",{style:{fontSize:12,color:THEME.primary,letterSpacing:"0.22em",fontFamily:THEME.displayFont,fontWeight:800,textTransform:"uppercase",marginBottom:10}},"Plataforma de"),
         h("div",{style:{fontSize:"clamp(30px,3vw,42px)",fontWeight:900,color:THEME.text,letterSpacing:"0.02em",fontFamily:THEME.displayFont,lineHeight:1.08}},"Calidad y Desarrollo comercial"),
         h("div",{style:{fontSize:14,color:"#AFC3FF",marginTop:12,lineHeight:1.65}},"Ingresa con tu usuario. La plataforma activara solo los clientes y modulos autorizados.")
@@ -3002,7 +3002,7 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
         loading ? I("ref",14,THEME.white) : I("lock",14,THEME.white),
         loadingUsers ? "CARGANDO USUARIOS..." : loading ? "VERIFICANDO..." : "INICIAR SESION"
       ),
-      h("div",{style:{marginTop:26,fontSize:12,color:THEME.muted,fontWeight:600,letterSpacing:"0.08em",textAlign:"left"}},
+      h("div",{style:{marginTop:26,width:"100%",fontSize:12,color:THEME.muted,fontWeight:600,letterSpacing:"0.08em",textAlign:"center"}},
         "Desarrollado con ♥ por ",
         h("span",{style:{color:THEME.accent}},"Ali")
       )
