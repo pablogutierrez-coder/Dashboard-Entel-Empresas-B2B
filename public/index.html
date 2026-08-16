@@ -4,16 +4,44 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard Entel Empresas B2B</title>
-<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"%3E%3Cdefs%3E%3ClinearGradient id="g" x1="0" y1="0" x2="1" y2="1"%3E%3Cstop offset="0" stop-color="%231D2BFF"/%3E%3Cstop offset="0.58" stop-color="%235B1FD6"/%3E%3Cstop offset="1" stop-color="%23E600A8"/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width="64" height="64" rx="18" fill="url(%23g)"/%3E%3Crect x="18" y="38" width="4" height="10" rx="2" fill="%23F3F0E8"/%3E%3Crect x="28" y="28" width="4" height="20" rx="2" fill="%23F3F0E8"/%3E%3Crect x="38" y="18" width="4" height="30" rx="2" fill="%23F3F0E8"/%3E%3C/svg%3E'>
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"%3E%3Cdefs%3E%3ClinearGradient id="g" x1="0" y1="0" x2="1" y2="1"%3E%3Cstop offset="0" stop-color="%231407FB"/%3E%3Cstop offset="0.58" stop-color="%235F03FB"/%3E%3Cstop offset="1" stop-color="%23EE02BB"/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width="64" height="64" rx="18" fill="url(%23g)"/%3E%3Crect x="18" y="38" width="4" height="10" rx="2" fill="%23F7F7FB"/%3E%3Crect x="28" y="28" width="4" height="20" rx="2" fill="%23F7F7FB"/%3E%3Crect x="38" y="18" width="4" height="30" rx="2" fill="%23F7F7FB"/%3E%3C/svg%3E'>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+:root {
+  --bg: #08080D;
+  --surface-1: #111119;
+  --surface-2: #171724;
+  --surface-3: #202033;
+  --border: #2E2E42;
+  --text: #F7F7FB;
+  --text-muted: #A8A8B8;
+  --brand-blue: #1407FB;
+  --brand-violet: #5F03FB;
+  --brand-orchid: #AD02F4;
+  --brand-magenta: #EE02BB;
+  --primary-ui: #7152FF;
+  --success: #22C55E;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+  --info: #38BDF8;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-card: 14px;
+  --radius-lg: 20px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html { background: #0B0B12; }
+html { background: var(--bg); color-scheme: dark; }
 body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow-x: hidden; background:
-  radial-gradient(circle at top left, rgba(29,43,255,0.16) 0%, transparent 28%),
-  radial-gradient(circle at 85% 10%, rgba(91,31,214,0.18) 0%, transparent 30%),
-  linear-gradient(180deg, #0B0B12 0%, #120A22 100%);
-  color: #F3F0E8; font-family: 'Inter', sans-serif; }
+  radial-gradient(circle at 8% 0%, rgba(20,7,251,0.13) 0%, transparent 28%),
+  radial-gradient(circle at 88% 8%, rgba(173,2,244,0.11) 0%, transparent 30%),
+  linear-gradient(180deg, var(--bg) 0%, #0D0D16 100%);
+  color: var(--text); font-family: 'Inter', sans-serif; }
 #root { position: relative; isolation: isolate; }
 #root::before {
   content: "";
@@ -21,14 +49,30 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow-x: hidde
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(120deg, rgba(29,43,255,0.07), transparent 35%, rgba(230,0,168,0.04) 100%),
-    repeating-linear-gradient(180deg, rgba(255,255,255,0.015) 0, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 72px);
+    linear-gradient(120deg, rgba(20,7,251,0.045), transparent 34%, rgba(238,2,187,0.035) 100%),
+    repeating-linear-gradient(180deg, rgba(255,255,255,0.012) 0, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 80px);
   z-index: -1;
 }
+button, input, select, textarea { font: inherit; }
+button, select, input[type="checkbox"], input[type="radio"] { accent-color: var(--primary-ui); }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible {
+  outline: 3px solid rgba(113,82,255,0.55);
+  outline-offset: 2px;
+}
+button:hover { filter: brightness(1.04); }
+::selection { background: rgba(113,82,255,0.35); color: var(--text); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #0B0B12; }
-::-webkit-scrollbar-thumb { background: #24153f; border-radius: 10px; border: 1px solid #0B0B12; }
-::-webkit-scrollbar-thumb:hover { background: #3a1d70; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #27273A; border-radius: 10px; border: 1px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: #363650; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 </style>
 </head>
 <body>
@@ -48,24 +92,29 @@ if (window.Chart && window.ChartDataLabels) {
 }
 
 const THEME = {
-  bg: "#0B0B12",
-  surface: "#12131D",
-  surfaceAlt: "#17182A",
-  panel: "#1A1130",
-  border: "rgba(117, 92, 255, 0.22)",
-  borderStrong: "rgba(91, 31, 214, 0.45)",
-  text: "#F3F0E8",
-  muted: "#A6A0B8",
-  primary: "#1D2BFF",
-  violet: "#5B1FD6",
-  secondary: "#2B0A5A",
-  accent: "#E600A8",
-  white: "#F3F0E8",
-  glowBlue: "0 0 0 1px rgba(29,43,255,0.16), 0 18px 40px rgba(12,17,62,0.45)",
-  glowViolet: "0 0 0 1px rgba(91,31,214,0.18), 0 18px 42px rgba(32,13,66,0.48)",
-  gradient: "linear-gradient(135deg, #1D2BFF 0%, #5B1FD6 58%, #E600A8 100%)",
-  gradientSoft: "linear-gradient(135deg, rgba(29,43,255,0.18) 0%, rgba(91,31,214,0.18) 58%, rgba(230,0,168,0.16) 100%)",
-  displayFont: "'Rajdhani', 'Inter', sans-serif",
+  bg: "#08080D",
+  surface: "#111119",
+  surfaceAlt: "#171724",
+  panel: "#202033",
+  border: "#2E2E42",
+  borderStrong: "rgba(113, 82, 255, 0.58)",
+  text: "#F7F7FB",
+  muted: "#A8A8B8",
+  primary: "#1407FB",
+  violet: "#5F03FB",
+  orchid: "#AD02F4",
+  secondary: "#202033",
+  accent: "#EE02BB",
+  success: "#22C55E",
+  warning: "#F59E0B",
+  danger: "#EF4444",
+  info: "#38BDF8",
+  white: "#F7F7FB",
+  glowBlue: "0 10px 30px rgba(20,7,251,0.16)",
+  glowViolet: "0 16px 34px rgba(0,0,0,0.28)",
+  gradient: "linear-gradient(135deg, #1407FB 0%, #5F03FB 58%, #EE02BB 100%)",
+  gradientSoft: "linear-gradient(135deg, rgba(20,7,251,0.12) 0%, rgba(95,3,251,0.11) 58%, rgba(238,2,187,0.10) 100%)",
+  displayFont: "'Inter', sans-serif",
   bodyFont: "'Inter', sans-serif"
 };
 
@@ -2021,8 +2070,30 @@ function makeWeekly(canv, data, chartRef){
   });
 }
 
-const CARD = { background:"linear-gradient(180deg, rgba(23,24,42,0.96) 0%, rgba(18,19,29,0.98) 100%)", border: `1px solid ${THEME.border}`, borderRadius:20, padding:28, marginBottom:20, boxShadow:THEME.glowViolet, position:"relative", overflow:"hidden" };
-const INP = { width:"100%", background:"rgba(9, 9, 17, 0.96)", border: `1px solid ${THEME.border}`, borderRadius:12, padding:"14px 16px", color:THEME.text, fontSize:13, fontFamily:THEME.bodyFont, outline:"none", transition:"all 0.3s", boxShadow:"inset 0 0 0 1px rgba(255,255,255,0.01)" };
+const CARD = {
+  background:"linear-gradient(180deg, rgba(23,23,36,0.98) 0%, rgba(17,17,25,0.99) 100%)",
+  border: `1px solid ${THEME.border}`,
+  borderRadius:14,
+  padding:20,
+  marginBottom:16,
+  boxShadow:THEME.glowViolet,
+  position:"relative",
+  overflow:"hidden"
+};
+const INP = {
+  width:"100%",
+  minHeight:44,
+  background:"rgba(8, 8, 13, 0.96)",
+  border: `1px solid ${THEME.border}`,
+  borderRadius:10,
+  padding:"12px 14px",
+  color:THEME.text,
+  fontSize:14,
+  fontFamily:THEME.bodyFont,
+  outline:"none",
+  transition:"border-color 160ms ease, background 160ms ease, box-shadow 160ms ease",
+  boxShadow:"none"
+};
 const SEL = { ...INP, cursor:"pointer" };
 
 const BASE_THEME_VALUES = {...THEME};
@@ -2030,6 +2101,7 @@ const BASE_CARD_VALUES = {...CARD};
 const BASE_INP_VALUES = {...INP};
 const BASE_SEL_VALUES = {...SEL};
 const CULQI_ASSET = "/assets/culqi-full-pos.webp";
+const LOGIN_INTRO_VIDEO_ASSET = "/assets/automatizate-intro.mp4";
 
 const CULQI_THEME_VALUES = {
   bg: "#16061D",
@@ -2068,6 +2140,7 @@ function applyPlatformVisualTheme(platformId){
       ...BASE_CARD_VALUES,
       background:"linear-gradient(180deg, rgba(43,18,49,0.96) 0%, rgba(29,8,36,0.98) 100%)",
       border:`1px solid ${CULQI_THEME_VALUES.border}`,
+      borderRadius:14,
       boxShadow:CULQI_THEME_VALUES.glowViolet
     });
     Object.assign(INP,{
@@ -2091,28 +2164,29 @@ const BTN = t => {
   const bgs = {
     p: THEME.gradient,
     pink: `linear-gradient(90deg, ${THEME.violet} 0%, ${THEME.accent} 100%)`,
-    s: "rgba(255,255,255,0.04)",
+    s: "rgba(247,247,251,0.04)",
     g: THEME.primary,
     out: "transparent"
   };
   const borders = { out: `1px solid ${THEME.borderStrong}`, s: `1px solid ${THEME.border}` };
-  const shadows = { p: "0 8px 24px rgba(29,43,255,0.28)", pink: "0 8px 24px rgba(230,0,168,0.22)", g: "0 8px 24px rgba(29,43,255,0.24)" };
+  const shadows = { p: "0 10px 24px rgba(20,7,251,0.20)", pink: "0 10px 24px rgba(238,2,187,0.16)", g: "0 10px 24px rgba(20,7,251,0.18)" };
   const colors = { out: THEME.muted, s: THEME.text };
   return {
     background: bgs[t] || bgs.s,
     color: colors[t] || THEME.white,
     border: borders[t] || "none",
-    borderRadius:14,
-    padding:"12px 20px",
-    fontSize:11,
-    fontWeight:700,
+    borderRadius:10,
+    minHeight:44,
+    padding:"11px 18px",
+    fontSize:12,
+    fontWeight:800,
     cursor:"pointer",
     display:"inline-flex",
     alignItems:"center",
     gap:12,
-    transition:"all 0.3s",
+    transition:"background 160ms ease, border-color 160ms ease, transform 160ms ease, filter 160ms ease",
     textTransform:"uppercase",
-    letterSpacing:"0.12em",
+    letterSpacing:"0.08em",
     fontFamily:THEME.displayFont,
     boxShadow: shadows[t] || "none"
   };
@@ -2578,6 +2652,9 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError,onBack,platform}
   const [showP, setShowP] = useState(false);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+  const [videoNeedsGesture, setVideoNeedsGesture] = useState(false);
+  const [introEnded, setIntroEnded] = useState(false);
+  const introVideoRef = useRef(null);
   const culqi = isCulqiPlatform(platform?.id);
   const loginBackground = culqi
     ? `linear-gradient(90deg, rgba(22,6,29,0.97) 0%, rgba(52,13,59,0.86) 46%, rgba(255,104,0,0.34) 100%), url("${CULQI_ASSET}")`
@@ -2585,6 +2662,29 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError,onBack,platform}
   const cardBackground = culqi
     ? "linear-gradient(180deg, rgba(43,16,48,0.94) 0%, rgba(21,6,28,0.98) 100%)"
     : "linear-gradient(180deg, rgba(18,19,29,0.96) 0%, rgba(22,12,40,0.98) 100%)";
+
+  useEffect(() => {
+    const video = introVideoRef.current;
+    if (!video) return;
+    setIntroEnded(false);
+    setVideoNeedsGesture(false);
+    video.muted = false;
+    video.volume = 0.82;
+    try { video.currentTime = 0; } catch (_error) {}
+    const playPromise = video.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(() => setVideoNeedsGesture(true));
+    }
+  }, [platform?.id]);
+
+  const playIntroWithSound = () => {
+    const video = introVideoRef.current;
+    if (!video) return;
+    video.muted = false;
+    video.volume = 0.82;
+    try { video.currentTime = 0; } catch (_error) {}
+    video.play().then(() => setVideoNeedsGesture(false)).catch(() => setVideoNeedsGesture(true));
+  };
 
   const submit = async() => {
     if (loadingUsers) {
@@ -2654,8 +2754,36 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError,onBack,platform}
     setLoading(false);
   };
 
-  return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:loginBackground,backgroundSize:culqi ? "cover" : undefined,backgroundPosition:culqi ? "center" : undefined,padding:"20px"}},
-    h("div",{style:{width:"100%",maxWidth:430,background:cardBackground,border: `1px solid ${culqi ? "rgba(255,138,0,0.42)" : THEME.border}`,borderRadius:culqi ? 28 : 24,padding:"40px 36px",boxShadow:culqi ? "0 24px 70px rgba(255,92,0,0.22), 0 0 0 1px rgba(255,255,255,0.03)" : THEME.glowViolet,position:"relative",overflow:"hidden"}} ,
+  return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:loginBackground,backgroundSize:culqi ? "cover" : undefined,backgroundPosition:culqi ? "center" : undefined,padding:"24px"}},
+    h("div",{style:{width:"100%",maxWidth:1120,display:"flex",alignItems:"stretch",justifyContent:"center",gap:24,flexWrap:"wrap"}},
+      h("div",{style:{...CARD,flex:"1 1 500px",minHeight:520,marginBottom:0,padding:0,borderRadius:20,overflow:"hidden",border:`1px solid ${culqi ? "rgba(255,138,0,0.32)" : THEME.border}`,boxShadow:"0 22px 60px rgba(0,0,0,0.34)",background:"#08080D"}},
+        h("video",{
+          ref:introVideoRef,
+          src:LOGIN_INTRO_VIDEO_ASSET,
+          autoPlay:true,
+          muted:false,
+          playsInline:true,
+          preload:"auto",
+          loop:false,
+          controls:false,
+          onEnded:()=>setIntroEnded(true),
+          style:{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",opacity:introEnded ? 0.40 : 0.74,filter:"saturate(1.08) contrast(1.04)",transition:"opacity 240ms ease"}
+        }),
+        h("div",{style:{position:"absolute",inset:0,background:"linear-gradient(90deg, rgba(8,8,13,0.70) 0%, rgba(8,8,13,0.32) 48%, rgba(95,3,251,0.20) 100%), linear-gradient(180deg, rgba(8,8,13,0.18) 0%, rgba(8,8,13,0.82) 100%)",pointerEvents:"none"}}),
+        h("div",{style:{position:"relative",zIndex:1,height:"100%",minHeight:520,display:"flex",flexDirection:"column",justifyContent:"space-between",padding:32}},
+          h("div",null,
+            h("div",{style:{width:56,height:56,borderRadius:16,background:THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 14px 34px rgba(20,7,251,0.26)",marginBottom:18}},I("bar",26,THEME.white)),
+            h("div",{style:{fontSize:11,color:THEME.info,letterSpacing:"0.22em",fontWeight:800,textTransform:"uppercase",marginBottom:10}},"Automatizate Negocios"),
+            h("h1",{style:{fontSize:"clamp(30px,4vw,48px)",lineHeight:1.05,color:THEME.text,fontWeight:900,letterSpacing:"-0.02em",maxWidth:520,marginBottom:14}},"Una sola entrada para toda la operacion"),
+            h("p",{style:{fontSize:15,lineHeight:1.7,color:"#D8D9E6",maxWidth:520,margin:0}},"Calidad, feedback, calibracion y desarrollo comercial con una experiencia visual coherente.")
+          ),
+          h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}},
+            h("div",{style:{fontSize:12,color:THEME.muted,lineHeight:1.6}},introEnded ? "Intro reproducida una vez." : videoNeedsGesture ? "El navegador necesita tu accion para activar el sonido." : "Intro institucional con sonido."),
+            videoNeedsGesture && h("button",{type:"button",style:{...BTN("p"),fontSize:10,minHeight:40,padding:"10px 14px"},onClick:playIntroWithSound},"REPRODUCIR INTRO")
+          )
+        )
+      ),
+      h("div",{style:{width:"100%",maxWidth:430,flex:"0 1 430px",background:cardBackground,border: `1px solid ${culqi ? "rgba(255,138,0,0.42)" : THEME.border}`,borderRadius:culqi ? 20 : 20,padding:"40px 36px",boxShadow:culqi ? "0 24px 70px rgba(255,92,0,0.22), 0 0 0 1px rgba(255,255,255,0.03)" : THEME.glowViolet,position:"relative",overflow:"hidden"}} ,
       culqi && h("div",{style:{position:"absolute",inset:0,background:"radial-gradient(circle at 80% 12%, rgba(255,138,0,0.20), transparent 32%), radial-gradient(circle at 10% 80%, rgba(110,27,115,0.45), transparent 38%)",pointerEvents:"none"}}),
       onBack && h("button",{type:"button",style:{position:"absolute",top:18,left:18,...BTN("out"),padding:"8px 10px",fontSize:10},onClick:onBack},"VOLVER"),
       h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:30,position:"relative",zIndex:1}},
@@ -2680,7 +2808,7 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError,onBack,platform}
         loading ? I("ref",14,THEME.white) : I("lock",14,THEME.white),
         loadingUsers ? "CARGANDO USUARIOS..." : loading ? "VERIFICANDO..." : "INICIAR SESION"
       )
-    ),
+    )),
     h("div",{style:{marginTop:30,fontSize:12,color:culqi ? "#FFE3C7" : THEME.muted,fontWeight:600,letterSpacing:"0.08em",textAlign:"center",textShadow:culqi ? "0 2px 16px rgba(0,0,0,0.45)" : undefined}},
       "Herramienta desarrollada por ",
       h("span",{style:{color:culqi ? "#FF8A00" : THEME.accent}},"IA Learning Solutions")
@@ -11796,12 +11924,12 @@ window.onerror = function(message, source, lineno, colno, error){
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
   root.innerHTML =
-    '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#0B0B12;color:#F3F0E8;font-family:Inter,sans-serif;">' +
-    '<div style="max-width:680px;width:100%;background:#17182A;border:1px solid rgba(117,92,255,.22);border-top:4px solid #E600A8;border-radius:20px;padding:28px;">' +
+    '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#08080D;color:#F7F7FB;font-family:Inter,sans-serif;">' +
+    '<div style="max-width:680px;width:100%;background:#171724;border:1px solid #2E2E42;border-top:4px solid #EE02BB;border-radius:20px;padding:24px;box-shadow:0 16px 34px rgba(0,0,0,.28);">' +
     '<div style="font-size:24px;font-weight:800;margin-bottom:10px;">No se pudo cargar la plataforma</div>' +
-    '<div style="font-size:13px;color:#cbd5e1;line-height:1.7;margin-bottom:16px;">Error de inicio detectado.</div>' +
-    '<pre style="white-space:pre-wrap;color:#E600A8;background:#090911;border-radius:12px;padding:14px;">' + safeMessage + '</pre>' +
-    '<button onclick="location.reload()" style="margin-top:16px;background:linear-gradient(135deg,#1D2BFF,#5B1FD6,#E600A8);color:#fff;border:none;border-radius:14px;padding:12px 20px;font-weight:800;cursor:pointer;">RECARGAR</button>' +
+    '<div style="font-size:14px;color:#A8A8B8;line-height:1.7;margin-bottom:16px;">Error de inicio detectado.</div>' +
+    '<pre style="white-space:pre-wrap;color:#EE02BB;background:#08080D;border:1px solid #2E2E42;border-radius:10px;padding:14px;">' + safeMessage + '</pre>' +
+    '<button onclick="location.reload()" style="margin-top:16px;min-height:44px;background:linear-gradient(135deg,#1407FB,#5F03FB,#EE02BB);color:#fff;border:none;border-radius:10px;padding:11px 18px;font-weight:800;cursor:pointer;letter-spacing:.08em;">RECARGAR</button>' +
     '</div></div>';
   return false;
 };
