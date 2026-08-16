@@ -243,9 +243,19 @@ function normalizeUserRecord(user) {
   };
 }
 
+function normalizeCollectionList(collection) {
+  if (Array.isArray(collection)) return collection.filter(Boolean);
+  if (collection && typeof collection === "object") {
+    return Object.entries(collection)
+      .map(([key, value]) => value && typeof value === "object" ? {id:value.id || key, ...value} : value)
+      .filter(Boolean);
+  }
+  return [];
+}
+
 function normalizeUsersList(users) {
   const byLogin = new Map();
-  (Array.isArray(users) ? users : []).forEach(user => {
+  normalizeCollectionList(users).forEach(user => {
     const normalized = normalizeUserRecord(user);
     if (!normalized) return;
     const key = getUserTenantKey(normalized);
@@ -1839,14 +1849,18 @@ function formatFeedbackDate(dateValue){
 
 function buildAdvisorOptions(staffing, raw, historico, feedbackRecords){
   const set = new Set();
-  const activeStaffingNames = new Set((staffing || []).filter(isStaffingActive).map(item => normalizeText(item?.asesor)).filter(Boolean));
-  (staffing || []).filter(isStaffingActive).forEach(item => item?.asesor && set.add(normalizeText(item.asesor)));
-  (raw || []).forEach(item => {
+  const staffingList = normalizeCollectionList(staffing);
+  const rawList = normalizeCollectionList(raw);
+  const historyList = normalizeCollectionList(historico);
+  const feedbackList = normalizeCollectionList(feedbackRecords);
+  const activeStaffingNames = new Set(staffingList.filter(isStaffingActive).map(item => normalizeText(item?.asesor)).filter(Boolean));
+  staffingList.filter(isStaffingActive).forEach(item => item?.asesor && set.add(normalizeText(item.asesor)));
+  rawList.forEach(item => {
     const advisor = getRowValue(item, FIELD_KEYS.advisor);
     if (advisor) set.add(normalizeText(advisor));
   });
-  (historico || []).forEach(snapshot => ((snapshot?.data?.quartiles) || []).forEach(item => item?.asesor && set.add(normalizeText(item.asesor))));
-  (feedbackRecords || []).forEach(item => item?.assessor && set.add(normalizeText(item.assessor)));
+  historyList.forEach(snapshot => normalizeCollectionList(snapshot?.data?.quartiles).forEach(item => item?.asesor && set.add(normalizeText(item.asesor))));
+  feedbackList.forEach(item => item?.assessor && set.add(normalizeText(item.assessor)));
   return [...set].filter(Boolean).filter(name => !activeStaffingNames.size || activeStaffingNames.has(name)).sort((a, b) => a.localeCompare(b, "es"));
 }
 
@@ -1880,12 +1894,14 @@ function findMatchingEvaluationItem(items, templateItem){
   }) || null;
 }
 
-function getStaffingAdvisorOptions(staffing){ return (staffing || []).filter(isStaffingActive).map(item => normalizeName(item?.asesor)).filter(Boolean).sort((a, b) => a.localeCompare(b, "es")); }
+function getStaffingAdvisorOptions(staffing){ return normalizeCollectionList(staffing).filter(isStaffingActive).map(item => normalizeName(item?.asesor)).filter(Boolean).sort((a, b) => a.localeCompare(b, "es")); }
 
 function buildAdvisorProfiles(staffing, users){
-  return (staffing || []).filter(isStaffingActive).map(item => {
+  const staffingList = normalizeCollectionList(staffing);
+  const userList = normalizeUsersList(users);
+  return staffingList.filter(isStaffingActive).map(item => {
     const advisorName = normalizeName(item?.asesor);
-    const linkedUser = (users || []).find(user => user?.rol === "asesor" && (normalizeName(user.assessorName) === advisorName || String(user.usuario || "").trim().toLowerCase() === String(item?.usuarioAsignado || "").trim().toLowerCase()));
+    const linkedUser = userList.find(user => user?.rol === "asesor" && (normalizeName(user.assessorName) === advisorName || String(user.usuario || "").trim().toLowerCase() === String(item?.usuarioAsignado || "").trim().toLowerCase()));
     return {
       advisorName,
       supervisor: item?.supervisor || "",
@@ -2634,7 +2650,7 @@ function isRecordVisibleForPlatform(record, platformId){
 }
 
 function filterRecordsForPlatform(records, platformId){
-  return (Array.isArray(records) ? records : []).filter(record => isRecordVisibleForPlatform(record, platformId));
+  return normalizeCollectionList(records).filter(record => isRecordVisibleForPlatform(record, platformId));
 }
 
 const PRIMARY_ADMIN_LOGIN = "pablo.gutierrez";
@@ -2649,7 +2665,7 @@ function isPrimaryPlatformAdmin(user){
 }
 
 function filterUsersForPlatform(records, platformId){
-  const list = normalizeUsersList(Array.isArray(records) ? records : []);
+  const list = normalizeUsersList(records);
   const normalizedPlatformId = normalizeClientId(platformId || DEFAULT_PLATFORM_ID);
   const scopedByAccess = list.filter(user => isUserAuthorizedForPlatform(user, normalizedPlatformId));
   if (isCulqiPlatform(platformId)) {
@@ -8560,9 +8576,15 @@ function collectEvaluationDetailItems(evaluation){
 }
 
 function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,noTipificationRecords,staffing,historico,users}){
-  const quartileLookup = getQuartileLookup(historico);
+  const asList = value => Array.isArray(value) ? value : (value && typeof value === "object" ? Object.values(value).filter(Boolean) : []);
+  const feedbackList = asList(feedbackRecords);
+  const evaluationList = asList(evaluationRecords);
+  const noTipificationList = asList(noTipificationRecords);
+  const staffingList = asList(staffing);
+  const historyList = asList(historico);
+  const quartileLookup = getQuartileLookup(historyList);
   const feedbackById = {};
-  (feedbackRecords || []).forEach(item => {
+  feedbackList.forEach(item => {
     if (item?.id) feedbackById[String(item.id)] = item;
   });
 
@@ -8585,7 +8607,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
   const buildBaseRow = (evaluation) => {
     const linkedFeedback = evaluation?.feedbackId ? feedbackById[String(evaluation.feedbackId)] || null : null;
     const advisorName = evaluation?.asesorNombre || linkedFeedback?.asesorNombre || linkedFeedback?.assessor || "-";
-    const staffingItem = (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
+    const staffingItem = staffingList.find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
     const isOjt = isOjtEvaluationRecord(evaluation);
     const campaignSource = evaluation?.managementTypeRuc || evaluation?.tipoGestionRuc || evaluation?.campaign || linkedFeedback?.managementTypeRuc || linkedFeedback?.tipoGestionRuc || linkedFeedback?.campaign || staffingItem?.tipoGestionRuc || staffingItem?.campaign || "";
     const normalizedRuc = normalizeEntelRucType(campaignSource);
@@ -8623,7 +8645,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
     };
   };
 
-  const visibleEvaluationRecords = getVisibleEvaluationRecords(currentUser, staffing, evaluationRecords);
+  const visibleEvaluationRecords = getVisibleEvaluationRecords(currentUser, staffingList, evaluationList);
   const evaluationFeedbackRows = visibleEvaluationRecords
     .filter(evaluation => {
       const linkedFeedback = evaluation?.feedbackId ? feedbackById[String(evaluation.feedbackId)] || null : null;
@@ -8631,12 +8653,12 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
     })
     .map(buildBaseRow);
   const evaluationFeedbackIds = new Set(visibleEvaluationRecords.map(item => String(item?.feedbackId || "")).filter(Boolean));
-  const feedbackOnlyRows = (feedbackRecords || [])
+  const feedbackOnlyRows = feedbackList
     .filter(record => !evaluationFeedbackIds.has(String(record?.id || "")))
     .filter(record => canSeeAdvisor(record?.asesorNombre || record?.assessor, record))
     .map(record => {
       const advisorName = record?.asesorNombre || record?.assessor || "-";
-      const staffingItem = (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
+      const staffingItem = staffingList.find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
       const campaignSource = record?.managementTypeRuc || record?.tipoGestionRuc || record?.campaign || staffingItem?.tipoGestionRuc || staffingItem?.campaign || "";
       const campaign = normalizeEntelRucType(campaignSource) || campaignSource || "";
       const score = extractEvaluationPct(record?.resultadoGeneral);
@@ -8709,11 +8731,11 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
     });
   });
 
-  const noTipificationRows = (noTipificationRecords || [])
+  const noTipificationRows = noTipificationList
     .filter(item => canSeeAdvisor(item?.asesorNombre))
     .map(item => {
       const advisorName = item?.asesorNombre || "-";
-      const staffingItem = (staffing || []).find(entry => normalizeName(entry?.asesor) === normalizeName(advisorName));
+      const staffingItem = staffingList.find(entry => normalizeName(entry?.asesor) === normalizeName(advisorName));
       const managementTypeRuc = normalizeEntelRucType(item?.managementTypeRuc || item?.tipoGestionRuc || staffingItem?.tipoGestionRuc || staffingItem?.campaign) || item?.managementTypeRuc || staffingItem?.tipoGestionRuc || "";
       return {
         ...item,
@@ -8729,14 +8751,14 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
 
   if (typeof console !== "undefined") {
     console.info("[EVALUACIONES_TRANSFORMADAS]", "Transformacion dashboard", {
-      evaluacionesRecibidas: Array.isArray(evaluationRecords) ? evaluationRecords.length : 0,
-      feedbacksRecibidos: Array.isArray(feedbackRecords) ? feedbackRecords.length : 0,
-      noTipificacionRecibidos: Array.isArray(noTipificationRecords) ? noTipificationRecords.length : 0,
-      staffingRecibidos: Array.isArray(staffing) ? staffing.length : 0,
+      evaluacionesRecibidas: evaluationList.length,
+      feedbacksRecibidos: feedbackList.length,
+      noTipificacionRecibidos: noTipificationList.length,
+      staffingRecibidos: staffingList.length,
       evaluacionesTransformadas: allFeedbackRows.length,
       detalleTransformado: sectionRows.length,
       noTipificacionTransformada: noTipificationRows.length,
-      muestraEvaluaciones: (evaluationRecords || []).slice(0, 5).map(item => ({
+      muestraEvaluaciones: evaluationList.slice(0, 5).map(item => ({
         id: item?.id,
         asesorNombre: item?.asesorNombre,
         fechaEvaluacion: item?.fechaEvaluacion,
