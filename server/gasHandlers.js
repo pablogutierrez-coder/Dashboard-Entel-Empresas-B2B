@@ -154,7 +154,7 @@ function canViewCommercialDevelopment(user) {
 }
 
 function canManageCommercialDevelopment(user) {
-  return ["admin", "formador"].includes(getRole(user));
+  return ["admin", "analista", "formador"].includes(getRole(user));
 }
 
 function canDeleteCommercialDevelopment(user) {
@@ -1291,13 +1291,72 @@ function buildNextCommercialDevelopmentCode(records = []) {
   return `ENT${String(maxRegistered + 1).padStart(2, "0")}`;
 }
 
+function getCommercialDevelopmentRecordType(record = {}) {
+  return normalizeText(record.recordType || record.type || record.tipoRegistro || "historial") === "control" ? "control" : "historial";
+}
+
+function isCommercialDevelopmentControl(record = {}) {
+  return getCommercialDevelopmentRecordType(record) === "control";
+}
+
+function normalizeCommercialAdvisorPrefix(name = "") {
+  const letters = String(name || "GEN")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z]/g, "")
+    .slice(0, 3)
+    .toUpperCase();
+  return (letters || "GEN").padEnd(3, "X");
+}
+
+function buildCommercialDevelopmentHistoryCode(payload = {}) {
+  const date = new Date(payload.interventionAt || payload.createdAt || Date.now());
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  const dd = String(safeDate.getDate()).padStart(2, "0");
+  const mm = String(safeDate.getMonth() + 1).padStart(2, "0");
+  const yyyy = safeDate.getFullYear();
+  return `ENT-${normalizeCommercialAdvisorPrefix(payload.executiveName)}-${dd}-${mm}-${yyyy}`;
+}
+
+function buildCommercialDevelopmentControlCode(parent = {}, records = []) {
+  const baseCode = String(parent.code || parent.codigo || "ENT-CTRL").trim();
+  const parentId = normalizeId(parent.id);
+  const maxRegistered = (records || [])
+    .filter(record => isCommercialDevelopmentControl(record))
+    .filter(record => normalizeId(record.parentId || record.historyId) === parentId)
+    .reduce((max, record) => {
+      const match = String(record.code || record.codigo || "").match(/-(\d+)$/);
+      return Math.max(max, match ? Number(match[1]) || 0 : 0);
+    }, 0);
+  return `${baseCode}-${String(maxRegistered + 1).padStart(2, "0")}`;
+}
+
+function normalizeCommercialDevelopmentGaps(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(item => typeof item === "string" ? { name: item, group: "General", status: "En mejora" } : {
+        group: String(item?.group || item?.grupo || "General").trim() || "General",
+        name: String(item?.name || item?.brecha || item?.label || "").trim(),
+        status: String(item?.status || item?.estado || "En mejora").trim() || "En mejora"
+      })
+      .filter(item => item.name);
+  }
+  return String(value || "")
+    .split(/[;,]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+    .map(name => ({ group: "General", name, status: "En mejora" }));
+}
+
 function normalizeCommercialDevelopmentStatus(record = {}) {
-  const status = String(record.status || "Pendiente").trim() || "Pendiente";
-  if (normalizeText(status) === "finalizado" || normalizeText(status) === "eliminada") return status;
+  const status = String(record.status || "En seguimiento").trim() || "En seguimiento";
+  const normalized = normalizeText(status);
+  if (normalized === "eliminada") return "Eliminada";
+  if (normalized === "cerrado" || normalized === "finalizado") return "Cerrado";
   const createdAt = record.createdAt || record.interventionAt || record.fechaIntervencion || "";
   const createdMs = createdAt ? new Date(createdAt).getTime() : 0;
   if (createdMs && !Number.isNaN(createdMs) && Date.now() - createdMs >= 48 * 60 * 60 * 1000) {
-    return "Finalizado";
+    return "Cerrado";
   }
   return status;
 }
@@ -1306,67 +1365,140 @@ function normalizeCommercialDevelopmentPayload(payload = {}, existing = {}, curr
   const now = nowIso();
   const clientId = normalizeClientId(payload.clientId || payload.platformId || existing.clientId || existing.platformId || currentUser.clientId || currentUser.platformId);
   if (clientId !== COMMERCIAL_DEVELOPMENT_CLIENT_ID) throw new Error("Desarrollo comercial solo esta disponible en su plataforma independiente.");
-  const executiveName = String(payload.executiveName || payload.asesor || payload.ejecutivo || existing.executiveName || "").trim();
-  const trainerName = String(payload.trainerName || payload.formador || existing.trainerName || currentUser.nombre || "").trim();
-  const interventionAt = String(payload.interventionAt || payload.fechaIntervencion || existing.interventionAt || now).trim();
-  if (!executiveName) throw new Error("El ejecutivo es obligatorio.");
-  if (!trainerName) throw new Error("El formador asignado es obligatorio.");
-  if (!interventionAt) throw new Error("La fecha y hora de intervencion es obligatoria.");
+  const recordType = getCommercialDevelopmentRecordType(payload.recordType || payload.type ? payload : existing);
   const id = normalizeId(payload.id || existing.id || generateNumericId());
-  const code = String(existing.code || payload.code || payload.codigo || "").trim() || buildNextCommercialDevelopmentCode(records);
-  const status = normalizeCommercialDevelopmentStatus({
-    ...existing,
-    status: String(payload.status || existing.status || "Pendiente").trim() || "Pendiente",
-    createdAt: existing.createdAt || payload.createdAt || now,
-    interventionAt
-  });
-  return {
+  const createdBy = existing.createdBy || String(currentUser.usuario || "").trim();
+  const createdByName = existing.createdByName || String(currentUser.nombre || currentUser.usuario || "").trim();
+  const createdByRole = existing.createdByRole || getRole(currentUser);
+  const common = {
     ...existing,
     id,
-    code,
+    recordType,
     clientId,
     platformId: clientId,
     clientName: String(payload.clientName || payload.platformName || existing.clientName || "Desarrollo Comercial").trim(),
     platformName: String(payload.platformName || payload.clientName || existing.platformName || "Desarrollo Comercial").trim(),
+    files: Array.isArray(existing.files) ? existing.files : [],
+    auditTrail: Array.isArray(existing.auditTrail) ? existing.auditTrail : [],
+    createdBy,
+    createdByName,
+    createdByRole,
+    createdAt: existing.createdAt || now,
+    updatedAt: now,
+    updatedBy: String(currentUser.usuario || "").trim(),
+    updatedByName: String(currentUser.nombre || currentUser.usuario || "").trim(),
+    updatedByRole: getRole(currentUser)
+  };
+
+  if (recordType === "control") {
+    const parentId = normalizeId(payload.parentId || payload.historyId || existing.parentId || existing.historyId);
+    const parent = (records || []).find(record => normalizeId(record?.id) === parentId) || {};
+    if (!parentId || !normalizeId(parent.id)) throw new Error("Selecciona el registro de historial asociado.");
+    const status = normalizeCommercialDevelopmentStatus({
+      ...existing,
+      status: String(payload.status || existing.status || "En seguimiento").trim() || "En seguimiento",
+      createdAt: existing.createdAt || payload.createdAt || now
+    });
+    return {
+      ...common,
+      parentId,
+      historyId: parentId,
+      code: String(existing.code || payload.code || payload.codigo || "").trim() || buildCommercialDevelopmentControlCode(parent, records),
+      executiveName: String(parent.executiveName || payload.executiveName || existing.executiveName || "").trim(),
+      campaign: String(parent.campaign || payload.campaign || existing.campaign || "").trim(),
+      supervisor: String(parent.supervisor || parent.supervisorName || payload.supervisor || existing.supervisor || "").trim(),
+      responsibleName: String(parent.responsibleName || payload.responsibleName || existing.responsibleName || "").trim(),
+      responsibleUser: String(parent.responsibleUser || payload.responsibleUser || existing.responsibleUser || "").trim(),
+      responsibleRole: String(parent.responsibleRole || payload.responsibleRole || existing.responsibleRole || "").trim(),
+      generalObservation: String(payload.generalObservation || payload.observacionGeneral || existing.generalObservation || "").trim(),
+      gapsWorked: Array.isArray(payload.gapsWorked) ? payload.gapsWorked : (Array.isArray(existing.gapsWorked) ? existing.gapsWorked : []),
+      interventionType: String(payload.interventionType || payload.intervencion || existing.interventionType || "").trim(),
+      actionTaken: String(payload.actionTaken || payload.accion || existing.actionTaken || "").trim(),
+      improvementCommitment: String(payload.improvementCommitment || payload.compromiso || existing.improvementCommitment || "").trim(),
+      nextControlDate: String(payload.nextControlDate || existing.nextControlDate || "").trim(),
+      nextControlTime: String(payload.nextControlTime || existing.nextControlTime || "").trim(),
+      notificationEmail: String(payload.notificationEmail || payload.email || existing.notificationEmail || "").trim(),
+      meetingLink: String(payload.meetingLink || payload.meetLink || existing.meetingLink || "").trim(),
+      status,
+      closedAt: normalizeText(status) === "cerrado" ? (existing.closedAt || now) : ""
+    };
+  }
+
+  const executiveName = String(payload.executiveName || payload.asesor || payload.ejecutivo || existing.executiveName || "").trim();
+  const interventionAt = String(payload.interventionAt || payload.fechaIntervencion || existing.interventionAt || now).trim();
+  const responsibleName = String(payload.responsibleName || payload.responsableSeguimiento || payload.trainerName || payload.formador || existing.responsibleName || existing.trainerName || "").trim();
+  const responsibleUser = String(payload.responsibleUser || existing.responsibleUser || "").trim();
+  const responsibleRole = String(payload.responsibleRole || existing.responsibleRole || "").trim();
+  const gaps = normalizeCommercialDevelopmentGaps(payload.gaps || payload.brechas || existing.gaps || existing.reason);
+  if (!executiveName) throw new Error("El asesor o ejecutivo es obligatorio.");
+  if (!responsibleName && !responsibleUser) throw new Error("El responsable del seguimiento es obligatorio.");
+  if (!interventionAt) throw new Error("La fecha y hora de intervencion es obligatoria.");
+  if (!gaps.length) throw new Error("Selecciona al menos una oportunidad de mejora.");
+  const status = normalizeCommercialDevelopmentStatus({
+    ...existing,
+    status: String(payload.status || existing.status || "En seguimiento").trim() || "En seguimiento",
+    createdAt: existing.createdAt || payload.createdAt || now,
+    interventionAt
+  });
+  const closeReason = String(payload.closeReason || existing.closeReason || "").trim();
+  if (normalizeText(status) === "cerrado" && normalizeText(closeReason) === "resultado final") {
+    if (!String(payload.finalComment || existing.finalComment || payload.finalObservations || existing.finalObservations || "").trim()) throw new Error("El comentario final es obligatorio para cerrar por resultado final.");
+    if (String(payload.finalActiveQ ?? existing.finalActiveQ ?? payload.followSales ?? existing.followSales ?? "").trim() === "") throw new Error("El Q de activas final es obligatorio.");
+    if (String(payload.finalProductivityIn ?? existing.finalProductivityIn ?? payload.followProductivity ?? existing.followProductivity ?? "").trim() === "") throw new Error("La productividad final es obligatoria.");
+    if (String(payload.finalQualityScore ?? existing.finalQualityScore ?? payload.followConnection ?? existing.followConnection ?? "").trim() === "") throw new Error("La nota de calidad final es obligatoria.");
+  }
+  return {
+    ...common,
+    code: String(existing.code || payload.code || payload.codigo || "").trim() || buildCommercialDevelopmentHistoryCode({ executiveName, interventionAt }),
     executiveName,
     campaign: String(payload.campaign || payload.campana || existing.campaign || "").trim(),
     profile: String(payload.profile || payload.perfil || existing.profile || "").trim(),
+    managementType: String(payload.managementType || payload.tipoGestion || existing.managementType || "").trim(),
+    modality: String(payload.modality || payload.modalidad || existing.modality || "").trim(),
+    generalResult: String(payload.generalResult || payload.resultadoGeneral || existing.generalResult || "").trim(),
     supervisorName: String(payload.supervisorName || payload.supervisor || existing.supervisorName || existing.supervisor || "").trim(),
     supervisor: String(payload.supervisor || payload.supervisorName || existing.supervisor || existing.supervisorName || "").trim(),
-    trainerName,
+    responsibleUser,
+    responsibleName,
+    responsibleRole,
+    trainerName: responsibleName,
     interventionAt,
     status,
-    initialConnection: String(payload.initialConnection || existing.initialConnection || "").trim(),
-    initialProductivity: String(payload.initialProductivity || existing.initialProductivity || "").trim(),
-    dailySales: String(payload.dailySales || payload.initialSales || existing.dailySales || existing.initialSales || "").trim(),
-    initialSales: String(payload.initialSales || payload.dailySales || existing.initialSales || existing.dailySales || "").trim(),
-    reason: String(payload.reason || payload.motivo || existing.reason || "").trim(),
+    closeReason,
+    initialActiveQ: String(payload.initialActiveQ ?? payload.initialSales ?? existing.initialActiveQ ?? existing.initialSales ?? "").trim(),
+    initialProductivityIn: String(payload.initialProductivityIn ?? payload.initialProductivity ?? existing.initialProductivityIn ?? existing.initialProductivity ?? "").trim(),
+    initialQualityScore: String(payload.initialQualityScore ?? payload.initialConnection ?? existing.initialQualityScore ?? existing.initialConnection ?? "").trim(),
+    initialConnection: String(payload.initialQualityScore ?? payload.initialConnection ?? existing.initialQualityScore ?? existing.initialConnection ?? "").trim(),
+    initialProductivity: String(payload.initialProductivityIn ?? payload.initialProductivity ?? existing.initialProductivityIn ?? existing.initialProductivity ?? "").trim(),
+    dailySales: String(payload.initialActiveQ ?? payload.dailySales ?? payload.initialSales ?? existing.initialActiveQ ?? existing.dailySales ?? existing.initialSales ?? "").trim(),
+    initialSales: String(payload.initialActiveQ ?? payload.initialSales ?? payload.dailySales ?? existing.initialActiveQ ?? existing.initialSales ?? existing.dailySales ?? "").trim(),
+    gaps,
+    reason: gaps.map(gap => gap.name).join("; "),
+    initialObservation: String(payload.initialObservation || payload.observacionInicial || existing.initialObservation || existing.trainerObservations || "").trim(),
     diagnosticDetail: String(payload.diagnosticDetail || payload.reasonDetail || existing.diagnosticDetail || existing.reasonDetail || "").trim(),
     reasonDetail: String(payload.reasonDetail || payload.diagnosticDetail || existing.reasonDetail || existing.diagnosticDetail || "").trim(),
-    trainerObservation: String(payload.trainerObservation || payload.trainerObservations || existing.trainerObservation || existing.trainerObservations || "").trim(),
-    trainerObservations: String(payload.trainerObservations || payload.trainerObservation || existing.trainerObservations || existing.trainerObservation || "").trim(),
+    trainerObservation: String(payload.initialObservation || payload.trainerObservation || payload.trainerObservations || existing.initialObservation || existing.trainerObservation || existing.trainerObservations || "").trim(),
+    trainerObservations: String(payload.initialObservation || payload.trainerObservations || payload.trainerObservation || existing.initialObservation || existing.trainerObservations || existing.trainerObservation || "").trim(),
     actionTaken: String(payload.actionTaken || existing.actionTaken || "").trim(),
     expectedResult: String(payload.expectedResult || existing.expectedResult || "").trim(),
     executiveCommitment: String(payload.executiveCommitment || existing.executiveCommitment || "").trim(),
     trainerCommitment: String(payload.trainerCommitment || existing.trainerCommitment || "").trim(),
     followInitialIndicator: String(payload.followInitialIndicator || payload.followConnection || existing.followInitialIndicator || existing.followConnection || "").trim(),
     follow48hIndicator: String(payload.follow48hIndicator || payload.followProductivity || existing.follow48hIndicator || existing.followProductivity || "").trim(),
-    followConnection: String(payload.followConnection || payload.followInitialIndicator || existing.followConnection || existing.followInitialIndicator || "").trim(),
-    followProductivity: String(payload.followProductivity || payload.follow48hIndicator || existing.followProductivity || existing.follow48hIndicator || "").trim(),
-    followSales: String(payload.followSales || existing.followSales || "").trim(),
+    followConnection: String(payload.finalQualityScore ?? payload.followConnection ?? payload.followInitialIndicator ?? existing.finalQualityScore ?? existing.followConnection ?? existing.followInitialIndicator ?? "").trim(),
+    followProductivity: String(payload.finalProductivityIn ?? payload.followProductivity ?? payload.follow48hIndicator ?? existing.finalProductivityIn ?? existing.followProductivity ?? existing.follow48hIndicator ?? "").trim(),
+    followSales: String(payload.finalActiveQ ?? payload.followSales ?? existing.finalActiveQ ?? existing.followSales ?? "").trim(),
     followResult: String(payload.followResult || existing.followResult || "").trim(),
     followComments: String(payload.followComments || existing.followComments || "").trim(),
-    finalObservation: String(payload.finalObservation || payload.finalObservations || existing.finalObservation || existing.finalObservations || "").trim(),
-    finalObservations: String(payload.finalObservations || payload.finalObservation || existing.finalObservations || existing.finalObservation || "").trim(),
+    finalActiveQ: String(payload.finalActiveQ ?? payload.followSales ?? existing.finalActiveQ ?? existing.followSales ?? "").trim(),
+    finalProductivityIn: String(payload.finalProductivityIn ?? payload.followProductivity ?? existing.finalProductivityIn ?? existing.followProductivity ?? "").trim(),
+    finalQualityScore: String(payload.finalQualityScore ?? payload.followConnection ?? existing.finalQualityScore ?? existing.followConnection ?? "").trim(),
+    finalComment: String(payload.finalComment || payload.finalObservations || existing.finalComment || existing.finalObservations || "").trim(),
+    finalGapStatuses: typeof payload.finalGapStatuses === "object" && payload.finalGapStatuses ? payload.finalGapStatuses : (existing.finalGapStatuses || {}),
+    finalObservation: String(payload.finalComment || payload.finalObservation || payload.finalObservations || existing.finalComment || existing.finalObservation || existing.finalObservations || "").trim(),
+    finalObservations: String(payload.finalComment || payload.finalObservations || payload.finalObservation || existing.finalComment || existing.finalObservations || existing.finalObservation || "").trim(),
     finalStatus: String(payload.finalStatus || existing.finalStatus || "").trim(),
-    closedAt: normalizeText(status) === "finalizado" ? (existing.closedAt || now) : "",
-    files: Array.isArray(existing.files) ? existing.files : [],
-    createdBy: existing.createdBy || String(currentUser.usuario || "").trim(),
-    createdByName: existing.createdByName || String(currentUser.nombre || "").trim(),
-    createdAt: existing.createdAt || now,
-    updatedAt: now,
-    updatedBy: String(currentUser.usuario || "").trim(),
-    updatedByName: String(currentUser.nombre || "").trim()
+    closedAt: normalizeText(status) === "cerrado" ? (existing.closedAt || now) : ""
   };
 }
 

@@ -8031,7 +8031,7 @@ function App(){
           !isCommercialDevelopmentActive && canViewTeamFeedback(currentUser) && h("button",{style:{...BTN(view==="feedback"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="feedback"?"#fff":"#8b92a5"},onClick:()=>setView("feedback")},I("send",18,view==="feedback"?"#fff":"#8b92a5"),"FEEDBACKS"),
           !isCommercialDevelopmentActive && canViewOperationalIncidents(currentUser) && h("button",{style:{...BTN(view==="incidents"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="incidents"?"#fff":"#8b92a5"},onClick:()=>setView("incidents")},I("alert",18,view==="incidents"?"#fff":"#8b92a5"),"INCIDENCIAS"),
           !isCommercialDevelopmentActive && canViewSalesValidationModule(currentUser) && h("button",{style:{...BTN(view==="salesValidation"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="salesValidation"?"#fff":"#8b92a5"},onClick:()=>setView("salesValidation")},I("db",18,view==="salesValidation"?"#fff":"#8b92a5"),"VALIDACION DE VENTAS"),
-          canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && h("button",{style:{...BTN(view==="commercialDevelopment"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="commercialDevelopment"?"#fff":"#8b92a5"},onClick:()=>setView("commercialDevelopment")},I("trend",18,view==="commercialDevelopment"?"#fff":"#8b92a5"),"SEGUIMIENTO"),
+          canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && h("button",{style:{...BTN(view==="commercialDevelopment"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="commercialDevelopment"?"#fff":"#8b92a5"},onClick:()=>setView("commercialDevelopment")},I("trend",18,view==="commercialDevelopment"?"#fff":"#8b92a5"),"HISTORIAL"),
           !isCommercialDevelopmentActive && canViewCalibrationModule(currentUser) && h("button",{style:{...BTN(view==="calibration"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="calibration"?"#fff":"#8b92a5"},onClick:()=>setView("calibration")},I("sliders",18,view==="calibration"?"#fff":"#8b92a5"),"CALIBRACION DE CALIDAD"),
           h("button",{style:{...BTN(view==="communications"?"p":"out"),width:"100%",justifyContent:"space-between",padding:"16px 20px",color:view==="communications"?"#fff":"#8b92a5"},onClick:()=>setView("communications")},
             h("span",{style:{display:"inline-flex",alignItems:"center",gap:12}},I("file",18,view==="communications"?"#fff":"#8b92a5"),"COMUNICADOS"),
@@ -8066,7 +8066,7 @@ function App(){
           !isCommercialDevelopmentActive && view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,onOpenFeedback:openFeedbackModal,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing:scopedStaffing}),
           !isCommercialDevelopmentActive && view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing:scopedStaffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,onUpdate:actualizarIncidenciaOperativa,onDelete:eliminarIncidenciaOperativa,notify}),
           !isCommercialDevelopmentActive && view==="salesValidation" && canViewSalesValidationModule(currentUser) && h(SalesValidationCenter,{records:scopedSalesValidations,currentUser,onSave:guardarValidacionVenta,onDelete:eliminarValidacionVenta,onRestore:restaurarValidacionVenta}),
-          view==="commercialDevelopment" && canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && h(CommercialDevelopmentCenter,{records:scopedCommercialDevelopmentRecords,currentUser,staffing:scopedStaffing,onSave:guardarDesarrolloComercial,onDelete:eliminarDesarrolloComercial,clientName:currentPlatformName}),
+          view==="commercialDevelopment" && canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && h(CommercialDevelopmentCenterV2,{records:scopedCommercialDevelopmentRecords,currentUser,staffing:scopedStaffing,users:scopedUsers,onSave:guardarDesarrolloComercial,onDelete:eliminarDesarrolloComercial,clientName:currentPlatformName}),
           !isCommercialDevelopmentActive && view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users:scopedUsers,notify,clientId:currentPlatformId,clientName:currentPlatformName}),
           view==="staffing" && canViewStaffingModule(currentUser,currentPlatformId) && h(StaffingConfig,{staffing:scopedStaffing,setStaffing,onSaveStaffing:guardarDotacionScoped,clientId:currentPlatformId,clientName:currentPlatformName,notify,onOpenFeedback:openFeedbackModal,onOpenEvaluation:openEvaluationModal,onOpenEvaluationHistory:openEvaluationHistory,onOpenNoTipification:openNoTipificationModal,evaluationRecords:scopedEvaluationRecords,feedbackRecords:scopedFeedbackRecords,currentUser}),
           view==="users" && canManageUsers(currentUser) && h(UserManager,{users,onAddUser:agregarUsuario,onDeleteUser:eliminarUsuario,onUpdateUserStatus:actualizarEstadoUsuario,onResetPassword:resetearContrasenaUsuario,notify,staffing:scopedStaffing,currentPlatformId})
@@ -9340,7 +9340,7 @@ function canViewSalesValidationModule(user){ return ["admin","analista","supervi
 function canManageSalesValidationModule(user){ return ["admin","analista"].includes(salesValidationRole(user)); }
 function commercialDevelopmentRole(user){ return salesValidationRole(user); }
 function canViewCommercialDevelopmentModule(user, platformId){ return normalizeClientId(platformId) === COMMERCIAL_DEVELOPMENT_PLATFORM_ID && ["admin","analista","supervisor","formador"].includes(commercialDevelopmentRole(user)); }
-function canManageCommercialDevelopmentModule(user){ return ["admin","formador"].includes(commercialDevelopmentRole(user)); }
+function canManageCommercialDevelopmentModule(user){ return ["admin","analista","formador"].includes(commercialDevelopmentRole(user)); }
 function canDeleteCommercialDevelopmentModule(user){ return commercialDevelopmentRole(user) === "admin"; }
 function salesHasAudio(record){ return normalizeComparableValue(record?.audioStatus).includes("si se encontro audio"); }
 function salesContractComplete(record){ return normalizeComparableValue(record?.contractReadingStatus) === "si"; }
@@ -9755,6 +9755,428 @@ function CommercialDevelopmentCenter({records,currentUser,staffing,onSave,onDele
       ]})
     ),
     h(CommercialDevelopmentModal,{isOpen:modal.open,onClose:()=>setModal({open:false,record:null}),onSave,record:modal.record,currentUser,staffing,records})
+  );
+}
+
+const COMMERCIAL_DEV_RECORD_TYPES = { history: "historial", control: "control" };
+const COMMERCIAL_DEV_HISTORY_STATUS = ["En seguimiento","Cerrado"];
+const COMMERCIAL_DEV_CLOSE_REASONS = ["Cesado","Resultado final"];
+const COMMERCIAL_DEV_CAMPAIGNS = ["RUC10","RUC20","Culqi"];
+const COMMERCIAL_DEV_MANAGEMENT_TYPES = ["Feedback","Refuerzo","Clínica de calidad","Mala práctica"];
+const COMMERCIAL_DEV_MODALITIES = ["Presencial","Virtual"];
+const COMMERCIAL_DEV_RESULTS = ["En seguimiento","Crítico"];
+const COMMERCIAL_DEV_GAP_STATUS = ["No mejora","En mejora","Superada"];
+const COMMERCIAL_DEV_INTERVENTIONS = ["Coaching comercial","Role play","Escucha de llamada","Refuerzo de producto","Plan de acción","Feedback operativo","Otro"];
+const COMMERCIAL_DEV_GAP_GROUPS = [
+  {group:"Comercial",items:["Sondeo insuficiente","Detección de necesidad","Argumentación comercial","Manejo de objeciones","Cierre","Venta cruzada"]},
+  {group:"Calidad",items:["Protocolo","Validación de datos","Información incorrecta","Contrato","Mala práctica","Omisión de información"]},
+  {group:"Productividad",items:["Baja contactabilidad","Mala gestión de base","Tiempo improductivo","Bajo volumen de gestión","Baja conversión"]}
+];
+
+function getCommercialDevType(record){
+  return normalizeComparableValue(record?.recordType || record?.type || record?.tipoRegistro || "historial") === "control" ? "control" : "historial";
+}
+function isCommercialDevHistory(record){ return getCommercialDevType(record) === "historial"; }
+function isCommercialDevControl(record){ return getCommercialDevType(record) === "control"; }
+function commercialDevAdvisorPrefix(name){
+  return String(name || "GEN").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-zA-Z]/g,"").slice(0,3).toUpperCase().padEnd(3,"X");
+}
+function buildCommercialDevHistoryCode(form){
+  const sourceDate = form?.interventionAt || form?.createdAt || new Date();
+  const date = new Date(sourceDate);
+  const validDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  const dd = String(validDate.getDate()).padStart(2,"0");
+  const mm = String(validDate.getMonth()+1).padStart(2,"0");
+  const yyyy = validDate.getFullYear();
+  return `ENT-${commercialDevAdvisorPrefix(form?.executiveName)}-${dd}-${mm}-${yyyy}`;
+}
+function buildCommercialDevControlCode(parent, controls){
+  const baseCode = String(parent?.code || parent?.codigo || "ENT-CTRL").trim();
+  const max = (controls || []).filter(item => normalizeId(item?.parentId || item?.historyId) === normalizeId(parent?.id)).reduce((value,item) => {
+    const match = String(item?.code || "").match(/-(\d+)$/);
+    return Math.max(value, match ? Number(match[1]) || 0 : 0);
+  },0);
+  return `${baseCode}-${String(max + 1).padStart(2,"0")}`;
+}
+function normalizeCommercialDevGaps(value){
+  if (Array.isArray(value)) return value.map(item => typeof item === "string" ? {name:item,group:"General",status:"En mejora"} : item).filter(item => String(item?.name || "").trim());
+  return String(value || "").split(/[;,]/).map(item => item.trim()).filter(Boolean).map(name => ({name,group:"General",status:"En mejora"}));
+}
+function getCommercialDevRecordStatus(record){
+  const raw = String(record?.status || "").trim();
+  if (normalizeComparableValue(raw) === "eliminada") return "Eliminada";
+  if (normalizeComparableValue(raw) === "finalizado") return "Cerrado";
+  if (raw) return raw;
+  return "En seguimiento";
+}
+function normalizeCommercialDevRecord(record){
+  const type = getCommercialDevType(record);
+  const gaps = normalizeCommercialDevGaps(record?.gaps || record?.brechas || record?.reason);
+  return {
+    ...record,
+    recordType: type,
+    status: getCommercialDevRecordStatus(record),
+    executiveName: normalizeName(record?.executiveName || record?.advisorName || record?.asesor || record?.ejecutivo),
+    supervisor: normalizeName(record?.supervisor || record?.supervisorName),
+    responsibleName: normalizeName(record?.responsibleName || record?.responsableSeguimiento || record?.trainerName || record?.formador),
+    responsibleRole: String(record?.responsibleRole || record?.responsableRol || "").trim(),
+    campaign: String(record?.campaign || record?.campana || "").trim(),
+    managementType: String(record?.managementType || record?.tipoGestion || record?.reason || "").trim(),
+    modality: String(record?.modality || record?.modalidad || "").trim(),
+    generalResult: String(record?.generalResult || record?.resultadoGeneral || record?.followResult || "").trim(),
+    initialActiveQ: record?.initialActiveQ ?? record?.initialSales ?? record?.dailySales ?? "",
+    initialProductivityIn: record?.initialProductivityIn ?? record?.initialProductivity ?? "",
+    initialQualityScore: record?.initialQualityScore ?? record?.initialConnection ?? "",
+    finalActiveQ: record?.finalActiveQ ?? record?.followSales ?? "",
+    finalProductivityIn: record?.finalProductivityIn ?? record?.followProductivity ?? "",
+    finalQualityScore: record?.finalQualityScore ?? record?.followConnection ?? "",
+    initialObservation: String(record?.initialObservation || record?.trainerObservations || record?.trainerObservation || "").trim(),
+    finalComment: String(record?.finalComment || record?.finalObservations || "").trim(),
+    gaps
+  };
+}
+function commercialDevProfileForAdvisor(staffing, advisorName){
+  return (staffing || []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName)) || {};
+}
+function commercialDevResponsibleOptions(users){
+  return normalizeUsersList(users)
+    .filter(user => ["admin","analista","supervisor","formador"].includes(String(user?.rol || "").trim().toLowerCase()))
+    .map(user => ({usuario:user.usuario,nombre:normalizeName(user.nombre || user.usuario),rol:salesValidationRole(user)}))
+    .sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+}
+function commercialDevNumber(value){
+  const parsed = Number(String(value ?? "").replace("%","").replace(",","."));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+function commercialDevDelta(initialValue, finalValue){
+  const diff = commercialDevNumber(finalValue) - commercialDevNumber(initialValue);
+  return `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}`;
+}
+function CommercialDevelopmentHistoryModalV2({isOpen,onClose,onSave,record,currentUser,staffing,users,records}){
+  const isEdit = Boolean(record?.id);
+  const normalizedRecord = normalizeCommercialDevRecord(record || {});
+  const responsibleOptions = useMemo(()=>commercialDevResponsibleOptions(users),[users]);
+  const advisorOptions = useMemo(()=>getStaffingAdvisorOptions(staffing),[staffing]);
+  const nowValue = toDatetimeLocalValue(normalizedRecord.interventionAt || normalizedRecord.createdAt || new Date());
+  const [form,setForm] = useState({});
+  const [saving,setSaving] = useState(false);
+  const [err,setErr] = useState("");
+  useEffect(()=>{
+    if (!isOpen) return;
+    const selectedResponsible = responsibleOptions.find(item => item.nombre === normalizedRecord.responsibleName || item.usuario === normalizedRecord.responsibleUser) || responsibleOptions[0] || {};
+    const base = {
+      recordType:"historial",
+      code: normalizedRecord.code || buildCommercialDevHistoryCode({executiveName:normalizedRecord.executiveName,interventionAt:nowValue}),
+      executiveName: normalizedRecord.executiveName || "",
+      supervisor: normalizedRecord.supervisor || "",
+      interventionAt: nowValue,
+      campaign: normalizedRecord.campaign || "RUC10",
+      managementType: normalizedRecord.managementType || "Feedback",
+      modality: normalizedRecord.modality || "Presencial",
+      generalResult: normalizedRecord.generalResult || "En seguimiento",
+      initialActiveQ: normalizedRecord.initialActiveQ || "",
+      initialProductivityIn: normalizedRecord.initialProductivityIn || "",
+      initialQualityScore: normalizedRecord.initialQualityScore || "",
+      gaps: normalizedRecord.gaps || [],
+      initialObservation: normalizedRecord.initialObservation || "",
+      responsibleUser: normalizedRecord.responsibleUser || selectedResponsible.usuario || "",
+      responsibleName: normalizedRecord.responsibleName || selectedResponsible.nombre || "",
+      responsibleRole: normalizedRecord.responsibleRole || selectedResponsible.rol || "",
+      status: normalizedRecord.status || "En seguimiento",
+      closeReason: normalizedRecord.closeReason || "Resultado final",
+      finalComment: normalizedRecord.finalComment || "",
+      finalActiveQ: normalizedRecord.finalActiveQ || "",
+      finalProductivityIn: normalizedRecord.finalProductivityIn || "",
+      finalQualityScore: normalizedRecord.finalQualityScore || "",
+      finalGapStatuses: normalizedRecord.finalGapStatuses || {}
+    };
+    setForm(base);
+    setErr("");
+  },[isOpen,record?.id,responsibleOptions.length]);
+  if (!isOpen) return null;
+  const update = (key,value) => setForm(prev => {
+    const next = {...prev,[key]:value};
+    if (key === "executiveName") {
+      const profile = commercialDevProfileForAdvisor(staffing,value);
+      next.supervisor = normalizeName(profile?.supervisor || next.supervisor);
+      if (!isEdit) next.code = buildCommercialDevHistoryCode({...next,executiveName:value});
+    }
+    if (key === "responsibleUser") {
+      const user = responsibleOptions.find(item => item.usuario === value) || {};
+      next.responsibleName = user.nombre || "";
+      next.responsibleRole = user.rol || "";
+    }
+    return next;
+  });
+  const toggleGap = (group,name) => setForm(prev => {
+    const current = normalizeCommercialDevGaps(prev.gaps);
+    const exists = current.some(item => item.group === group && item.name === name);
+    return {...prev,gaps: exists ? current.filter(item => !(item.group === group && item.name === name)) : [...current,{group,name,status:"En mejora"}]};
+  });
+  const setGapStatus = (name,status) => setForm(prev => ({...prev,finalGapStatuses:{...(prev.finalGapStatuses || {}),[name]:status}}));
+  const submit = async() => {
+    if (saving) return;
+    setErr("");
+    const gaps = normalizeCommercialDevGaps(form.gaps);
+    if (!form.executiveName) return setErr("Selecciona el asesor o ejecutivo.");
+    if (!form.responsibleUser && !form.responsibleName) return setErr("Selecciona el responsable del seguimiento.");
+    if (!gaps.length) return setErr("Selecciona al menos una oportunidad de mejora.");
+    if (form.status === "Cerrado" && form.closeReason === "Resultado final" && (!form.finalComment || form.finalActiveQ === "" || form.finalProductivityIn === "" || form.finalQualityScore === "")) {
+      return setErr("Para cerrar por resultado final completa comentario y KPI finales.");
+    }
+    try{
+      setSaving(true);
+      await onSave({...form,id:record?.id || "",code:isEdit ? normalizedRecord.code : form.code,currentUser});
+      onClose();
+    }catch(error){
+      setErr(error?.message || "No se pudo guardar el registro.");
+    }finally{
+      setSaving(false);
+    }
+  };
+  const labelStyle = {fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em"};
+  const input = (label,key,props={}) => h("div",null,h("div",{style:labelStyle},label),h("input",{style:INP,type:props.type || "text",value:props.value !== undefined ? props.value : form[key] || "",disabled:props.disabled,onChange:ev=>update(key,ev.target.value),placeholder:props.placeholder || ""}));
+  const select = (label,key,options,props={}) => h("div",null,h("div",{style:labelStyle},label),h("select",{style:SEL,value:form[key] || "",disabled:props.disabled,onChange:ev=>update(key,ev.target.value)},props.empty && h("option",{value:""},props.empty),options.map(item=>typeof item==="string" ? h("option",{key:item,value:item},item) : h("option",{key:item.usuario,value:item.usuario},`${item.nombre} - ${item.rol}`))));
+  return h("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:3020,display:"flex",justifyContent:"center",alignItems:"flex-start",overflowY:"auto",padding:"28px"}},
+    h("div",{style:{...CARD,width:"min(1180px,96vw)",borderTop:`4px solid ${THEME.primary}`}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,marginBottom:22}},h("div",null,h("h2",{style:{fontSize:28,color:"#fff",marginBottom:6}},"Ficha de seguimiento"),h("p",{style:{color:"#9fb0d8",margin:0}},"Registro de historial y trazabilidad del acompañamiento.")),h("button",{style:BTN("out"),onClick:onClose},"CERRAR")),
+      err && h("div",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.35)",borderRadius:12,padding:12,color:THEME.accent,marginBottom:16}},err),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:16}},
+        input("Código","code",{disabled:true}),
+        select("Asesor / ejecutivo","executiveName",advisorOptions,{empty:"Selecciona asesor"}),
+        input("Supervisor asignado","supervisor"),
+        input("Fecha y hora","interventionAt",{type:"datetime-local",disabled:true}),
+        select("Campaña","campaign",COMMERCIAL_DEV_CAMPAIGNS),
+        select("Tipo de gestión","managementType",COMMERCIAL_DEV_MANAGEMENT_TYPES),
+        select("Modalidad","modality",COMMERCIAL_DEV_MODALITIES),
+        select("Resultado general","generalResult",COMMERCIAL_DEV_RESULTS),
+        select("Responsable del seguimiento","responsibleUser",responsibleOptions,{empty:"Selecciona responsable"}),
+        input("Q de activas inicial","initialActiveQ",{type:"number"}),
+        input("% Productividad IN inicial","initialProductivityIn",{type:"number"}),
+        input("Nota de calidad inicial","initialQualityScore",{type:"number"})
+      ),
+      h("div",{style:{...CARD,marginTop:18,background:"rgba(9,9,17,0.35)"}},h("h3",{style:{color:"#fff",marginTop:0}},"Oportunidades de mejora"),COMMERCIAL_DEV_GAP_GROUPS.map(group => h("div",{key:group.group,style:{marginTop:12}},h("div",{style:labelStyle},group.group),h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:10}},group.items.map(item=>{const checked=normalizeCommercialDevGaps(form.gaps).some(g=>g.group===group.group&&g.name===item);return h("label",{key:item,style:{display:"flex",gap:8,alignItems:"center",border:`1px solid ${checked ? THEME.primary : THEME.border}`,borderRadius:12,padding:"10px 12px",color:"#d6d8e3",fontSize:12}},h("input",{type:"checkbox",checked,onChange:()=>toggleGap(group.group,item)}),item);}))))),
+      h("div",{style:{marginTop:14}},h("div",{style:labelStyle},"Observación inicial"),h("textarea",{style:{...INP,minHeight:92},value:form.initialObservation || "",onChange:ev=>update("initialObservation",ev.target.value),placeholder:"Describe el diagnóstico inicial y contexto del caso."})),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:16,marginTop:16}},input("Registrado por","createdByName",{value:normalizedRecord.createdByName || currentUser?.nombre || currentUser?.usuario || "",disabled:true}),input("Perfil","createdByRole",{value:normalizedRecord.createdByRole || commercialDevelopmentRole(currentUser),disabled:true}),input("Fecha registro","createdAt",{value:formatDateTime(normalizedRecord.createdAt || new Date()),disabled:true}),select("Estado","status",COMMERCIAL_DEV_HISTORY_STATUS)),
+      form.status === "Cerrado" && h("div",{style:{...CARD,marginTop:18,background:"rgba(25,195,125,0.06)",border:"1px solid rgba(25,195,125,0.28)"}},
+        h("h3",{style:{color:"#fff",marginTop:0}},"Cierre del seguimiento"),
+        h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:16}},select("Submotivo","closeReason",COMMERCIAL_DEV_CLOSE_REASONS),form.closeReason==="Resultado final" && input("Q de activas final","finalActiveQ",{type:"number"}),form.closeReason==="Resultado final" && input("% Productividad IN final","finalProductivityIn",{type:"number"}),form.closeReason==="Resultado final" && input("Nota calidad final","finalQualityScore",{type:"number"})),
+        form.closeReason==="Resultado final" && h("div",{style:{marginTop:14}},h("div",{style:labelStyle},"Comentario final"),h("textarea",{style:{...INP,minHeight:90},value:form.finalComment || "",onChange:ev=>update("finalComment",ev.target.value),placeholder:"Resultado, evidencias de mejora y próximos pasos."})),
+        form.closeReason==="Resultado final" && h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:10,marginTop:14}},normalizeCommercialDevGaps(form.gaps).map(gap=>h("div",{key:gap.name,style:{border:`1px solid ${THEME.border}`,borderRadius:12,padding:12}},h("div",{style:{color:"#fff",fontWeight:800,fontSize:12,marginBottom:8}},gap.name),h("select",{style:SEL,value:(form.finalGapStatuses || {})[gap.name] || "En mejora",onChange:ev=>setGapStatus(gap.name,ev.target.value)},COMMERCIAL_DEV_GAP_STATUS.map(status=>h("option",{key:status,value:status},status))))))
+      ),
+      h("div",{style:{display:"flex",justifyContent:"flex-end",gap:12,marginTop:22}},h("button",{style:BTN("out"),onClick:onClose,disabled:saving},"CANCELAR"),h("button",{style:BTN("pink"),onClick:submit,disabled:saving},saving ? "GUARDANDO..." : "GUARDAR REGISTRO"))
+    )
+  );
+}
+function CommercialDevelopmentControlModalV2({isOpen,onClose,onSave,record,currentUser,records}){
+  const histories = useMemo(() => (records || []).map(normalizeCommercialDevRecord).filter(isCommercialDevHistory).filter(row=>normalizeComparableValue(row.status)!=="eliminada"), [records]);
+  const controls = useMemo(() => (records || []).map(normalizeCommercialDevRecord).filter(isCommercialDevControl), [records]);
+  const normalizedRecord = normalizeCommercialDevRecord(record || {});
+  const defaultParent = histories.find(item => normalizeId(item.id) === normalizeId(normalizedRecord.parentId || normalizedRecord.historyId)) || histories[0] || {};
+  const [form,setForm] = useState({});
+  const [files,setFiles] = useState([]);
+  const [saving,setSaving] = useState(false);
+  const [err,setErr] = useState("");
+  useEffect(()=>{
+    if (!isOpen) return;
+    const parent = defaultParent;
+    setForm({
+      recordType:"control",
+      parentId: normalizedRecord.parentId || normalizedRecord.historyId || parent.id || "",
+      code: normalizedRecord.code || (parent.id ? buildCommercialDevControlCode(parent,controls) : ""),
+      executiveName: normalizedRecord.executiveName || parent.executiveName || "",
+      campaign: normalizedRecord.campaign || parent.campaign || "",
+      supervisor: normalizedRecord.supervisor || parent.supervisor || "",
+      responsibleName: normalizedRecord.responsibleName || parent.responsibleName || "",
+      generalObservation: normalizedRecord.generalObservation || "",
+      gapsWorked: normalizedRecord.gapsWorked || [],
+      interventionType: normalizedRecord.interventionType || "Coaching comercial",
+      actionTaken: normalizedRecord.actionTaken || "",
+      improvementCommitment: normalizedRecord.improvementCommitment || "",
+      nextControlDate: normalizedRecord.nextControlDate || "",
+      nextControlTime: normalizedRecord.nextControlTime || "",
+      notificationEmail: normalizedRecord.notificationEmail || "",
+      meetingLink: normalizedRecord.meetingLink || "",
+      status: normalizedRecord.status || "En seguimiento"
+    });
+    setFiles([]);
+    setErr("");
+  },[isOpen,record?.id,histories.length]);
+  if (!isOpen) return null;
+  const selectedParent = histories.find(item => normalizeId(item.id) === normalizeId(form.parentId)) || {};
+  const parentGaps = normalizeCommercialDevGaps(selectedParent.gaps);
+  const update = (key,value) => setForm(prev => {
+    const next = {...prev,[key]:value};
+    if (key === "parentId") {
+      const parent = histories.find(item => normalizeId(item.id) === normalizeId(value)) || {};
+      next.code = record?.id ? prev.code : buildCommercialDevControlCode(parent,controls);
+      next.executiveName = parent.executiveName || "";
+      next.campaign = parent.campaign || "";
+      next.supervisor = parent.supervisor || "";
+      next.responsibleName = parent.responsibleName || "";
+      next.gapsWorked = [];
+    }
+    return next;
+  });
+  const toggleGap = name => setForm(prev => {
+    const current = Array.isArray(prev.gapsWorked) ? prev.gapsWorked : [];
+    return {...prev,gapsWorked: current.includes(name) ? current.filter(item=>item!==name) : [...current,name]};
+  });
+  const submit = async() => {
+    if (saving) return;
+    setErr("");
+    if (!form.parentId) return setErr("Selecciona el registro de historial asociado.");
+    if (!String(form.generalObservation || "").trim()) return setErr("Completa la observación general.");
+    try{
+      setSaving(true);
+      const attachments = (await Promise.all(files.map(file => prepareAttachment(file, "commercial_development_control")))).filter(Boolean);
+      await onSave({...form,id:record?.id || "",attachments,currentUser});
+      onClose();
+    }catch(error){
+      setErr(error?.message || "No se pudo guardar el control.");
+    }finally{
+      setSaving(false);
+    }
+  };
+  const labelStyle = {fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em"};
+  const input = (label,key,props={}) => h("div",null,h("div",{style:labelStyle},label),h("input",{style:INP,type:props.type || "text",value:props.value !== undefined ? props.value : form[key] || "",disabled:props.disabled,onChange:ev=>update(key,ev.target.value),placeholder:props.placeholder || ""}));
+  return h("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:3020,display:"flex",justifyContent:"center",alignItems:"flex-start",overflowY:"auto",padding:"28px"}},
+    h("div",{style:{...CARD,width:"min(1120px,96vw)",borderTop:`4px solid #19C37D`}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,marginBottom:22}},h("div",null,h("h2",{style:{fontSize:28,color:"#fff",marginBottom:6}},"Control continuo"),h("p",{style:{color:"#9fb0d8",margin:0}},"Seguimiento posterior asociado a un registro de historial.")),h("button",{style:BTN("out"),onClick:onClose},"CERRAR")),
+      err && h("div",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.35)",borderRadius:12,padding:12,color:THEME.accent,marginBottom:16}},err),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:16}},
+        h("div",null,h("div",{style:labelStyle},"Registro asociado"),h("select",{style:SEL,value:form.parentId || "",onChange:ev=>update("parentId",ev.target.value)},h("option",{value:""},"Selecciona historial"),histories.map(item=>h("option",{key:item.id,value:item.id},`${item.code || "-"} - ${item.executiveName}`)))),
+        input("Código control","code",{disabled:true}),
+        input("Ejecutivo","executiveName",{disabled:true}),
+        input("Campaña","campaign",{disabled:true}),
+        input("Supervisor","supervisor",{disabled:true}),
+        input("Responsable","responsibleName",{disabled:true})
+      ),
+      h("div",{style:{marginTop:14}},h("div",{style:labelStyle},"Observación general"),h("textarea",{style:{...INP,minHeight:90},value:form.generalObservation || "",onChange:ev=>update("generalObservation",ev.target.value),placeholder:"Resume el avance del control."})),
+      h("div",{style:{...CARD,marginTop:16,background:"rgba(9,9,17,0.35)"}},h("h3",{style:{color:"#fff",marginTop:0}},"Brechas trabajadas"),parentGaps.length ? h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:10}},parentGaps.map(gap=>h("label",{key:gap.name,style:{display:"flex",gap:8,alignItems:"center",border:`1px solid ${THEME.border}`,borderRadius:12,padding:"10px 12px",color:"#d6d8e3",fontSize:12}},h("input",{type:"checkbox",checked:(form.gapsWorked || []).includes(gap.name),onChange:()=>toggleGap(gap.name)}),gap.name))) : h("p",{style:{color:"#9fb0d8"}},"El historial asociado no tiene brechas registradas.")),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:16,marginTop:16}},h("div",null,h("div",{style:labelStyle},"Intervención"),h("select",{style:SEL,value:form.interventionType || "",onChange:ev=>update("interventionType",ev.target.value)},COMMERCIAL_DEV_INTERVENTIONS.map(item=>h("option",{key:item,value:item},item)))),input("Fecha próximo control","nextControlDate",{type:"date"}),input("Hora próximo control","nextControlTime",{type:"time"})),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}},h("div",{style:{marginTop:14}},h("div",{style:labelStyle},"Acción"),h("textarea",{style:{...INP,minHeight:90},value:form.actionTaken || "",onChange:ev=>update("actionTaken",ev.target.value)})),h("div",{style:{marginTop:14}},h("div",{style:labelStyle},"Compromiso"),h("textarea",{style:{...INP,minHeight:90},value:form.improvementCommitment || "",onChange:ev=>update("improvementCommitment",ev.target.value)}))),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginTop:16}},input("Correo notificación","notificationEmail",{type:"email"}),input("Enlace Meet","meetingLink"),h("div",null,h("div",{style:labelStyle},"Audio / imagen"),h("input",{type:"file",multiple:true,accept:"audio/*,image/*,.mp3,.wav,.m4a,.jpg,.jpeg,.png",style:INP,onChange:ev=>setFiles([...ev.target.files])}))),
+      h("div",{style:{display:"flex",justifyContent:"flex-end",gap:12,marginTop:22}},h("button",{style:BTN("out"),onClick:onClose,disabled:saving},"CANCELAR"),h("button",{style:BTN("pink"),onClick:submit,disabled:saving},saving ? "GUARDANDO..." : "GUARDAR CONTROL"))
+    )
+  );
+}
+function CommercialDevelopmentCenterV2({records,currentUser,staffing,users,onSave,onDelete,clientName = "Desarrollo Comercial"}){
+  const [historyModal,setHistoryModal] = useState({open:false,record:null});
+  const [controlModal,setControlModal] = useState({open:false,record:null});
+  const [filters,setFilters] = useState({dateFrom:"",dateTo:"",campaign:"all",responsibleRole:"all",responsible:"all",advisor:[],status:"all",result:"all",managementType:"all"});
+  const canManage = canManageCommercialDevelopmentModule(currentUser);
+  const canDelete = canDeleteCommercialDevelopmentModule(currentUser);
+  const rows = useMemo(() => (records || []).map(normalizeCommercialDevRecord).filter(row => normalizeComparableValue(row.status) !== "eliminada"), [records]);
+  const histories = useMemo(() => rows.filter(isCommercialDevHistory), [rows]);
+  const controls = useMemo(() => rows.filter(isCommercialDevControl), [rows]);
+  const selectedAdvisors = normalizeImprovementAdvisorFilter(filters.advisor);
+  const filteredHistories = useMemo(() => histories.filter(row => {
+    if (!isWithinDateRange(row.interventionAt || row.createdAt, filters.dateFrom, filters.dateTo)) return false;
+    if (filters.campaign !== "all" && row.campaign !== filters.campaign) return false;
+    if (filters.responsibleRole !== "all" && normalizeComparableValue(row.responsibleRole) !== normalizeComparableValue(filters.responsibleRole)) return false;
+    if (filters.responsible !== "all" && row.responsibleName !== filters.responsible) return false;
+    if (selectedAdvisors.length && !selectedAdvisors.some(name => normalizeName(name) === normalizeName(row.executiveName))) return false;
+    if (filters.status !== "all" && normalizeComparableValue(row.status) !== normalizeComparableValue(filters.status)) return false;
+    if (filters.result !== "all" && normalizeComparableValue(row.generalResult) !== normalizeComparableValue(filters.result)) return false;
+    if (filters.managementType !== "all" && normalizeComparableValue(row.managementType) !== normalizeComparableValue(filters.managementType)) return false;
+    return true;
+  }).sort((a,b)=>getDateMs(b.interventionAt || b.createdAt)-getDateMs(a.interventionAt || a.createdAt)), [histories,filters,selectedAdvisors]);
+  const filteredControls = useMemo(() => controls.filter(row => filteredHistories.some(parent => normalizeId(parent.id) === normalizeId(row.parentId || row.historyId))), [controls,filteredHistories]);
+  const advisorOptions = useMemo(()=>uniqueSortedValues(histories.map(row=>row.executiveName).concat(getStaffingAdvisorOptions(staffing))),[histories,staffing]);
+  const responsibleOptions = useMemo(()=>uniqueSortedValues(histories.map(row=>row.responsibleName)),[histories]);
+  const roleOptions = useMemo(()=>uniqueSortedValues(histories.map(row=>row.responsibleRole)),[histories]);
+  const campaignOptions = useMemo(()=>uniqueSortedValues(COMMERCIAL_DEV_CAMPAIGNS.concat(histories.map(row=>row.campaign))),[histories]);
+  const gapRows = useMemo(() => filteredHistories.flatMap(row => normalizeCommercialDevGaps(row.gaps).map(gap => ({...gap,record:row}))), [filteredHistories]);
+  const statusChartConfig = useMemo(()=>buildDoughnutChartConfig("Estado", Object.keys(grp(filteredHistories,row=>row.status || "Sin estado")), Object.values(grp(filteredHistories,row=>row.status || "Sin estado")).map(items=>items.length), [THEME.primary,"#19C37D","#FFC857"]),[filteredHistories]);
+  const advisorChartConfig = useMemo(()=>buildOperationalIncidentChartConfig("Historial por asesor", filteredHistories, row=>row.executiveName || "Sin asesor", "Registros"),[filteredHistories]);
+  const gapChartConfig = useMemo(()=>buildOperationalIncidentChartConfig("Brechas", gapRows, row=>`${row.group}: ${row.name}`, "Brechas"),[gapRows]);
+  const interventionChartConfig = useMemo(()=>buildOperationalIncidentChartConfig("Intervenciones", filteredControls, row=>row.interventionType || "Sin intervención", "Controles"),[filteredControls]);
+  const closeRate = filteredHistories.length ? Math.round(filteredHistories.filter(row=>normalizeComparableValue(row.status)==="cerrado").length / filteredHistories.length * 100) : 0;
+  const exportRows = () => exportCSV(filteredHistories.map(row=>({
+    Codigo: row.code,
+    Fecha: formatDateTime(row.interventionAt || row.createdAt),
+    Asesor: row.executiveName,
+    Supervisor: row.supervisor,
+    Campana: row.campaign,
+    TipoGestion: row.managementType,
+    Modalidad: row.modality,
+    ResultadoGeneral: row.generalResult,
+    Responsable: row.responsibleName,
+    RolResponsable: row.responsibleRole,
+    Estado: row.status,
+    Submotivo: row.closeReason || "",
+    QInicial: row.initialActiveQ,
+    QFinal: row.finalActiveQ,
+    VariacionQ: commercialDevDelta(row.initialActiveQ,row.finalActiveQ),
+    ProductividadInicial: row.initialProductivityIn,
+    ProductividadFinal: row.finalProductivityIn,
+    VariacionProductividad: commercialDevDelta(row.initialProductivityIn,row.finalProductivityIn),
+    NotaInicial: row.initialQualityScore,
+    NotaFinal: row.finalQualityScore,
+    VariacionNota: commercialDevDelta(row.initialQualityScore,row.finalQualityScore),
+    Brechas: normalizeCommercialDevGaps(row.gaps).map(gap=>`${gap.group}: ${gap.name}`).join(" | "),
+    Observacion: row.initialObservation
+  })),"desarrollo_comercial_historial");
+  const deleteRecord = async(record) => { if (!confirm("Eliminar este registro?")) return; await onDelete({id:record.id,currentUser}); };
+  const filterSelect = (label,key,options,allLabel) => h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em"}},label),h("select",{style:SEL,value:filters[key],onChange:ev=>setFilters(prev=>({...prev,[key]:ev.target.value}))},h("option",{value:"all"},allLabel),options.filter(Boolean).map(item=>h("option",{key:item,value:item},item))));
+  return h("div",null,
+    h("div",{style:{display:"flex",justifyContent:"space-between",gap:20,alignItems:"flex-start",marginBottom:28}},
+      h("div",null,h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.35em",fontFamily:THEME.displayFont,marginBottom:10}},String(clientName || "Desarrollo Comercial").toUpperCase()),h("h1",{style:{fontSize:42,color:"#fff",margin:"0 0 8px"}},"Historial"),h("p",{style:{color:"#9fb0d8",lineHeight:1.7,margin:0}},"Acompañamiento individual y control continuo de ejecutivos comerciales.")),
+      canManage && h("div",{style:{display:"flex",gap:12,flexWrap:"wrap"}},h("button",{style:BTN("out"),onClick:()=>setControlModal({open:true,record:null})},I("plus",14,THEME.primary),"NUEVO CONTROL"),h("button",{style:BTN("pink"),onClick:()=>setHistoryModal({open:true,record:null})},I("plus",14,"#fff"),"NUEVO REGISTRO"))
+    ),
+    h("div",{style:{...CARD,marginBottom:20}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:14}},
+        h("input",{type:"date",style:INP,value:filters.dateFrom,onChange:ev=>setFilters(prev=>({...prev,dateFrom:ev.target.value}))}),
+        h("input",{type:"date",style:INP,value:filters.dateTo,onChange:ev=>setFilters(prev=>({...prev,dateTo:ev.target.value}))}),
+        filterSelect("Campaña","campaign",campaignOptions,"Todas las campañas"),
+        filterSelect("Rol responsable","responsibleRole",roleOptions,"Todos los roles"),
+        filterSelect("Responsable","responsible",responsibleOptions,"Todos los responsables"),
+        filterSelect("Estado","status",COMMERCIAL_DEV_HISTORY_STATUS,"Todos los estados"),
+        filterSelect("Resultado","result",COMMERCIAL_DEV_RESULTS,"Todos los resultados"),
+        filterSelect("Tipo de gestión","managementType",COMMERCIAL_DEV_MANAGEMENT_TYPES,"Todos los tipos")
+      ),
+      h("details",{style:{marginTop:14}},h("summary",{style:{cursor:"pointer",color:"#fff",fontWeight:800,fontSize:12,letterSpacing:"0.12em"}},"ASESORES"),h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10,marginTop:12,maxHeight:220,overflowY:"auto"}},advisorOptions.map(name=>h("label",{key:name,style:{display:"flex",alignItems:"center",gap:8,border:`1px solid ${THEME.border}`,borderRadius:12,padding:"10px 12px",color:"#d6d8e3",fontSize:12}},h("input",{type:"checkbox",checked:selectedAdvisors.some(value=>normalizeName(value)===normalizeName(name)),onChange:()=>setFilters(prev=>({...prev,advisor:toggleImprovementAdvisorFilter(prev.advisor,name)}))}),name)))),
+      h("div",{style:{marginTop:14,display:"flex",gap:12,flexWrap:"wrap"}},h("button",{style:BTN("out"),onClick:()=>setFilters({dateFrom:"",dateTo:"",campaign:"all",responsibleRole:"all",responsible:"all",advisor:[],status:"all",result:"all",managementType:"all"})},"LIMPIAR"),h("button",{style:BTN("s"),onClick:exportRows},"DESCARGAR CSV"))
+    ),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:18,marginBottom:20}},
+      h(ImprovementKpiCard,{label:"Historial",value:filteredHistories.length,caption:"Registros visibles",color:THEME.primary}),
+      h(ImprovementKpiCard,{label:"Controles",value:filteredControls.length,caption:"Seguimientos registrados",color:"#19C37D"}),
+      h(ImprovementKpiCard,{label:"Cerrados",value:filteredHistories.filter(row=>normalizeComparableValue(row.status)==="cerrado").length,caption:`Tasa de cierre ${closeRate}%`,color:"#FFC857"}),
+      h(ImprovementKpiCard,{label:"Brechas",value:gapRows.length,caption:"Oportunidades registradas",color:THEME.accent})
+    ),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(360px,1fr))",gap:20,marginBottom:20}},
+      h(AnalyticsChart,{title:"Dashboard por estado",subtitle:"Distribución del historial.",config:statusChartConfig,height:280,emptyMessage:"Sin registros para graficar."}),
+      h(AnalyticsChart,{title:"Seguimiento por asesor",subtitle:"Cantidad de registros por ejecutivo.",config:advisorChartConfig,height:280,emptyMessage:"Sin asesores para graficar."}),
+      h(AnalyticsChart,{title:"Pareto de brechas",subtitle:"Oportunidades de mejora más frecuentes.",config:gapChartConfig,height:280,emptyMessage:"Sin brechas para graficar."}),
+      h(AnalyticsChart,{title:"Intervenciones",subtitle:"Acciones registradas en control continuo.",config:interventionChartConfig,height:280,emptyMessage:"Sin controles para graficar."})
+    ),
+    h("div",{style:CARD},
+      h("div",{style:{display:"flex",justifyContent:"space-between",gap:12,marginBottom:14}},h("h3",{style:{color:"#fff",margin:0}},"Historial de seguimiento"),h("span",{style:{color:"#9fb0d8"}},`${filteredHistories.length} registro(s)`)),
+      h(SimpleDataTable,{rows:filteredHistories,emptyMessage:"No hay registros de historial.",columns:[
+        {header:"Código",render:row=>row.code || "-"},
+        {header:"Fecha",render:row=>formatDateTime(row.interventionAt || row.createdAt)},
+        {header:"Asesor",render:row=>row.executiveName || "-"},
+        {header:"Campaña",render:row=>row.campaign || "-"},
+        {header:"Responsable",render:row=>row.responsibleName || "-"},
+        {header:"Estado",render:row=>h(Badge,{color:normalizeComparableValue(row.status)==="cerrado"?"#19C37D":"#FFC857"},row.status || "-")},
+        {header:"KPI",render:row=>`Q ${row.initialActiveQ || "-"} -> ${row.finalActiveQ || "-"} | Nota ${row.initialQualityScore || "-"} -> ${row.finalQualityScore || "-"}`},
+        {header:"Acciones",render:row=>h("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},canManage && h("button",{style:{...BTN("out"),padding:"8px 10px"},onClick:()=>setHistoryModal({open:true,record:row})},I("edit",12,THEME.primary),"EDITAR"),canManage && h("button",{style:{...BTN("out"),padding:"8px 10px"},onClick:()=>setControlModal({open:true,record:{parentId:row.id}})},I("plus",12,THEME.primary),"CONTROL"),canDelete && h("button",{style:{...BTN("out"),padding:"8px 10px",color:THEME.accent,border:"1px solid rgba(230,0,168,0.35)"},onClick:()=>deleteRecord(row)},I("trash",12,THEME.accent),"ELIMINAR"))}
+      ]})
+    ),
+    h("div",{style:{...CARD,marginTop:20}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",gap:12,marginBottom:14}},h("h3",{style:{color:"#fff",margin:0}},"Control continuo"),h("span",{style:{color:"#9fb0d8"}},`${filteredControls.length} control(es)`)),
+      h(SimpleDataTable,{rows:filteredControls,emptyMessage:"No hay controles continuos.",columns:[
+        {header:"Código",render:row=>row.code || "-"},
+        {header:"Historial",render:row=>histories.find(parent=>normalizeId(parent.id)===normalizeId(row.parentId || row.historyId))?.code || "-"},
+        {header:"Asesor",render:row=>row.executiveName || "-"},
+        {header:"Intervención",render:row=>row.interventionType || "-"},
+        {header:"Próximo control",render:row=>`${row.nextControlDate || "-"} ${row.nextControlTime || ""}`},
+        {header:"Acciones",render:row=>h("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},canManage && h("button",{style:{...BTN("out"),padding:"8px 10px"},onClick:()=>setControlModal({open:true,record:row})},"EDITAR"),canDelete && h("button",{style:{...BTN("out"),padding:"8px 10px",color:THEME.accent,border:"1px solid rgba(230,0,168,0.35)"},onClick:()=>deleteRecord(row)},"ELIMINAR"))}
+      ]})
+    ),
+    h(CommercialDevelopmentHistoryModalV2,{isOpen:historyModal.open,onClose:()=>setHistoryModal({open:false,record:null}),onSave,record:historyModal.record,currentUser,staffing,users,records}),
+    h(CommercialDevelopmentControlModalV2,{isOpen:controlModal.open,onClose:()=>setControlModal({open:false,record:null}),onSave,record:controlModal.record,currentUser,records})
   );
 }
 
