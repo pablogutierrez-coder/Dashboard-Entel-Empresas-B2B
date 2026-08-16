@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard Entel Empresas B2B</title>
-<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"%3E%3Cdefs%3E%3ClinearGradient id="g" x1="0" y1="0" x2="1" y2="1"%3E%3Cstop offset="0" stop-color="%231407FB"/%3E%3Cstop offset="0.58" stop-color="%235F03FB"/%3E%3Cstop offset="1" stop-color="%23EE02BB"/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width="64" height="64" rx="18" fill="url(%23g)"/%3E%3Crect x="18" y="38" width="4" height="10" rx="2" fill="%23F7F7FB"/%3E%3Crect x="28" y="28" width="4" height="20" rx="2" fill="%23F7F7FB"/%3E%3Crect x="38" y="18" width="4" height="30" rx="2" fill="%23F7F7FB"/%3E%3C/svg%3E'>
+<link rel="icon" type="image/jpeg" href="/assets/automatizate-negocios-logo.jpeg">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 :root {
@@ -2158,7 +2158,30 @@ const BASE_CARD_VALUES = {...CARD};
 const BASE_INP_VALUES = {...INP};
 const BASE_SEL_VALUES = {...SEL};
 const CULQI_ASSET = "/assets/culqi-full-pos.webp";
-const LOGIN_INTRO_VIDEO_ASSET = "/assets/automatizate-intro.mp4";
+const LOGIN_INTRO_VIDEO_ASSET = "/assets/automatizate-login-2026.mp4";
+const BRAND_LOGO_ASSET = "/assets/automatizate-negocios-logo.jpeg";
+
+function BrandLogo({width=170,height=92,compact=false,style={}}={}){
+  return h("div",{
+    style:{
+      width,
+      height,
+      position:"relative",
+      overflow:"hidden",
+      flex:"0 0 auto",
+      background:"#000",
+      borderRadius:compact ? 12 : 10,
+      boxShadow:"0 14px 34px rgba(29,43,255,0.18)",
+      ...style
+    }
+  },h("img",{
+    src:BRAND_LOGO_ASSET,
+    alt:"Automatizate Negocios",
+    style:compact
+      ? {position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",transform:"scale(1.72)",transformOrigin:"50% 31%"}
+      : {width:"100%",height:"100%",objectFit:"contain",display:"block"}
+  }));
+}
 
 const CULQI_THEME_VALUES = {
   bg: "#16061D",
@@ -2758,8 +2781,7 @@ function PlatformSelector({onSelect}){
   return h("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"radial-gradient(circle at 50% 18%, rgba(29,43,255,0.18) 0%, transparent 36%), radial-gradient(circle at 80% 10%, rgba(91,31,214,0.16) 0%, transparent 28%), #0B0B12",padding:"28px"}},
     h("div",{style:{width:"100%",maxWidth:980}},
       h("div",{style:{textAlign:"center",marginBottom:34}},
-        h("div",{style:{width:64,height:64,borderRadius:18,background:THEME.gradient,display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:18,boxShadow:"0 16px 36px rgba(29,43,255,0.30)"}}, I("bar",30,THEME.white)),
-        h("div",{style:{fontSize:12,color:THEME.primary,letterSpacing:"0.36em",fontFamily:THEME.displayFont,fontWeight:800,textTransform:"uppercase",marginBottom:8}},"AN CALIDAD"),
+        BrandLogo({width:184,height:110,style:{display:"inline-flex",marginBottom:18}}),
         h("h1",{style:{fontSize:42,lineHeight:1.05,color:THEME.text,fontFamily:THEME.displayFont,letterSpacing:"0.05em",textTransform:"uppercase",margin:"0 0 10px"}},"Selecciona tu plataforma"),
         h("p",{style:{color:"#AFC3FF",fontSize:15,lineHeight:1.7,margin:0}},"Elige el cliente o subplataforma con la que vas a trabajar.")
       ),
@@ -2806,8 +2828,8 @@ function PlatformSelector({onSelect}){
         )})
       ),
       h("div",{style:{marginTop:30,fontSize:12,color:THEME.muted,fontWeight:600,letterSpacing:"0.08em",textAlign:"center"}},
-        "Herramienta desarrollada por ",
-        h("span",{style:{color:THEME.accent}},"IA Learning Solutions")
+        "Desarrollado con ♥ por ",
+        h("span",{style:{color:THEME.accent}},"Ali")
       )
     )
   );
@@ -2820,8 +2842,7 @@ function AuthorizedPlatformSelector({currentUser,platforms,onSelect}){
   return h("div",{style:{minHeight:"100vh",background:"radial-gradient(circle at 72% 18%, rgba(230,0,168,0.18) 0%, transparent 34%), radial-gradient(circle at 24% 82%, rgba(29,43,255,0.18) 0%, transparent 42%), #08080D",display:"flex",alignItems:"center",justifyContent:"center",padding:28}},
     h("div",{style:{width:"100%",maxWidth:980}},
       h("div",{style:{textAlign:"center",marginBottom:28}},
-        h("div",{style:{width:62,height:62,borderRadius:18,background:THEME.gradient,display:"inline-flex",alignItems:"center",justifyContent:"center",boxShadow:"0 16px 40px rgba(29,43,255,0.30)",marginBottom:18}},I("bar",28,THEME.white)),
-        h("div",{style:{fontSize:11,color:THEME.primary,letterSpacing:"0.30em",fontFamily:THEME.displayFont,fontWeight:800,textTransform:"uppercase",marginBottom:8}},"Automatizate Negocios"),
+        BrandLogo({width:184,height:110,style:{display:"inline-flex",marginBottom:18}}),
         h("h1",{style:{fontSize:"clamp(30px,5vw,54px)",lineHeight:1.05,margin:"0 0 10px",color:"#fff",fontWeight:900,fontFamily:THEME.displayFont,textTransform:"uppercase",letterSpacing:"0.04em"}},"Hola ",displayName.split(" ")[0] || displayName),
         h("p",{style:{margin:0,color:"#AFC3FF",fontSize:15,lineHeight:1.7}},"Selecciona la plataforma a la que deseas ingresar. Solo veras los accesos habilitados para tu usuario.")
       ),
@@ -2959,9 +2980,9 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
       h("div",{style:{position:"absolute",inset:0,background:"radial-gradient(circle at 78% 12%, rgba(230,0,168,0.18), transparent 32%), radial-gradient(circle at 15% 82%, rgba(29,43,255,0.22), transparent 42%)",pointerEvents:"none"}}),
       h("div",{style:{width:"100%",maxWidth:440,position:"relative",zIndex:1}},
       h("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-start",marginBottom:34}},
-        h("div",{style:{width:62,height:62,borderRadius:18,background:THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:18,boxShadow:"0 16px 40px rgba(29,43,255,0.30)"}}, I("bar",28,THEME.white)),
-        h("div",{style:{fontSize:12,color:THEME.primary,letterSpacing:"0.22em",fontFamily:THEME.displayFont,fontWeight:800,textTransform:"uppercase",marginBottom:10}},"Automatizate Negocios"),
-        h("div",{style:{fontSize:"clamp(30px,3vw,42px)",fontWeight:900,color:THEME.text,letterSpacing:"0.04em",fontFamily:THEME.displayFont,textTransform:"uppercase",lineHeight:1.05}},"Login unico"),
+        BrandLogo({width:178,height:104,style:{marginBottom:20}}),
+        h("div",{style:{fontSize:12,color:THEME.primary,letterSpacing:"0.22em",fontFamily:THEME.displayFont,fontWeight:800,textTransform:"uppercase",marginBottom:10}},"Plataforma de"),
+        h("div",{style:{fontSize:"clamp(30px,3vw,42px)",fontWeight:900,color:THEME.text,letterSpacing:"0.02em",fontFamily:THEME.displayFont,lineHeight:1.08}},"Calidad y Desarrollo comercial"),
         h("div",{style:{fontSize:14,color:"#AFC3FF",marginTop:12,lineHeight:1.65}},"Ingresa con tu usuario. La plataforma activara solo los clientes y modulos autorizados.")
       ),
       h("div",{style:{marginBottom:16}},
@@ -2982,8 +3003,8 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
         loadingUsers ? "CARGANDO USUARIOS..." : loading ? "VERIFICANDO..." : "INICIAR SESION"
       ),
       h("div",{style:{marginTop:26,fontSize:12,color:THEME.muted,fontWeight:600,letterSpacing:"0.08em",textAlign:"left"}},
-        "Herramienta desarrollada por ",
-        h("span",{style:{color:THEME.accent}},"IA Learning Solutions")
+        "Desarrollado con ♥ por ",
+        h("span",{style:{color:THEME.accent}},"Ali")
       )
       )
     )
@@ -4591,8 +4612,7 @@ function App(){
     h("div",{style:{display:"flex",height:"100vh",background:THEME.bg,overflow:"hidden"}},
       h("div",{style:{width:280,minWidth:280,background:"linear-gradient(180deg, rgba(14,15,24,0.98) 0%, rgba(20,11,37,0.98) 100%)",borderRight: `1px solid ${THEME.border}`,display:"flex",flexDirection:"column",padding:"30px 20px",zIndex:10,boxShadow:"20px 0 40px rgba(0,0,0,0.18)"}},
         h("div",{style:{display:"flex",alignItems:"center",gap:14,marginBottom:40,paddingLeft:8}},
-          h("div",{style:{width:40,height:40,borderRadius:12,background:THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 10px 26px rgba(29,43,255,0.24)"}}, I("bar",20,THEME.white)),
-          h("div",{style:{fontSize:24,fontWeight:700,color:THEME.text,letterSpacing:"0.04em",fontFamily:THEME.displayFont,textTransform:"uppercase"}},"AN ", h("span",{style:{color:THEME.primary}},"CALIDAD"))
+          BrandLogo({width:204,height:72,style:{boxShadow:"none"}})
         ),
         h("div",{style:{display:"flex",flexDirection:"column",gap:10,flex:1}},
           currentUser.rol === "asesor" && h("button",{style:{...BTN(view === "advisor" ? "p" : "out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view === "advisor" ? "#fff" : "#8b92a5"},onClick:() => setView("advisor")}, I("users",18,view === "advisor" ? "#fff" : "#8b92a5"), "MI PERFIL"),
@@ -6107,8 +6127,7 @@ function App(){
     h("div",{style:{display:"flex",height:"100vh",background:THEME.bg,overflow:"hidden"}},
       h("div",{style:{width:280,minWidth:280,background:"linear-gradient(180deg, rgba(14,15,24,0.98) 0%, rgba(20,11,37,0.98) 100%)",borderRight: `1px solid ${THEME.border}`,display:"flex",flexDirection:"column",padding:"30px 20px",zIndex:10,boxShadow:"20px 0 40px rgba(0,0,0,0.18)"}},
         h("div",{style:{display:"flex",alignItems:"center",gap:14,marginBottom:40,paddingLeft:8}},
-          h("div",{style:{width:40,height:40,borderRadius:12,background:THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 10px 26px rgba(29,43,255,0.24)"}},I("bar",20,THEME.white)),
-          h("div",{style:{fontSize:24,fontWeight:700,color:THEME.text,letterSpacing:"0.04em",fontFamily:THEME.displayFont,textTransform:"uppercase"}},"AN ",h("span",{style:{color:THEME.primary}},"CALIDAD"))
+          BrandLogo({width:204,height:72,style:{boxShadow:"none"}})
         ),
         h("div",{style:{display:"flex",flexDirection:"column",gap:10,flex:1}},
           currentUser.rol === "asesor" && h("button",{style:{...BTN(view==="advisor"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="advisor"?"#fff":"#8b92a5"},onClick:()=>setView("advisor")},I("users",18,view==="advisor"?"#fff":"#8b92a5"),"MI PERFIL"),
@@ -8003,8 +8022,7 @@ function App(){
         }
       },
         h("div",{style:{display:"flex",alignItems:"center",gap:14,marginBottom:40,paddingLeft:8}},
-          h("div",{style:{width:40,height:40,borderRadius:isCulqiActive ? 999 : 12,background:isCulqiActive ? "#FF8A00" : THEME.gradient,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:isCulqiActive ? "0 10px 28px rgba(255,90,0,0.38)" : "0 10px 26px rgba(29,43,255,0.24)",color:"#fff",fontSize:isCulqiActive ? 25 : undefined,fontWeight:900,lineHeight:1}},isCulqiActive ? "Q" : I(isCommercialDevelopmentActive ? "trend" : "bar",20,THEME.white)),
-          h("div",{style:{fontSize:24,fontWeight:700,color:THEME.text,letterSpacing:"0.04em",fontFamily:THEME.displayFont,textTransform:"uppercase"}},isCulqiActive ? "CULQI " : isCommercialDevelopmentActive ? "SEGUIMIENTO" : "AN ",!isCommercialDevelopmentActive && h("span",{style:{color:isCulqiActive ? "#FF8A00" : THEME.primary}},isCulqiActive ? "FULL" : "CALIDAD"))
+          BrandLogo({width:204,height:72,style:{boxShadow:"none"}})
         ),
         h("div",{style:{display:"flex",flexDirection:"column",gap:10,flex:1}},
           !isCommercialDevelopmentActive && currentUser.rol === "asesor" && h("button",{style:{...BTN(view==="advisor"?"p":"out"),width:"100%",justifyContent:"flex-start",padding:"16px 20px",color:view==="advisor"?"#fff":"#8b92a5"},onClick:()=>setView("advisor")},I("users",18,view==="advisor"?"#fff":"#8b92a5"),"MI PERFIL"),
