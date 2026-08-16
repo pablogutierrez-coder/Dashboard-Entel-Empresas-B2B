@@ -7617,6 +7617,55 @@ function App(){
     return true;
   };
 
+  const actualizarAccesoUsuario = async(usuario, platformAccess) => {
+    const normalizedUserKey = normalizeLoginKey(usuario);
+    const requestedAccess = Array.isArray(platformAccess) ? platformAccess : [];
+    const nextAccess = getAllPlatformIds().filter(platformId => requestedAccess.includes(platformId));
+    if (!normalizedUserKey || !nextAccess.length) {
+      notify("e","Selecciona al menos una plataforma para el usuario.");
+      return false;
+    }
+
+    const latestUsers = await loadUsers({preferBackend:true}).catch(() => users);
+    const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
+    const targetUser = normalizedSource.find(user => normalizeLoginKey(user.usuario) === normalizedUserKey);
+    if (!targetUser) {
+      notify("e","No se encontro el usuario para actualizar sus plataformas.");
+      return false;
+    }
+
+    const primaryPlatformId = nextAccess[0];
+    const updated = normalizeUsersList(normalizedSource.map(user => normalizeLoginKey(user.usuario) === normalizedUserKey
+      ? normalizeUserRecord({
+          ...user,
+          platformAccess: nextAccess,
+          clientId: primaryPlatformId,
+          platformId: primaryPlatformId,
+          clientName: getPlatformDisplayName(primaryPlatformId),
+          platformName: getPlatformDisplayName(primaryPlatformId),
+          updatedAt: new Date().toISOString()
+        })
+      : user
+    ));
+    const saved = await saveUsers(updated);
+    if (saved === false) {
+      notify("e","No se pudo guardar el acceso de plataformas.");
+      return false;
+    }
+
+    setUsers(updated);
+    if (currentUser?.usuario && normalizeLoginKey(currentUser.usuario) === normalizedUserKey) {
+      const refreshedUser = mergeUserCandidatesForLogin(updated.filter(user => normalizeLoginKey(user.usuario) === normalizedUserKey));
+      setCurrentUser(refreshedUser);
+      if (selectedPlatform?.id && !isUserAuthorizedForPlatform(refreshedUser, selectedPlatform.id)) {
+        setSelectedPlatform(null);
+        setView("legend");
+      }
+    }
+    notify("s","Accesos de plataforma actualizados.");
+    return true;
+  };
+
   const cambiarContrasenaActual = async(nuevaContrasena) => {
     if (!currentUser?.usuario) return false;
     const normalizedUserKey = normalizeLoginKey(currentUser.usuario);
