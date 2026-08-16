@@ -407,6 +407,12 @@ function normalizeRecordId(value){
   return Number.isNaN(numericValue) ? text : String(numericValue);
 }
 
+// Los controles de Desarrollo Comercial usan la misma normalización de IDs
+// que los registros históricos para enlazar cada seguimiento a su ficha base.
+function normalizeId(value){
+  return normalizeRecordId(value);
+}
+
 function getDeletedEvaluationIds(values){
   return new Set((Array.isArray(values) ? values : [])
     .map(item => normalizeRecordId(item?.id || item?.idEvaluacion || item))
