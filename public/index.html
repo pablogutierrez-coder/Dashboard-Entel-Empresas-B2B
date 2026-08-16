@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard Entel Empresas B2B</title>
-<link rel="icon" type="image/jpeg" href="/assets/automatizate-negocios-logo.jpeg">
+<link rel="icon" type="image/png" href="/assets/automatizate-negocios-logo-transparent.png">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 :root {
@@ -2159,7 +2159,7 @@ const BASE_INP_VALUES = {...INP};
 const BASE_SEL_VALUES = {...SEL};
 const CULQI_ASSET = "/assets/culqi-full-pos.webp";
 const LOGIN_INTRO_VIDEO_ASSET = "/assets/automatizate-login-2026.mp4";
-const BRAND_LOGO_ASSET = "/assets/automatizate-negocios-logo.jpeg";
+const BRAND_LOGO_ASSET = "/assets/automatizate-negocios-logo-transparent.png";
 
 function BrandLogo({width=170,height=92,compact=false,style={}}={}){
   return h("div",{
@@ -2169,17 +2169,17 @@ function BrandLogo({width=170,height=92,compact=false,style={}}={}){
       position:"relative",
       overflow:"hidden",
       flex:"0 0 auto",
-      background:"#000",
+      background:"transparent",
       borderRadius:compact ? 12 : 10,
-      boxShadow:"0 14px 34px rgba(29,43,255,0.18)",
+      boxShadow:"none",
       ...style
     }
   },h("img",{
     src:BRAND_LOGO_ASSET,
     alt:"Automatizate Negocios",
     style:compact
-      ? {position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",transform:"scale(1.72)",transformOrigin:"50% 31%"}
-      : {width:"100%",height:"100%",objectFit:"contain",display:"block"}
+      ? {position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",transform:"scale(1.72)",transformOrigin:"50% 31%",mixBlendMode:"screen"}
+      : {width:"100%",height:"100%",objectFit:"contain",display:"block",mixBlendMode:"screen"}
   }));
 }
 
