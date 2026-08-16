@@ -2272,6 +2272,7 @@ const IC = {
   eye:["M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z","M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"],
   book:["M4 19.5A2.5 2.5 0 0 1 6.5 17H20","M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z","M8 6h8","M8 10h8","M8 14h5"],
   sliders:["M4 21v-7","M4 10V3","M12 21v-9","M12 8V3","M20 21v-5","M20 12V3","M2 14h4","M10 8h4","M18 16h4"],
+  arrow:["M5 12h14","M13 6l6 6-6 6"],
   logout:["M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4","M16 17l5-5-5-5","M21 12H9"],
   useradd:["M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2","M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z","M19 8v6","M22 11h-6"],
   shield:["M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"],
@@ -2573,35 +2574,40 @@ function normalizePlatformAccessValue(value){
   return "";
 }
 
-function readAccessCollection(user){
-  const source = user?.platformAccess || user?.platforms || user?.clientes || user?.clients || user?.accessPlatforms || user?.authorizedPlatforms || user?.allowedPlatforms || user?.permittedPlatforms;
-  if (Array.isArray(source)) return source;
-  if (source && typeof source === "object") {
-    return Object.entries(source)
-      .filter(([,enabled]) => enabled === true || enabled === 1 || String(enabled).trim().toLowerCase() === "true" || String(enabled).trim().toLowerCase() === "si")
-      .map(([key]) => key);
-  }
-  if (typeof source === "string") return source.split(/[|,;/]+/);
-  return [];
-}
+const USER_ACCESS_COLLECTION_FIELDS = ["platformAccess","platforms","clientes","clients","accessPlatforms","authorizedPlatforms","allowedPlatforms","permittedPlatforms"];
+const USER_ACCESS_SCALAR_FIELDS = ["clientId","platformId","tenantId","client","platform","cliente","plataforma"];
 
-function getUserPlatformAccess(user = {}){
+function normalizeUserAccess(user = {}){
   const access = new Set();
-  readAccessCollection(user).forEach(value => {
+  const invalidValues = [];
+  const presentFields = [...USER_ACCESS_COLLECTION_FIELDS,...USER_ACCESS_SCALAR_FIELDS].filter(key => Object.prototype.hasOwnProperty.call(user || {}, key));
+  const collectionField = USER_ACCESS_COLLECTION_FIELDS.find(key => Object.prototype.hasOwnProperty.call(user || {}, key));
+  const collectionSource = collectionField ? user?.[collectionField] : undefined;
+  let collectionValues = [];
+
+  if (Array.isArray(collectionSource)) {
+    collectionValues = collectionSource;
+  } else if (typeof collectionSource === "string") {
+    collectionValues = collectionSource.split(/[|,;/]+/);
+  } else if (collectionSource && typeof collectionSource === "object") {
+    collectionValues = Object.entries(collectionSource)
+      .filter(([,enabled]) => normalizeBooleanFlag(enabled))
+      .map(([key]) => key);
+  } else if (collectionSource !== undefined && collectionSource !== null && collectionSource !== "") {
+    invalidValues.push(`${collectionField}:${typeof collectionSource}`);
+  }
+
+  collectionValues.forEach(value => {
     const normalized = normalizePlatformAccessValue(value);
     if (normalized) access.add(normalized);
+    else if (String(value ?? "").trim()) invalidValues.push(String(value));
   });
-  [
-    user?.clientId,
-    user?.platformId,
-    user?.tenantId,
-    user?.client,
-    user?.platform,
-    user?.cliente,
-    user?.plataforma
-  ].forEach(value => {
+
+  USER_ACCESS_SCALAR_FIELDS.forEach(key => {
+    const value = user?.[key];
     const normalized = normalizePlatformAccessValue(value);
     if (normalized) access.add(normalized);
+    else if (Object.prototype.hasOwnProperty.call(user || {}, key) && String(value ?? "").trim()) invalidValues.push(`${key}:${String(value)}`);
   });
   const flagMap = [
     [DEFAULT_PLATFORM_ID, ["entel", "entel_b2b", "accessEntel", "canAccessEntel"]],
@@ -2611,9 +2617,29 @@ function getUserPlatformAccess(user = {}){
   flagMap.forEach(([platformId, keys]) => {
     if (keys.some(key => normalizeBooleanFlag(user?.[key]))) access.add(platformId);
   });
-  if (isPrimaryPlatformAdmin(user)) getAllPlatformIds().forEach(id => access.add(id));
-  if (!access.size && !user?.clientId && !user?.platformId && !user?.tenantId) access.add(DEFAULT_PLATFORM_ID);
-  return getAllPlatformIds().filter(id => access.has(id));
+  const isPrimaryAdmin = isPrimaryPlatformAdmin(user);
+  if (isPrimaryAdmin) getAllPlatformIds().forEach(id => access.add(id));
+
+  // Los registros previos al login unificado no tenian ningun campo de plataforma y pertenecen a Entel.
+  const isLegacyEntelUser = !isPrimaryAdmin && presentFields.length === 0;
+  if (!access.size && isLegacyEntelUser) access.add(DEFAULT_PLATFORM_ID);
+
+  const platformIds = getAllPlatformIds().filter(id => access.has(id));
+  const status = platformIds.length
+    ? "ready"
+    : invalidValues.length
+      ? "invalid"
+      : "unassigned";
+  return {
+    platformIds,
+    status,
+    source: isPrimaryAdmin ? "primary_admin" : isLegacyEntelUser ? "legacy_entel" : collectionField ? collectionField : presentFields[0] || "unassigned",
+    invalidValues
+  };
+}
+
+function getUserPlatformAccess(user = {}){
+  return normalizeUserAccess(user).platformIds;
 }
 
 function getPrimaryPlatformIdForUser(user = {}){
@@ -2877,13 +2903,19 @@ function LoginScreen({onLogin,users,loadingUsers,bootstrapError}){
       const found = mergeUserCandidatesForLogin(passwordMatches);
       if (found) {
         const status = normalizeProfileStatus(found?.estado || "activo");
+        const accessState = normalizeUserAccess(found);
+        console.info("[Login acceso]", {usuario:found?.usuario || "",estado:accessState.status,origen:accessState.source,plataformas:accessState.platformIds});
         if (isInactiveProfileStatus(status)) {
           setErr("Este usuario esta inactivo. Solicita activacion al administrador.");
-        } else if (!getAuthorizedPlatformOptions(found).length) {
+        } else if (accessState.status === "invalid") {
+          console.error("[Login acceso invalido]", {usuario:found?.usuario || "",origen:accessState.source,valores:accessState.invalidValues});
+          setErr("La configuracion de plataformas de tu usuario no es valida. Comunicate con el administrador.");
+        } else if (accessState.status === "unassigned") {
           setErr("Tu usuario no tiene una plataforma asignada. Comunicate con el administrador.");
         } else {
           onLogin({
             ...found,
+            platformAccess: accessState.platformIds,
             passwordChangeReason: getPasswordChangeReason(found),
             passwordChangeRequired: Boolean(getPasswordChangeReason(found))
           });
@@ -7556,9 +7588,16 @@ function App(){
   };
 
   const handleLogin = user => {
+    const accessState = normalizeUserAccess(user);
+    if (accessState.status !== "ready") {
+      notify("e",accessState.status === "invalid"
+        ? "La configuracion de plataformas de tu usuario no es valida. Comunicate con el administrador."
+        : "Tu usuario no tiene una plataforma asignada. Comunicate con el administrador.");
+      return;
+    }
     const enrichedUser = normalizeUserRecord({
       ...user,
-      platformAccess: getUserPlatformAccess(user)
+      platformAccess: accessState.platformIds
     });
     const allowedPlatforms = getAuthorizedPlatformOptions(enrichedUser);
     if (!allowedPlatforms.length) {
