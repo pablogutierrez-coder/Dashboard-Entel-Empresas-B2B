@@ -6702,15 +6702,19 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
 }
 
 function buildImprovementOptions(dataset){
+  const feedbackRows = Array.isArray(dataset?.feedbackRows) ? dataset.feedbackRows : [];
+  const sectionRows = Array.isArray(dataset?.sectionRows) ? dataset.sectionRows : [];
   return {
-    advisors: uniqueSortedValues((dataset.feedbackRows || []).map(row => row.advisorName)),
-    supervisors: uniqueSortedValues((dataset.feedbackRows || []).map(row => row.supervisor)),
-    campaigns: uniqueSortedValues((dataset.feedbackRows || []).map(row => row.campaign)),
-    managementTypes: uniqueSortedValues((dataset.feedbackRows || []).map(row => row.tipoGestion)),
-    feedbackClassifications: uniqueSortedValues((dataset.feedbackRows || []).map(row => row.clasificacionFeedback)),
-    reinforcementTypes: uniqueSortedValues((dataset.feedbackRows || []).map(row => row.tipoRefuerzo)),
-    indicators: uniqueSortedValues((dataset.sectionRows || []).map(row => row.indicador || row.criterio)),
-    quartiles: uniqueSortedValues((dataset.feedbackRows || []).map(row => row.quartile)).filter(value => /^Q[1-4]$/.test(value))
+    advisors: uniqueSortedValues(feedbackRows.map(row => row.advisorName)),
+    supervisors: uniqueSortedValues(feedbackRows.map(row => row.supervisor)),
+    coordinadores: uniqueSortedValues(feedbackRows.map(row => row.coordinador)),
+    antiguedadBuckets: uniqueSortedValues(feedbackRows.map(row => row.antiguedadBucket || row.antiguedadLabel || (Number(row.antiguedad || 0) ? `${Number(row.antiguedad || 0)} meses` : ""))),
+    campaigns: uniqueSortedValues(feedbackRows.map(row => row.campaign)),
+    managementTypes: uniqueSortedValues(feedbackRows.map(row => row.tipoGestion)),
+    feedbackClassifications: uniqueSortedValues(feedbackRows.map(row => row.clasificacionFeedback)),
+    reinforcementTypes: uniqueSortedValues(feedbackRows.map(row => row.tipoRefuerzo)),
+    indicators: uniqueSortedValues(sectionRows.map(row => row.indicador || row.criterio)),
+    quartiles: uniqueSortedValues(feedbackRows.map(row => row.quartile)).filter(value => /^Q[1-4]$/.test(value))
   };
 }
 
@@ -9042,16 +9046,18 @@ function countActiveImprovementFilters(filters){
 }
 
 function buildImprovementOptions(dataset){
-  const rucOptions = uniqueSortedValues([...(dataset.feedbackRows || []).map(row => normalizeEntelRucType(row.managementTypeRuc)), ...(dataset.noTipificationRows || []).map(row => normalizeEntelRucType(row.managementTypeRuc))])
+  const feedbackRows = Array.isArray(dataset?.feedbackRows) ? dataset.feedbackRows : [];
+  const noTipificationRows = Array.isArray(dataset?.noTipificationRows) ? dataset.noTipificationRows : [];
+  const rucOptions = uniqueSortedValues([...feedbackRows.map(row => normalizeEntelRucType(row.managementTypeRuc)), ...noTipificationRows.map(row => normalizeEntelRucType(row.managementTypeRuc))])
     .filter(value => value === "RUC 10" || value === "RUC 20");
   return {
-    advisors: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.advisorName), ...(dataset.noTipificationRows || []).map(row => row.advisorName)]),
-    supervisors: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.supervisor), ...(dataset.noTipificationRows || []).map(row => row.supervisor)]),
-    coordinadores: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.coordinador), ...(dataset.noTipificationRows || []).map(row => row.coordinador)]),
-    antiguedadBuckets: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => getAntiguedadBucket(row.antiguedad)), ...(dataset.noTipificationRows || []).map(row => getAntiguedadBucket(row.antiguedad))]),
+    advisors: uniqueSortedValues([...feedbackRows.map(row => row.advisorName), ...noTipificationRows.map(row => row.advisorName)]),
+    supervisors: uniqueSortedValues([...feedbackRows.map(row => row.supervisor), ...noTipificationRows.map(row => row.supervisor)]),
+    coordinadores: uniqueSortedValues([...feedbackRows.map(row => row.coordinador), ...noTipificationRows.map(row => row.coordinador)]),
+    antiguedadBuckets: uniqueSortedValues([...feedbackRows.map(row => getAntiguedadBucket(row.antiguedad)), ...noTipificationRows.map(row => getAntiguedadBucket(row.antiguedad))]),
     managementTypesRuc: rucOptions.length ? rucOptions : ["RUC 10","RUC 20"],
-    quartiles: uniqueSortedValues([...(dataset.feedbackRows || []).map(row => row.quartile), ...(dataset.noTipificationRows || []).map(row => row.quartile)]).filter(value => /^Q[1-4]$/.test(value)),
-    smartGroups: buildImprovementSmartGroupOptions(dataset)
+    quartiles: uniqueSortedValues([...feedbackRows.map(row => row.quartile), ...noTipificationRows.map(row => row.quartile)]).filter(value => /^Q[1-4]$/.test(value)),
+    smartGroups: buildImprovementSmartGroupOptions({...(dataset || {}), feedbackRows, noTipificationRows})
   };
 }
 
