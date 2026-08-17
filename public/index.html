@@ -7144,13 +7144,19 @@ function ImprovementKpiCard({label,value,caption,color}){
   );
 }
 
+function Badge({children,color="#5B6CFF"}){
+  return h("span",{style:{display:"inline-flex",alignItems:"center",padding:"7px 10px",borderRadius:999,border:`1px solid ${color}66`,background:`${color}20`,color,fontWeight:800,fontSize:11}},children);
+}
+
 function SimpleDataTable({columns,rows,emptyMessage}){
+  const columnKey = (column,index) => column?.key || column?.header || column?.label || `column-${index}`;
+  const columnLabel = column => column?.label || column?.header || column?.key || "";
   return h("div",{style:{overflowX:"auto"}},
     rows.length
       ? h("table",{style:{width:"100%",borderCollapse:"collapse"}},
-          h("thead",null,h("tr",null,columns.map(column => h("th",{key:column.key,style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}},column.label)))),
+          h("thead",null,h("tr",null,columns.map((column,index) => h("th",{key:columnKey(column,index),style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}},columnLabel(column))))),
           h("tbody",null,rows.map((row,index)=>h("tr",{key:row.id || row.key || index,style:{borderBottom:"1px solid rgba(255,255,255,0.03)"}},
-            columns.map(column => h("td",{key:column.key,style:{padding:"14px 16px",fontSize:12,color:column.color ? column.color(row) : "#e5e7eb",fontWeight:column.bold ? 700 : 500,verticalAlign:"top"}},column.render ? column.render(row,index) : row[column.key]))
+            columns.map((column,columnIndex) => h("td",{key:columnKey(column,columnIndex),style:{padding:"14px 16px",fontSize:12,color:column.color ? column.color(row) : "#e5e7eb",fontWeight:column.bold ? 700 : 500,verticalAlign:"top"}},column.render ? column.render(row,index) : row[column.key]))
           )))
         )
       : h("div",{style:{padding:"18px 12px",fontSize:12,color:"#8b92a5",textAlign:"center"}},emptyMessage || "Sin registros para mostrar.")
