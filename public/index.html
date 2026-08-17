@@ -2290,6 +2290,7 @@ const IC = {
   db:["M12 2C6.5 2 2 4.69 2 8s4.5 6 10 6 10-2.69 10-6-4.5-6-10-6z","M2 8v8c0 3.31 4.5 6 10 6s10-2.69 10-6V8","M2 12c0 3.31 4.5 6 10 6s10-2.69 10-6"],
   save:["M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z","M17 21v-8H7v8","M7 3v5h8"],
   hist:["M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8","M3 3v5h5","M12 7v5l4 2"],
+  edit:["M12 20h9","M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"],
   trash:["M3 6h18","M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6","M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"],
   dl:["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4","M7 10l5 5 5-5","M12 15V3"],
   ref:["M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8","M21 3v5h-5","M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16","M3 21v-5h5"],
@@ -2307,7 +2308,14 @@ const IC = {
   shield:["M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"],
   bell:["M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5","M10 21a2 2 0 0 0 4 0"]
 };
-const I = (n, s, c) => sv(IC[n], s, c);
+const I = (n, s, c) => {
+  const paths = IC[n];
+  if (!Array.isArray(paths)) {
+    console.error(`[ICON_NOT_FOUND] No existe el icono "${n}".`);
+    return h("span", {"aria-hidden":"true",style:{display:"inline-block",width:s || 14,height:s || 14}});
+  }
+  return sv(paths, s, c);
+};
 const ROL_LABEL = {admin:"Administrador", analista:"Analista", formador:"Formador", supervisor:"Supervisor", referente_experto:"Referente Experto", asesor:"Asesor"};
 const ROL_COLOR = {admin:THEME.accent, analista:THEME.primary, formador:"#F59E0B", supervisor:THEME.violet, referente_experto:"#22D3EE", asesor:"#19C37D"};
 const FEEDBACK_CATEGORY_THEME = {
