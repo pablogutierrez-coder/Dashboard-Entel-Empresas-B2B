@@ -8359,7 +8359,7 @@ function App(){
           view==="communications" && h(CommunicationsCenter,{records:scopedCommunicationRecords,currentUser,onSave:guardarComunicado,onDelete:eliminarComunicado,onAddComment:comentarComunicado,onDeleteComment:eliminarComentarioComunicado,onMarkRead:marcarComunicadoLeido,onRefresh:reloadCommunications,notify,users:scopedUsers,focusedCommunicationId}),
           view==="notifications" && h(NotificationCenter,{currentUser,notifications:scopedNotifications,onRefresh:reloadNotifications,onOpenNotificationTarget:openNotificationTarget}),
           view==="legend" && h(LegendCenter,{concepts:scopedLegendConcepts,onRefresh:reloadLegend}),
-          !isCommercialDevelopmentActive && view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords:scopedEvaluationRecords,staffing:scopedStaffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion}),
+          !isCommercialDevelopmentActive && view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords:scopedEvaluationRecords,staffing:scopedStaffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion,platformId:currentPlatformId}),
           !isCommercialDevelopmentActive && view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,onOpenFeedback:openFeedbackModal,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing:scopedStaffing}),
           !isCommercialDevelopmentActive && view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing:scopedStaffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,onUpdate:actualizarIncidenciaOperativa,onDelete:eliminarIncidenciaOperativa,notify}),
           !isCommercialDevelopmentActive && view==="salesValidation" && canViewSalesValidationModule(currentUser) && h(SalesValidationCenter,{records:scopedSalesValidations,currentUser,onSave:guardarValidacionVenta,onDelete:eliminarValidacionVenta,onRestore:restaurarValidacionVenta}),
@@ -8622,9 +8622,11 @@ function getVisibleEvaluationRecords(currentUser, staffing, evaluationRecords){
     .filter(item => canViewEvaluationRecord(currentUser, staffing, item));
 }
 
-function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluation,onDeleteEvaluation}){
+function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluation,onDeleteEvaluation,platformId}){
   const [search,setSearch] = useState("");
   const [modeFilter,setModeFilter] = useState(() => String(currentUser?.rol || "").trim().toLowerCase() === "formador" ? "ojt" : "all");
+  const [newEvaluationOpen,setNewEvaluationOpen] = useState(false);
+  const [selectedAdvisor,setSelectedAdvisor] = useState("");
   const rows = useMemo(() => getVisibleEvaluationRecords(currentUser, staffing, evaluationRecords)
     .filter(item => modeFilter === "all" || (modeFilter === "ojt" ? isOjtEvaluationRecord(item) : !isOjtEvaluationRecord(item)))
     .filter(item => {
@@ -8646,6 +8648,19 @@ function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluat
 
   const openDetail = row => onOpenEvaluation(buildEvaluationEntryContext(row), row);
   const canDeleteEvaluations = String(currentUser?.rol || "").trim().toLowerCase() === "admin";
+  const activeAdvisorProfiles = useMemo(() => (staffing || [])
+    .filter(Boolean)
+    .filter(isStaffingActive)
+    .filter(item => String(item?.asesor || "").trim())
+    .sort((a,b) => String(a?.asesor || "").localeCompare(String(b?.asesor || ""), "es", {sensitivity:"base"})), [staffing]);
+  const canCreateStandard = canFillEvaluation(currentUser) && normalizeClientId(platformId) === DEFAULT_PLATFORM_ID;
+  const openStandardEvaluation = () => {
+    const profile = activeAdvisorProfiles.find(item => normalizeName(item?.asesor) === normalizeName(selectedAdvisor));
+    if (!profile) return;
+    setNewEvaluationOpen(false);
+    setSelectedAdvisor("");
+    onOpenEvaluation(buildEvaluationEntryContext(profile));
+  };
   const openOjtEvaluation = () => onOpenEvaluation(buildEvaluationEntryContext({
     evaluationMode: "ojt",
     isOjt: true,
@@ -8662,6 +8677,7 @@ function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluat
         h("div",{style:{fontSize:13,color:"#9aa4ba",maxWidth:820,lineHeight:1.7}},"Listado consolidado de fichas ingresadas, incluyendo evaluaciones de operacion y OJT para personal nuevo.")
       ),
       h("div",{style:{display:"flex",alignItems:"flex-end",gap:12,flexWrap:"wrap"}},
+        canCreateStandard && h("button",{style:{...BTN("p"),padding:"12px 16px"},onClick:()=>setNewEvaluationOpen(true)},I("plus",12,"#fff"),"NUEVA EVALUACION"),
         canCreateOjt && h("button",{style:{...BTN("pink"),padding:"12px 16px"},onClick:openOjtEvaluation},I("plus",12,"#fff"),"NUEVA OJT"),
         h("div",{style:{minWidth:240}},
         h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Buscar"),
@@ -8701,6 +8717,21 @@ function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluat
         rows,
         emptyMessage:"No hay evaluaciones registradas para tu perfil o filtros actuales."
       })
+    ),
+    newEvaluationOpen && h("div",{style:{position:"fixed",inset:0,background:"rgba(4,4,10,0.78)",display:"flex",alignItems:"center",justifyContent:"center",padding:24,zIndex:1500},onMouseDown:event=>{if(event.target===event.currentTarget)setNewEvaluationOpen(false)}},
+      h("div",{style:{...CARD,width:"min(520px,100%)",padding:28,borderTop:`4px solid ${THEME.primary}`}},
+        h("div",{style:{fontSize:24,fontWeight:800,color:"#fff",marginBottom:8}},"Nueva evaluacion"),
+        h("div",{style:{fontSize:13,color:"#9aa4ba",lineHeight:1.6,marginBottom:22}},"Selecciona el asesor activo de Entel que sera evaluado."),
+        h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Asesor"),
+        h("select",{style:{...SEL,width:"100%"},value:selectedAdvisor,onChange:event=>setSelectedAdvisor(event.target.value)},
+          h("option",{value:""},activeAdvisorProfiles.length ? "Selecciona un asesor" : "No hay asesores activos disponibles"),
+          activeAdvisorProfiles.map(item=>h("option",{key:`new-evaluation-${normalizeName(item.asesor)}`,value:item.asesor},item.asesor))
+        ),
+        h("div",{style:{display:"flex",justifyContent:"flex-end",gap:10,marginTop:24,flexWrap:"wrap"}},
+          h("button",{style:{...BTN("out"),padding:"11px 16px"},onClick:()=>{setNewEvaluationOpen(false);setSelectedAdvisor("")}},"CANCELAR"),
+          h("button",{style:{...BTN("pink"),padding:"11px 16px",opacity:selectedAdvisor?1:0.55},disabled:!selectedAdvisor,onClick:openStandardEvaluation},I("file",12,"#fff"),"CONTINUAR")
+        )
+      )
     )
   );
 }
