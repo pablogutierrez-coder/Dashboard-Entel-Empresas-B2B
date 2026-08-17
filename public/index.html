@@ -1902,6 +1902,51 @@ function findMatchingEvaluationItem(items, templateItem){
 
 function getStaffingAdvisorOptions(staffing){ return normalizeCollectionList(staffing).filter(isStaffingActive).map(item => normalizeName(item?.asesor)).filter(Boolean).sort((a, b) => a.localeCompare(b, "es")); }
 
+function buildCommercialDevelopmentAdvisorStaffing(staffing, users){
+  const sourcePlatformIds = new Set([DEFAULT_PLATFORM_ID, CULQI_PLATFORM_ID]);
+  const userList = normalizeUsersList(users);
+  const usersByAdvisor = new Map();
+
+  userList.forEach(user => {
+    const identities = [user?.assessorName, user?.asesor, user?.nombre]
+      .map(value => normalizeComparableValue(value))
+      .filter(Boolean);
+    identities.forEach(identity => {
+      const linked = usersByAdvisor.get(identity) || [];
+      linked.push(user);
+      usersByAdvisor.set(identity, linked);
+    });
+  });
+
+  const bestByAdvisor = new Map();
+  normalizeCollectionList(staffing)
+    .filter(isStaffingActive)
+    .filter(record => sourcePlatformIds.has(normalizeClientId(getRecordClientId(record))))
+    .forEach(record => {
+      const advisorName = normalizeName(record?.asesor || record?.nombre);
+      const advisorKey = normalizeComparableValue(advisorName);
+      if (!advisorKey) return;
+
+      const declaredRole = String(record?.rol || record?.role || record?.perfil || "").trim();
+      if (declaredRole && salesValidationRole(record) !== "asesor") return;
+
+      const linkedUsers = usersByAdvisor.get(advisorKey) || [];
+      if (linkedUsers.length && !linkedUsers.some(user => salesValidationRole(user) === "asesor" && !isInactiveProfileStatus(user?.estado || user?.status))) return;
+
+      const candidate = {
+        ...record,
+        asesor: advisorName,
+        sourcePlatformId: normalizeClientId(getRecordClientId(record))
+      };
+      const current = bestByAdvisor.get(advisorKey);
+      const richness = item => [item?.dni, item?.supervisor, item?.coordinador, item?.fechaIngreso, item?.tipoGestionRuc, item?.usuarioAsignado]
+        .filter(value => String(value ?? "").trim()).length;
+      if (!current || richness(candidate) > richness(current)) bestByAdvisor.set(advisorKey, candidate);
+    });
+
+  return [...bestByAdvisor.values()].sort((a, b) => normalizeName(a?.asesor).localeCompare(normalizeName(b?.asesor), "es"));
+}
+
 function buildAdvisorProfiles(staffing, users){
   const staffingList = normalizeCollectionList(staffing);
   const userList = normalizeUsersList(users);
@@ -7282,6 +7327,7 @@ function App(){
   const [operationalIncidents,setOperationalIncidents] = useState([]);
   const [salesValidations,setSalesValidations] = useState([]);
   const [commercialDevelopmentRecords,setCommercialDevelopmentRecords] = useState([]);
+  const [commercialDevelopmentLoading,setCommercialDevelopmentLoading] = useState(false);
   const [communicationRecords,setCommunicationRecords] = useState([]);
   const [focusedCommunicationId,setFocusedCommunicationId] = useState("");
   const [legendConcepts,setLegendConcepts] = useState([]);
@@ -7852,6 +7898,36 @@ function App(){
   const scopedOperationalIncidents = useMemo(() => filterRecordsForPlatform(operationalIncidents, currentPlatformId), [operationalIncidents,currentPlatformId]);
   const scopedSalesValidations = useMemo(() => filterRecordsForPlatform(salesValidations, currentPlatformId), [salesValidations,currentPlatformId]);
   const scopedCommercialDevelopmentRecords = useMemo(() => filterRecordsForPlatform(commercialDevelopmentRecords, currentPlatformId), [commercialDevelopmentRecords,currentPlatformId]);
+  const commercialDevelopmentAdvisorStaffing = useMemo(
+    () => buildCommercialDevelopmentAdvisorStaffing(staffing, users),
+    [staffing,users]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentUser?.usuario || !isCommercialDevelopmentPlatform(currentPlatformId) || !canViewCommercialDevelopmentModule(currentUser, currentPlatformId)) {
+      setCommercialDevelopmentLoading(false);
+      if (!isCommercialDevelopmentPlatform(currentPlatformId)) setCommercialDevelopmentRecords([]);
+      return () => { cancelled = true; };
+    }
+
+    setCommercialDevelopmentLoading(true);
+    loadCommercialDevelopmentRecords({...currentUser,clientId:currentPlatformId,platformId:currentPlatformId})
+      .then(loaded => {
+        if (!cancelled) setCommercialDevelopmentRecords(Array.isArray(loaded) ? loaded : []);
+      })
+      .catch(error => {
+        if (!cancelled) {
+          console.error("No se pudo cargar el historial de Desarrollo Comercial al ingresar:", error);
+          setCommercialDevelopmentRecords([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCommercialDevelopmentLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [currentUser?.usuario,currentUser?.rol,currentPlatformId]);
 
   useEffect(() => {
     if (!currentUser?.usuario || !selectedPlatform?.id) return;
@@ -8287,7 +8363,9 @@ function App(){
           !isCommercialDevelopmentActive && view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords:scopedFeedbackRecords,evaluationRecords:scopedEvaluationRecords,onOpenFeedback:openFeedbackModal,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing:scopedStaffing}),
           !isCommercialDevelopmentActive && view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing:scopedStaffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,onUpdate:actualizarIncidenciaOperativa,onDelete:eliminarIncidenciaOperativa,notify}),
           !isCommercialDevelopmentActive && view==="salesValidation" && canViewSalesValidationModule(currentUser) && h(SalesValidationCenter,{records:scopedSalesValidations,currentUser,onSave:guardarValidacionVenta,onDelete:eliminarValidacionVenta,onRestore:restaurarValidacionVenta}),
-          view==="commercialDevelopment" && canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && h(CommercialDevelopmentCenterV2,{records:scopedCommercialDevelopmentRecords,currentUser,staffing:scopedStaffing,users:scopedUsers,onSave:guardarDesarrolloComercial,onDelete:eliminarDesarrolloComercial,clientName:currentPlatformName}),
+          view==="commercialDevelopment" && canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && (commercialDevelopmentLoading
+            ? h("div",{style:{...CARD,textAlign:"center",padding:36,color:"#9fb0d8"}},h("div",{style:{fontSize:16,fontWeight:800,color:"#fff",marginBottom:8}},"Cargando historial..."),"Estamos recuperando la informacion registrada de Desarrollo Comercial.")
+            : h(CommercialDevelopmentCenterV2,{records:scopedCommercialDevelopmentRecords,currentUser,staffing:commercialDevelopmentAdvisorStaffing,users:scopedUsers,onSave:guardarDesarrolloComercial,onDelete:eliminarDesarrolloComercial,clientName:currentPlatformName})),
           !isCommercialDevelopmentActive && view==="calibration" && canViewCalibrationModule(currentUser) && h(CalibrationModule,{currentUser,users:scopedUsers,notify,clientId:currentPlatformId,clientName:currentPlatformName})
         )
       )
