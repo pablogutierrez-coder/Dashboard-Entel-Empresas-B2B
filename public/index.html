@@ -2418,7 +2418,7 @@ function canCreateFeedback(user){
 }
 
 function canFillEvaluation(user){
-  return ["admin","analista"].includes(String(user?.rol||"").trim().toLowerCase());
+  return ["admin","analista","formador"].includes(String(user?.rol||"").trim().toLowerCase());
 }
 
 function canFillOjtEvaluation(user){
