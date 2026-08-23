@@ -1590,13 +1590,12 @@ async function appendQualityVariableAudit(currentUser, action, payload = {}) {
   return entry;
 }
 
-function buildQualityVariableRows({ evaluations, feedbacks, users, savedRows, period, campaign, config }) {
-  const selectedCampaign = normalizeText(campaign);
+function buildQualityVariableMonitorOptions({ evaluations, users, savedRows, period }) {
   const monitorMap = new Map();
   const addMonitor = ({ user, name }) => {
     const key = normalizeText(user || name);
     if (!key) return;
-    const current = monitorMap.get(key) || { monitorUser: user || name, monitorName: name || user, evaluations: 0, feedbacks: 0, campaigns: new Set() };
+    const current = monitorMap.get(key) || { monitorUser: user || name, monitorName: name || user, evaluationCount: 0, countsByCampaign: {}, campaigns: new Set() };
     if (user) current.monitorUser = user;
     if (name) current.monitorName = name;
     monitorMap.set(key, current);
@@ -1607,46 +1606,66 @@ function buildQualityVariableRows({ evaluations, feedbacks, users, savedRows, pe
   (evaluations || []).forEach(record => {
     if (!isRecordVisibleForClient(record, DEFAULT_CLIENT_ID) || !recordMatchesQualityPeriod(record, period, ["fechaEvaluacion", "createdAt", "updatedAt"])) return;
     const rowCampaign = qualityCampaign(record);
-    if (selectedCampaign && selectedCampaign !== "todas" && normalizeText(rowCampaign) !== selectedCampaign) return;
     const identity = qualityMonitorIdentity(record, "evaluation");
     addMonitor(identity);
     const row = monitorMap.get(normalizeText(identity.user || identity.name));
-    if (row) { row.evaluations += 1; row.campaigns.add(rowCampaign); }
+    if (row) {
+      row.evaluationCount += 1;
+      row.countsByCampaign[rowCampaign] = (row.countsByCampaign[rowCampaign] || 0) + 1;
+      row.campaigns.add(rowCampaign);
+    }
   });
-  (feedbacks || []).forEach(record => {
-    if (!isRecordVisibleForClient(record, DEFAULT_CLIENT_ID) || !recordMatchesQualityPeriod(record, period, ["feedbackDate", "createdAt", "updatedAt"])) return;
-    const rowCampaign = qualityCampaign(record);
-    if (selectedCampaign && selectedCampaign !== "todas" && normalizeText(rowCampaign) !== selectedCampaign) return;
-    const identity = qualityMonitorIdentity(record, "feedback");
-    addMonitor(identity);
-    const row = monitorMap.get(normalizeText(identity.user || identity.name));
-    if (row) { row.feedbacks += 1; row.campaigns.add(rowCampaign); }
-  });
-  (savedRows || []).filter(row => row.period === period && (!selectedCampaign || selectedCampaign === "todas" || normalizeText(row.campaign) === selectedCampaign)).forEach(row => addMonitor({ user: row.monitorUser, name: row.monitorName }));
+  (savedRows || []).forEach(row => addMonitor({ user: row.monitorUser, name: row.monitorName }));
+  return [...monitorMap.values()].map(row => ({ ...row, campaigns: [...row.campaigns] })).sort((a, b) => String(a.monitorName).localeCompare(String(b.monitorName), "es"));
+}
 
-  return [...monitorMap.values()].map(monitor => {
-    const effectiveCampaign = selectedCampaign && selectedCampaign !== "todas" ? campaign : ([...monitor.campaigns][0] || "Entel B2B");
-    const id = qualityVariableRowId(period, effectiveCampaign, monitor.monitorUser);
-    const existing = (savedRows || []).find(row => row.id === id) || (savedRows || []).find(row => row.period === period && normalizeText(row.monitorUser) === normalizeText(monitor.monitorUser) && normalizeText(row.campaign) === normalizeText(effectiveCampaign));
-    if (existing?.status === "closed" && existing.snapshot) return { ...existing, calculation: existing.snapshot.calculation || existing.calculation };
-    const manual = existing?.manual || { clinics: 0, inductions: 0, traction: 0, tractionSource: "manual" };
-    return { ...(existing || {}), id, clientId: DEFAULT_CLIENT_ID, platformId: DEFAULT_CLIENT_ID, period, campaign: effectiveCampaign, monitorUser: monitor.monitorUser, monitorName: monitor.monitorName, automatic: { evaluations: monitor.evaluations, feedbacks: monitor.feedbacks }, manual, calculation: calculateQualityVariable({ evaluations: monitor.evaluations, feedbacks: monitor.feedbacks, clinics: manual.clinics, inductions: manual.inductions, traction: manual.traction }, config), status: existing?.status || "calculated", updatedAt: existing?.updatedAt || nowIso() };
-  }).sort((a, b) => String(a.monitorName).localeCompare(String(b.monitorName), "es"));
+function qualityVariableFinalInputs(row = {}) {
+  const manual = row.manual && typeof row.manual === "object" ? row.manual : {};
+  const automatic = row.automatic && typeof row.automatic === "object" ? row.automatic : {};
+  const stored = row.inputs && typeof row.inputs === "object" ? row.inputs : {};
+  const value = (key, fallback = 0) => Math.max(0, Number(stored[key] ?? manual[key] ?? automatic[key] ?? fallback) || 0);
+  return {
+    evaluations: value("evaluations"),
+    feedbacks: value("feedbacks"),
+    clinics: value("clinics"),
+    inductions: value("inductions"),
+    traction: value("traction")
+  };
+}
+
+function normalizeStoredQualityVariableRow(row = {}, config = DEFAULT_QUALITY_VARIABLE_CONFIG) {
+  const inputs = qualityVariableFinalInputs(row);
+  return {
+    ...row,
+    inputs,
+    manual: { ...(row.manual || {}), ...inputs, tractionSource: row.manual?.tractionSource || "manual" },
+    calculation: row.status === "closed" && row.snapshot?.calculation
+      ? row.snapshot.calculation
+      : (row.calculation || calculateQualityVariable(inputs, config))
+  };
 }
 
 async function loadQualityVariableContext(payload = {}) {
   const period = qualityVariablePeriod(payload.period);
   const campaign = String(payload.campaign || "Todas").trim() || "Todas";
-  const [config, evaluations, feedbacks, users, savedRows, audit] = await Promise.all([
+  const [config, evaluations, users, savedRows, audit] = await Promise.all([
     readQualityVariableConfig(),
     readEvaluationRecordsFromFirebase(),
-    readFeedbackRecords(),
     readCachedSharedJson("users_v1", []),
     readQualityVariableCalculations(),
     readCachedSharedJson(QUALITY_VARIABLE_AUDIT_KEY, [])
   ]);
-  const rows = buildQualityVariableRows({ evaluations, feedbacks, users, savedRows, period, campaign, config });
-  return { period, campaign, config, rows, history: savedRows, audit: Array.isArray(audit) ? audit : [] };
+  const selectedCampaign = normalizeText(campaign);
+  const rows = savedRows
+    .filter(row => row.period === period && (!selectedCampaign || selectedCampaign === "todas" || normalizeText(row.campaign) === selectedCampaign))
+    .map(row => normalizeStoredQualityVariableRow(row, config))
+    .sort((a, b) => String(a.monitorName).localeCompare(String(b.monitorName), "es"));
+  const monitorOptions = buildQualityVariableMonitorOptions({ evaluations, users, savedRows, period });
+  const campaignOptions = [...new Set([
+    ...monitorOptions.flatMap(item => item.campaigns || []),
+    ...savedRows.map(row => row.campaign).filter(Boolean)
+  ])].sort((a, b) => String(a).localeCompare(String(b), "es"));
+  return { period, campaign, config, rows, monitorOptions, campaignOptions, history: savedRows.map(row => normalizeStoredQualityVariableRow(row, config)), audit: Array.isArray(audit) ? audit : [] };
 }
 
 export const gasHandlers = {
@@ -1689,18 +1708,64 @@ export const gasHandlers = {
     const currentUser = ensureCurrentUser(payload.currentUser);
     if (!canManageQualityVariable(currentUser)) throw new Error("No tienes permisos para recalcular la variable.");
     ensureEntelQualityVariableScope(payload, currentUser);
-    const context = await loadQualityVariableContext(payload);
-    const currentSaved = await readQualityVariableCalculations();
-    const nextSaved = [...currentSaved];
-    context.rows.forEach(row => {
-      const index = nextSaved.findIndex(item => item.id === row.id);
-      if (index >= 0 && nextSaved[index].status === "closed") return;
-      const next = { ...row, status: "calculated", recalculatedAt: nowIso(), recalculatedBy: currentUser.usuario, updatedAt: nowIso() };
-      if (index >= 0) nextSaved[index] = next; else nextSaved.push(next);
+    throw new Error("El recalculo masivo esta deshabilitado. Crea o edita un calculo individual para el monitor seleccionado.");
+  },
+
+  async saveQualityVariableCalculation(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    if (!canManageQualityVariable(currentUser)) throw new Error("No tienes permisos para guardar la variable.");
+    ensureEntelQualityVariableScope(payload, currentUser);
+    const period = qualityVariablePeriod(payload.period);
+    const campaign = String(payload.campaign || "").trim();
+    const monitorUser = String(payload.monitorUser || "").trim();
+    const monitorName = String(payload.monitorName || monitorUser).trim();
+    if (!campaign || normalizeText(campaign) === "todas") throw new Error("Selecciona una campana para el calculo.");
+    if (!monitorUser || !monitorName) throw new Error("Selecciona el monitor que deseas medir.");
+    const config = await readQualityVariableConfig();
+    const input = payload.inputs && typeof payload.inputs === "object" ? payload.inputs : {};
+    const inputs = {
+      evaluations: Math.max(0, Number(input.evaluations) || 0),
+      feedbacks: Math.max(0, Number(input.feedbacks) || 0),
+      clinics: Math.max(0, Number(input.clinics) || 0),
+      inductions: Math.max(0, Number(input.inductions) || 0),
+      traction: Math.max(0, Number(input.traction) || 0)
+    };
+    const id = qualityVariableRowId(period, campaign, monitorUser);
+    const rows = await readQualityVariableCalculations();
+    const index = rows.findIndex(row => row.id === id || (row.period === period && normalizeText(row.monitorUser) === normalizeText(monitorUser) && normalizeText(row.campaign) === normalizeText(campaign)));
+    const previous = index >= 0 ? rows[index] : null;
+    if (previous?.status === "closed") throw new Error("No se puede modificar un calculo cerrado. Un administrador debe reabrirlo primero.");
+    const now = nowIso();
+    const next = {
+      ...(previous || {}),
+      id,
+      clientId: DEFAULT_CLIENT_ID,
+      platformId: DEFAULT_CLIENT_ID,
+      period,
+      campaign,
+      monitorUser,
+      monitorName,
+      automatic: { evaluations: Math.max(0, Number(payload.suggestedEvaluations) || 0) },
+      inputs,
+      manual: { ...(previous?.manual || {}), ...inputs, tractionSource: "manual", updatedAt: now, updatedBy: currentUser.usuario },
+      calculation: calculateQualityVariable(inputs, config),
+      status: "calculated",
+      createdAt: previous?.createdAt || now,
+      createdBy: previous?.createdBy || currentUser.usuario,
+      updatedAt: now,
+      updatedBy: currentUser.usuario
+    };
+    if (index >= 0) rows[index] = next; else rows.push(next);
+    await writeQualityVariableCalculations(rows);
+    await appendQualityVariableAudit(currentUser, previous ? "calculation_updated" : "calculation_created", {
+      calculationId: id,
+      period,
+      campaign,
+      monitorUser,
+      previousValue: previous ? qualityVariableFinalInputs(previous) : null,
+      newValue: inputs
     });
-    await writeQualityVariableCalculations(nextSaved);
-    await appendQualityVariableAudit(currentUser, "recalculated", { period: context.period, campaign: context.campaign, rowCount: context.rows.length });
-    return await loadQualityVariableContext(payload);
+    return next;
   },
 
   async saveQualityVariableAdjustment(payload = {}) {
@@ -1713,16 +1778,20 @@ export const gasHandlers = {
     const target = context.rows.find(row => row.id === payload.id);
     if (!target) throw new Error("No se encontro el calculo del monitor.");
     if (target.status === "closed") throw new Error("No se puede modificar un periodo cerrado.");
+    const currentInputs = qualityVariableFinalInputs(target);
     const manual = {
-      clinics: Math.max(0, Number(payload.manual?.clinics || 0)),
-      inductions: Math.max(0, Number(payload.manual?.inductions || 0)),
-      traction: Math.max(0, Number(payload.manual?.traction || 0)),
+      evaluations: Math.max(0, Number(payload.manual?.evaluations ?? currentInputs.evaluations) || 0),
+      feedbacks: Math.max(0, Number(payload.manual?.feedbacks ?? currentInputs.feedbacks) || 0),
+      clinics: Math.max(0, Number(payload.manual?.clinics ?? currentInputs.clinics) || 0),
+      inductions: Math.max(0, Number(payload.manual?.inductions ?? currentInputs.inductions) || 0),
+      traction: Math.max(0, Number(payload.manual?.traction ?? currentInputs.traction) || 0),
       tractionSource: String(payload.manual?.tractionSource || "manual"),
       updatedAt: nowIso(),
       updatedBy: currentUser.usuario,
       reason
     };
-    const next = { ...target, manual, calculation: calculateQualityVariable({ evaluations: target.automatic.evaluations, feedbacks: target.automatic.feedbacks, clinics: manual.clinics, inductions: manual.inductions, traction: manual.traction }, context.config), status: "calculated", updatedAt: nowIso() };
+    const inputs = { evaluations: manual.evaluations, feedbacks: manual.feedbacks, clinics: manual.clinics, inductions: manual.inductions, traction: manual.traction };
+    const next = { ...target, inputs, manual, calculation: calculateQualityVariable(inputs, context.config), status: "calculated", updatedAt: nowIso() };
     const rows = await readQualityVariableCalculations();
     const index = rows.findIndex(row => row.id === target.id);
     if (index >= 0) rows[index] = next; else rows.push(next);

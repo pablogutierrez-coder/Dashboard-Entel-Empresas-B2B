@@ -940,6 +940,10 @@ async function recalculateQualityVariableEntry(payload){
   return await runGoogleScriptWithTimeout("recalculateQualityVariable", [payload], 45000);
 }
 
+async function saveQualityVariableCalculationEntry(payload){
+  return await runGoogleScriptWithTimeout("saveQualityVariableCalculation", [payload], 30000);
+}
+
 async function saveQualityVariableAdjustmentEntry(payload){
   return await runGoogleScriptWithTimeout("saveQualityVariableAdjustment", [payload], 30000);
 }
@@ -5532,7 +5536,7 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onEdit
     return feedbackRecords || [];
   }, [feedbackRecords,currentUser,staffing,role]);
 
-  const authors = useMemo(() => [...new Set(visibleRecords.map(item => item.auditorNombre || item.authorName).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"es")), [visibleRecords]);
+  const authors = useMemo(() => [...new Set(visibleRecords.map(item => getImprovementQualityAnalystName(item)).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"es")), [visibleRecords]);
 
   const filteredRecords = useMemo(() => visibleRecords.filter(record => {
     const management = record.tipoGestion || record.feedbackCategory || "";
@@ -5541,7 +5545,7 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onEdit
     const haystack = [record.asesorNombre,record.assessor,record.auditorNombre,record.authorName,management,classification,record.observacionGeneral,record.feedbackText].join(" ").toLowerCase();
     return isWithinDateRange(record.feedbackDate || record.createdAt || record.updatedAt, filters.dateFrom, filters.dateTo) &&
       (filters.advisor === "all" || normalizeName(record.asesorNombre || record.assessor) === filters.advisor) &&
-      (filters.author === "all" || String(record.auditorNombre || record.authorName || "") === filters.author) &&
+      (filters.author === "all" || getImprovementQualityAnalystName(record) === filters.author) &&
       (filters.management === "all" || management === filters.management) &&
       (filters.classification === "all" || classification === filters.classification) &&
       (filters.status === "all" || status === filters.status) &&
@@ -5650,7 +5654,10 @@ function FeedbackCenter({feedbackRecords,evaluationRecords,onOpenFeedback,onEdit
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha desde"),h("input",{type:"date",style:INP,value:filters.dateFrom,onChange:ev=>setFilters({...filters,dateFrom:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha hasta"),h("input",{type:"date",style:INP,value:filters.dateTo,onChange:ev=>setFilters({...filters,dateTo:ev.target.value})})),
         h("select",{style:SEL,value:filters.advisor,onChange:ev=>setFilters({...filters,advisor:ev.target.value})},h("option",{value:"all"},"Todos los asesores"),advisorOptions.map(name=>h("option",{key:name,value:name},name))),
-        h("select",{style:SEL,value:filters.author,onChange:ev=>setFilters({...filters,author:ev.target.value})},h("option",{value:"all"},"Todos los analistas"),authors.map(name=>h("option",{key:name,value:name},name))),
+        h("div",null,
+          h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Analista de calidad"),
+          h("select",{style:SEL,value:filters.author,onChange:ev=>setFilters({...filters,author:ev.target.value})},h("option",{value:"all"},"Todos los analistas de calidad"),authors.map(name=>h("option",{key:name,value:name},name)))
+        ),
         h("select",{style:SEL,value:filters.management,onChange:ev=>setFilters({...filters,management:ev.target.value})},h("option",{value:"all"},"Todos los tipos"),MANAGEMENT_OPTIONS.map(option=>h("option",{key:option,value:option},option))),
         h("select",{style:SEL,value:filters.classification,onChange:ev=>setFilters({...filters,classification:ev.target.value})},h("option",{value:"all"},"Clasificacion / Refuerzo"),[...FEEDBACK_CLASSIFICATION_OPTIONS,...REINFORCEMENT_OPTIONS].map(option=>h("option",{key:option,value:option},option))),
         h("select",{style:SEL,value:filters.status,onChange:ev=>setFilters({...filters,status:ev.target.value})},h("option",{value:"all"},"Todos los estados"),Object.entries(FEEDBACK_STATUS_LABEL).map(([key,label])=>h("option",{key,value:key},label))),
@@ -8656,10 +8663,17 @@ function getVisibleEvaluationRecords(currentUser, staffing, evaluationRecords){
 function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluation,onDeleteEvaluation,platformId}){
   const [search,setSearch] = useState("");
   const [modeFilter,setModeFilter] = useState(() => String(currentUser?.rol || "").trim().toLowerCase() === "formador" ? "ojt" : "all");
+  const [monitorFilter,setMonitorFilter] = useState("all");
   const [newEvaluationOpen,setNewEvaluationOpen] = useState(false);
   const [selectedAdvisor,setSelectedAdvisor] = useState("");
-  const rows = useMemo(() => getVisibleEvaluationRecords(currentUser, staffing, evaluationRecords)
+  const visibleEvaluationRecords = useMemo(() => getVisibleEvaluationRecords(currentUser, staffing, evaluationRecords), [evaluationRecords,currentUser,staffing]);
+  const qualityMonitors = useMemo(() => [...new Set(visibleEvaluationRecords
+    .map(item => getImprovementQualityAnalystName(item))
+    .filter(Boolean))]
+    .sort((a,b)=>String(a).localeCompare(String(b),"es",{sensitivity:"base"})), [visibleEvaluationRecords]);
+  const rows = useMemo(() => visibleEvaluationRecords
     .filter(item => modeFilter === "all" || (modeFilter === "ojt" ? isOjtEvaluationRecord(item) : !isOjtEvaluationRecord(item)))
+    .filter(item => monitorFilter === "all" || getImprovementQualityAnalystName(item) === monitorFilter)
     .filter(item => {
       const needle = search.trim().toLowerCase();
       if (!needle) return true;
@@ -8674,7 +8688,7 @@ function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluat
       ].join(" ").toLowerCase().includes(needle);
     })
     .sort((a,b)=>getDateMs(b?.fechaEvaluacion || b?.updatedAt || b?.createdAt) - getDateMs(a?.fechaEvaluacion || a?.updatedAt || a?.createdAt)),
-    [evaluationRecords,currentUser,staffing,search,modeFilter]
+    [visibleEvaluationRecords,search,modeFilter,monitorFilter]
   );
 
   const openDetail = row => onOpenEvaluation(buildEvaluationEntryContext(row), row);
@@ -8710,6 +8724,13 @@ function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluat
       h("div",{style:{display:"flex",alignItems:"flex-end",gap:12,flexWrap:"wrap"}},
         canCreateStandard && h("button",{style:{...BTN("p"),padding:"12px 16px"},onClick:()=>setNewEvaluationOpen(true)},I("plus",12,"#fff"),"NUEVA EVALUACION"),
         canCreateOjt && h("button",{style:{...BTN("pink"),padding:"12px 16px"},onClick:openOjtEvaluation},I("plus",12,"#fff"),"NUEVA OJT"),
+        h("div",{style:{minWidth:240}},
+          h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Monitor de calidad"),
+          h("select",{style:SEL,value:monitorFilter,onChange:event=>setMonitorFilter(event.target.value)},
+            h("option",{value:"all"},"Todos los monitores de calidad"),
+            qualityMonitors.map(name=>h("option",{key:name,value:name},name))
+          )
+        ),
         h("div",{style:{minWidth:240}},
         h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Buscar"),
         h("input",{style:INP,placeholder:"Asesor, auditor, nota o estado",value:search,onChange:ev=>setSearch(ev.target.value)})
@@ -8991,6 +9012,21 @@ function collectEvaluationDetailItems(evaluation){
   });
 }
 
+function getImprovementQualityAnalystName(...records){
+  const fieldNames = [
+    "auditorNombre","auditorName","auditor","analistaNombre","analystName","analista",
+    "monitorName","monitorNombre","monitor","authorName","createdByName","registradoPor"
+  ];
+  for (const record of records) {
+    if (!record || typeof record !== "object") continue;
+    for (const fieldName of fieldNames) {
+      const value = String(record[fieldName] || "").trim();
+      if (value) return normalizeName(value);
+    }
+  }
+  return "";
+}
+
 function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,noTipificationRecords,staffing,historico,users}){
   const asList = value => Array.isArray(value) ? value : (value && typeof value === "object" ? Object.values(value).filter(Boolean) : []);
   const feedbackList = asList(feedbackRecords);
@@ -9040,6 +9076,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
       evaluationMode: isOjt ? "ojt" : "operacion",
       isOjt,
       advisorName,
+      qualityAnalyst: getImprovementQualityAnalystName(evaluation, linkedFeedback),
       supervisor: isOjt ? "OJT" : supervisor,
       coordinador: isOjt ? (evaluation?.formadorNombre || "") : coordinador,
       antiguedad: Number(staffingItem?.antiguedad || 0) || 0,
@@ -9086,6 +9123,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
         evaluationMode: "feedback",
         isOjt: false,
         advisorName,
+        qualityAnalyst: getImprovementQualityAnalystName(record),
         supervisor: record?.supervisor || staffingItem?.supervisor || "",
         coordinador: record?.coordinador || staffingItem?.coordinador || "",
         antiguedad: Number(record?.antiguedad || staffingItem?.antiguedad || 0) || 0,
@@ -9118,6 +9156,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
         feedbackId: String(row.id),
         evaluationId: row.evaluation?.id || `feedback-${row.id}`,
         advisorName: row.advisorName,
+        qualityAnalyst: row.qualityAnalyst,
         supervisor: row.supervisor,
         coordinador: row.coordinador,
         antiguedad: row.antiguedad,
@@ -9156,6 +9195,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
       return {
         ...item,
         advisorName,
+        qualityAnalyst: getImprovementQualityAnalystName(item),
         supervisor: item?.supervisor || staffingItem?.supervisor || "",
         coordinador: item?.coordinador || staffingItem?.coordinador || "",
         antiguedad: Number(item?.antiguedad || staffingItem?.antiguedad || 0) || 0,
@@ -9490,6 +9530,7 @@ function buildImprovementOptions(dataset){
     .filter(value => value === "RUC 10" || value === "RUC 20");
   return {
     advisors: uniqueSortedValues([...feedbackRows.map(row => row.advisorName), ...noTipificationRows.map(row => row.advisorName)]),
+    qualityAnalysts: uniqueSortedValues([...feedbackRows.map(row => row.qualityAnalyst), ...noTipificationRows.map(row => row.qualityAnalyst)]),
     supervisors: uniqueSortedValues([...feedbackRows.map(row => row.supervisor), ...noTipificationRows.map(row => row.supervisor)]),
     coordinadores: uniqueSortedValues([...feedbackRows.map(row => row.coordinador), ...noTipificationRows.map(row => row.coordinador)]),
     antiguedadBuckets: uniqueSortedValues([...feedbackRows.map(row => getAntiguedadBucket(row.antiguedad)), ...noTipificationRows.map(row => getAntiguedadBucket(row.antiguedad))]),
@@ -9506,6 +9547,7 @@ function buildEmptyImprovementFilters(currentUser){
     advisor: [],
     quartile: "",
     antiguedadBucket: "",
+    qualityAnalyst: "",
     supervisor: "",
     coordinador: "",
     managementTypeRuc: ""
@@ -9521,6 +9563,7 @@ function applyImprovementFilters(dataset, filters){
     if (!advisorMatchesImprovementFilter(row.advisorName, filters.advisor)) return false;
     if (filters.quartile && !sameOption(row.quartile, filters.quartile)) return false;
     if (filters.antiguedadBucket && getAntiguedadBucket(row.antiguedad) !== filters.antiguedadBucket) return false;
+    if (filters.qualityAnalyst && !sameOption(row.qualityAnalyst, filters.qualityAnalyst)) return false;
     if (filters.supervisor && !sameOption(row.supervisor, filters.supervisor)) return false;
     if (filters.coordinador && !sameOption(row.coordinador, filters.coordinador)) return false;
     if (filters.managementTypeRuc && normalizeEntelRucType(row.managementTypeRuc) !== normalizeEntelRucType(filters.managementTypeRuc)) return false;
@@ -9577,6 +9620,7 @@ function buildImprovementDashboardExportRows(filteredData){
         ruc,
         advisor,
         quartile: row.quartile || "",
+        qualityAnalysts: new Set(),
         weeks: {1:[],2:[],3:[],4:[]},
         observations: []
       });
@@ -9586,6 +9630,7 @@ function buildImprovementDashboardExportRows(filteredData){
     const score = Number(row.score);
     if (week && !Number.isNaN(score)) bucket.weeks[week].push(score);
     if (!bucket.quartile && row.quartile) bucket.quartile = row.quartile;
+    if (row.qualityAnalyst) bucket.qualityAnalysts.add(row.qualityAnalyst);
     bucket.observations.push(row.observacionGeneral || row.feedbackText || row.compromisoMejora || "");
   });
   return [...grouped.values()]
@@ -9593,6 +9638,7 @@ function buildImprovementDashboardExportRows(filteredData){
     .map(item => ({
       RUC: item.ruc,
       Asesor: item.advisor,
+      "Analista / monitor de calidad": [...item.qualityAnalysts].sort((a,b)=>a.localeCompare(b,"es")).join(" | "),
       Cuartil: item.quartile || "",
       "Evaluaciones semana 1": formatAveragePct(item.weeks[1]),
       "Evaluaciones semana 2": formatAveragePct(item.weeks[2]),
@@ -12032,6 +12078,7 @@ function QualityVariableModule({currentUser,notify,clientId}){
   const [busy,setBusy] = useState(false);
   const [detail,setDetail] = useState(null);
   const [adjusting,setAdjusting] = useState(null);
+  const [creating,setCreating] = useState(false);
   const [configOpen,setConfigOpen] = useState(false);
   const role = String(currentUser?.rol || "").trim().toLowerCase();
   const scope = {currentUser,clientId:DEFAULT_PLATFORM_ID,platformId:DEFAULT_PLATFORM_ID,period,campaign};
@@ -12053,8 +12100,15 @@ function QualityVariableModule({currentUser,notify,clientId}){
   useEffect(()=>{ reload(); },[period,campaign]);
 
   const rows = Array.isArray(data?.rows) ? data.rows : [];
-  const campaigns = ["Todas",...new Set(rows.map(row=>row.campaign).filter(Boolean))];
+  const campaigns = ["Todas",...new Set([...(data?.campaignOptions||[]),...rows.map(row=>row.campaign)].filter(Boolean))];
   const monitors = ["Todos",...new Set(rows.map(row=>row.monitorName).filter(Boolean))];
+  const rowInputs = row => ({
+    evaluations:Number(row?.inputs?.evaluations ?? row?.manual?.evaluations ?? row?.automatic?.evaluations ?? 0),
+    feedbacks:Number(row?.inputs?.feedbacks ?? row?.manual?.feedbacks ?? row?.automatic?.feedbacks ?? 0),
+    clinics:Number(row?.inputs?.clinics ?? row?.manual?.clinics ?? 0),
+    inductions:Number(row?.inputs?.inductions ?? row?.manual?.inductions ?? 0),
+    traction:Number(row?.inputs?.traction ?? row?.manual?.traction ?? 0)
+  });
   const visibleRows = rows.filter(row=>(monitor==="Todos" || row.monitorName===monitor) && (status==="Todos" || row.status===status));
   const avg = visibleRows.length ? visibleRows.reduce((sum,row)=>sum+Number(row.calculation?.compliance?.total||0),0)/visibleRows.length : 0;
   const projected = visibleRows.reduce((sum,row)=>sum+Number(row.calculation?.totalCommission||0),0);
@@ -12071,9 +12125,9 @@ function QualityVariableModule({currentUser,notify,clientId}){
     if (!window.XLSX) return notify("e","No se encontro el componente para exportar Excel.");
     const report = visibleRows.map(row=>({
       Periodo:row.period,Campana:row.campaign,Monitor:row.monitorName,Usuario:row.monitorUser,
-      Evaluaciones:row.automatic?.evaluations||0,Feedbacks:row.automatic?.feedbacks||0,
-      Clinicas:row.manual?.clinics||0,Inducciones:row.manual?.inductions||0,
-      "Traccion %":row.manual?.traction||0,"Cumplimiento %":Number(row.calculation?.compliance?.total||0).toFixed(2),
+      Evaluaciones:rowInputs(row).evaluations,Feedbacks:rowInputs(row).feedbacks,
+      Clinicas:rowInputs(row).clinics,Inducciones:rowInputs(row).inductions,
+      "Traccion %":rowInputs(row).traction,"Cumplimiento %":Number(row.calculation?.compliance?.total||0).toFixed(2),
       Estado:row.status==="closed"?"Cerrado":"Calculado","Comision proyectada":Number(row.calculation?.totalCommission||0).toFixed(2)
     }));
     const workbook = window.XLSX.utils.book_new();
@@ -12085,10 +12139,10 @@ function QualityVariableModule({currentUser,notify,clientId}){
   const columns = [
     {label:"Monitor",render:row=>h("div",null,h("div",{style:{fontWeight:800,color:"#fff"}},row.monitorName),h("div",{style:{fontSize:10,color:"#8b92a5",marginTop:4}},row.monitorUser))},
     {label:"Campana",key:"campaign"},
-    {label:"Evaluaciones",render:row=>`${row.automatic?.evaluations||0} / ${data?.config?.evaluationTarget||0}`},
-    {label:"Feedbacks",render:row=>`${row.automatic?.feedbacks||0} / ${data?.config?.feedbackTarget||0}`},
-    {label:"Clinicas / Ind.",render:row=>`${row.manual?.clinics||0} / ${row.manual?.inductions||0}`},
-    {label:"Traccion",render:row=>pct(row.manual?.traction)},
+    {label:"Evaluaciones",render:row=>`${rowInputs(row).evaluations} / ${data?.config?.evaluationTarget||0}`},
+    {label:"Feedbacks",render:row=>`${rowInputs(row).feedbacks} / ${data?.config?.feedbackTarget||0}`},
+    {label:"Clinicas / Ind.",render:row=>`${rowInputs(row).clinics} / ${rowInputs(row).inductions}`},
+    {label:"Traccion",render:row=>pct(rowInputs(row).traction)},
     {label:"Cumplimiento",render:row=>h("strong",{style:{color:Number(row.calculation?.compliance?.total||0)>=100?"#19C37D":THEME.accent}},pct(row.calculation?.compliance?.total))},
     {label:"Comision",render:row=>money(row.calculation?.totalCommission)},
     {label:"Estado",render:statusBadge},
@@ -12106,7 +12160,7 @@ function QualityVariableModule({currentUser,notify,clientId}){
       h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}},
         role==="admin" && h("button",{style:BTN("out"),onClick:()=>setConfigOpen(true)},I("sliders",15),"PARAMETROS"),
         h("button",{style:BTN("out"),onClick:exportWorkbook},I("download",15),"DESCARGAR EXCEL"),
-        h("button",{disabled:busy,style:BTN("p"),onClick:()=>runAction(()=>recalculateQualityVariableEntry(scope),"Variable recalculada correctamente.")},I("arrow",15),busy?"PROCESANDO...":"RECALCULAR")
+        h("button",{disabled:busy,style:BTN("p"),onClick:()=>setCreating(true)},I("plus",15),"NUEVO CALCULO")
       )
     ),
     h("div",{style:{display:"flex",gap:10,marginBottom:18}},
@@ -12126,13 +12180,14 @@ function QualityVariableModule({currentUser,notify,clientId}){
         h(ImprovementKpiCard,{label:"Comision proyectada",value:money(projected),caption:"Suma del periodo",color:THEME.accent}),
         h(ImprovementKpiCard,{label:"Cierres",value:`${closed}/${visibleRows.length}`,caption:"Variables cerradas",color:"#ffb020"})
       ),
-      h("div",{style:CARD},h(SimpleDataTable,{columns,rows:visibleRows,emptyMessage:"No hay monitores o actividad para los filtros seleccionados."}))
+      h("div",{style:CARD},h(SimpleDataTable,{columns,rows:visibleRows,emptyMessage:"No hay calculos creados para los filtros seleccionados."}))
     ) : h("div",{style:{display:"grid",gridTemplateColumns:"1fr",gap:18}},
       h("div",{style:CARD},h("h3",{style:{marginTop:0,color:"#fff"}},"Periodos cerrados"),h(SimpleDataTable,{columns:[{label:"Periodo",key:"period"},{label:"Monitor",key:"monitorName"},{label:"Campana",key:"campaign"},{label:"Cerrado",render:row=>row.closedAt?new Date(row.closedAt).toLocaleString("es-PE"):"-"},{label:"Comision",render:row=>money(row.calculation?.totalCommission)}],rows:(data?.history||[]).filter(row=>row.status==="closed")})),
       h("div",{style:CARD},h("h3",{style:{marginTop:0,color:"#fff"}},"Auditoria"),h(SimpleDataTable,{columns:[{label:"Fecha",render:row=>row.timestamp?new Date(row.timestamp).toLocaleString("es-PE"):"-"},{label:"Usuario",key:"userName"},{label:"Accion",key:"action"},{label:"Periodo",key:"period"},{label:"Motivo",key:"reason"}],rows:(data?.audit||[]).slice().reverse()}))
     ),
     detail && h(QualityVariableDetailModal,{row:detail,config:data?.config,onClose:()=>setDetail(null),pct,money}),
     adjusting && h(QualityVariableAdjustmentModal,{row:adjusting,onClose:()=>setAdjusting(null),onSave:(manual,reason)=>runAction(async()=>{await saveQualityVariableAdjustmentEntry({...scope,id:adjusting.id,manual,reason});setAdjusting(null);},"Ajuste guardado correctamente.")}),
+    creating && h(QualityVariableCalculationModal,{scope,data,onClose:()=>setCreating(false),onSave:payload=>runAction(async()=>{await saveQualityVariableCalculationEntry({...scope,...payload});setCreating(false);},"Calculo guardado correctamente.")}),
     configOpen && h(QualityVariableConfigModal,{config:data?.config,onClose:()=>setConfigOpen(false),onSave:config=>runAction(async()=>{await saveQualityVariableConfigEntry({...scope,config});setConfigOpen(false);},"Parametros guardados correctamente.")})
   );
 }
@@ -12147,11 +12202,18 @@ function QualityVariableModalShell({title,onClose,children,actions}){
 
 function QualityVariableDetailModal({row,config,onClose,pct,money}){
   const calc=row.calculation||{}, compliance=calc.compliance||{}, contribution=calc.contributions||{};
+  const inputs={
+    evaluations:Number(row?.inputs?.evaluations ?? row?.manual?.evaluations ?? row?.automatic?.evaluations ?? 0),
+    feedbacks:Number(row?.inputs?.feedbacks ?? row?.manual?.feedbacks ?? row?.automatic?.feedbacks ?? 0),
+    clinics:Number(row?.inputs?.clinics ?? row?.manual?.clinics ?? 0),
+    inductions:Number(row?.inputs?.inductions ?? row?.manual?.inductions ?? 0),
+    traction:Number(row?.inputs?.traction ?? row?.manual?.traction ?? 0)
+  };
   const items=[
-    ["Evaluaciones",`${row.automatic?.evaluations||0} / ${config?.evaluationTarget||0}`,compliance.evaluations,contribution.evaluations],
-    ["Feedbacks",`${row.automatic?.feedbacks||0} / ${config?.feedbackTarget||0}`,compliance.feedbacks,contribution.feedbacks],
-    ["Clinicas e inducciones",`${row.manual?.clinics||0} / ${row.manual?.inductions||0}`,compliance.clinicInduction,contribution.clinicInduction],
-    ["Traccion",pct(row.manual?.traction),compliance.traction,contribution.traction]
+    ["Evaluaciones",`${inputs.evaluations} / ${config?.evaluationTarget||0}`,compliance.evaluations,contribution.evaluations],
+    ["Feedbacks",`${inputs.feedbacks} / ${config?.feedbackTarget||0}`,compliance.feedbacks,contribution.feedbacks],
+    ["Clinicas e inducciones",`${inputs.clinics} / ${inputs.inductions}`,compliance.clinicInduction,contribution.clinicInduction],
+    ["Traccion",pct(inputs.traction),compliance.traction,contribution.traction]
   ];
   return h(QualityVariableModalShell,{title:`Detalle: ${row.monitorName}`,onClose},
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:18}},h(ImprovementKpiCard,{label:"Cumplimiento",value:pct(compliance.total),caption:calc.label,color:THEME.accent}),h(ImprovementKpiCard,{label:"Comision",value:money(calc.totalCommission),caption:calc.eligible?"Elegible":"No elegible",color:"#19C37D"}),h(ImprovementKpiCard,{label:"Periodo",value:row.period,caption:row.campaign,color:THEME.primary}),h(ImprovementKpiCard,{label:"Estado",value:row.status==="closed"?"Cerrado":"Calculado",caption:row.closedBy||"En proceso",color:"#ffb020"})),
@@ -12160,10 +12222,59 @@ function QualityVariableDetailModal({row,config,onClose,pct,money}){
 }
 
 function QualityVariableAdjustmentModal({row,onClose,onSave}){
-  const [form,setForm]=useState({clinics:row.manual?.clinics||0,inductions:row.manual?.inductions||0,traction:row.manual?.traction||0,tractionSource:row.manual?.tractionSource||"manual"});
+  const [form,setForm]=useState({
+    evaluations:row?.inputs?.evaluations ?? row?.manual?.evaluations ?? row?.automatic?.evaluations ?? 0,
+    feedbacks:row?.inputs?.feedbacks ?? row?.manual?.feedbacks ?? row?.automatic?.feedbacks ?? 0,
+    clinics:row?.inputs?.clinics ?? row?.manual?.clinics ?? 0,
+    inductions:row?.inputs?.inductions ?? row?.manual?.inductions ?? 0,
+    traction:row?.inputs?.traction ?? row?.manual?.traction ?? 0,
+    tractionSource:"manual"
+  });
   const [reason,setReason]=useState("");
   const field=(key,label)=>h("label",{style:{fontSize:10,color:"#8b92a5"}},label,h("input",{type:"number",min:0,step:key==="traction"?"0.01":"1",value:form[key],onChange:e=>setForm({...form,[key]:e.target.value}),style:{...INP,marginTop:7}}));
-  return h(QualityVariableModalShell,{title:`Ajuste manual: ${row.monitorName}`,onClose,actions:[h("button",{key:"save",style:BTN("p"),onClick:()=>{if(!reason.trim())return alert("El motivo del ajuste es obligatorio.");onSave(form,reason);}},"GUARDAR AJUSTE")]},h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14}},field("clinics","CLINICAS"),field("inductions","INDUCCIONES"),field("traction","TRACCION %")),h("label",{style:{display:"block",fontSize:10,color:"#8b92a5",marginTop:16}},"MOTIVO OBLIGATORIO",h("textarea",{value:reason,onChange:e=>setReason(e.target.value),style:{...INP,minHeight:90,marginTop:7},placeholder:"Explica el origen del ajuste..."})));
+  return h(QualityVariableModalShell,{title:`Ajuste manual: ${row.monitorName}`,onClose,actions:[h("button",{key:"save",style:BTN("p"),onClick:()=>{if(!reason.trim())return alert("El motivo del ajuste es obligatorio.");onSave(form,reason);}},"GUARDAR AJUSTE")]},h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:14}},field("evaluations","EVALUACIONES"),field("feedbacks","FEEDBACKS"),field("clinics","CLINICAS"),field("inductions","INDUCCIONES"),field("traction","TRACCION %")),h("label",{style:{display:"block",fontSize:10,color:"#8b92a5",marginTop:16}},"MOTIVO OBLIGATORIO",h("textarea",{value:reason,onChange:e=>setReason(e.target.value),style:{...INP,minHeight:90,marginTop:7},placeholder:"Explica el origen del ajuste..."})));
+}
+
+function QualityVariableCalculationModal({scope,data,onClose,onSave}){
+  const monitorOptions=Array.isArray(data?.monitorOptions)?data.monitorOptions:[];
+  const campaignOptions=Array.isArray(data?.campaignOptions)?data.campaignOptions:[];
+  const initialCampaign=scope.campaign && scope.campaign!=="Todas" ? scope.campaign : (campaignOptions[0]||"Entel B2B");
+  const [monitorUser,setMonitorUser]=useState("");
+  const [campaign,setCampaign]=useState(initialCampaign);
+  const [form,setForm]=useState({evaluations:0,feedbacks:0,clinics:0,inductions:0,traction:0});
+  const selected=monitorOptions.find(item=>item.monitorUser===monitorUser);
+  const suggestedEvaluations=selected ? Number(selected.countsByCampaign?.[campaign] ?? selected.evaluationCount ?? 0) : 0;
+
+  function selectMonitor(value){
+    setMonitorUser(value);
+    const option=monitorOptions.find(item=>item.monitorUser===value);
+    const suggested=option ? Number(option.countsByCampaign?.[campaign] ?? option.evaluationCount ?? 0) : 0;
+    setForm(current=>({...current,evaluations:suggested}));
+  }
+  function selectCampaign(value){
+    setCampaign(value);
+    const option=monitorOptions.find(item=>item.monitorUser===monitorUser);
+    const suggested=option ? Number(option.countsByCampaign?.[value] ?? option.evaluationCount ?? 0) : 0;
+    setForm(current=>({...current,evaluations:suggested}));
+  }
+  const field=(key,label,caption)=>h("label",{style:{fontSize:10,color:"#8b92a5"}},label,h("input",{type:"number",min:0,step:key==="traction"?"0.01":"1",value:form[key],onChange:e=>setForm({...form,[key]:e.target.value}),style:{...INP,marginTop:7}}),caption&&h("span",{style:{display:"block",fontSize:10,color:"#6f7892",marginTop:5}},caption));
+  function submit(){
+    if(!selected)return alert("Selecciona el monitor que deseas medir.");
+    if(!campaign)return alert("Selecciona una campana.");
+    onSave({period:scope.period,campaign,monitorUser:selected.monitorUser,monitorName:selected.monitorName,suggestedEvaluations,inputs:form});
+  }
+  return h(QualityVariableModalShell,{title:"Nuevo calculo mensual",onClose,actions:[h("button",{key:"save",style:BTN("p"),onClick:submit},"GUARDAR Y CALCULAR")]},
+    h("p",{style:{color:"#9fb0d8",margin:"0 0 18px"}},"Selecciona una persona y registra sus resultados del periodo. Solo Evaluaciones se precarga desde la base; todos los campos permanecen editables."),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:14,marginBottom:18}},
+      h("label",{style:{fontSize:10,color:"#8b92a5"}},"PERIODO",h("input",{type:"month",value:scope.period,disabled:true,style:{...INP,marginTop:7,opacity:.75}})),
+      h("label",{style:{fontSize:10,color:"#8b92a5"}},"MONITOR",h("select",{value:monitorUser,onChange:e=>selectMonitor(e.target.value),style:{...SEL,marginTop:7}},h("option",{value:""},"Selecciona un monitor"),monitorOptions.map(item=>h("option",{key:item.monitorUser,value:item.monitorUser},item.monitorName)))),
+      h("label",{style:{fontSize:10,color:"#8b92a5"}},"CAMPANA",h("select",{value:campaign,onChange:e=>selectCampaign(e.target.value),style:{...SEL,marginTop:7}},campaignOptions.length?campaignOptions.map(value=>h("option",{key:value,value},value)):h("option",{value:"Entel B2B"},"Entel B2B")))
+    ),
+    h("div",{style:{...CARD,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:14}},
+      field("evaluations","CANTIDAD DE EVALUACIONES",selected?`Base detectada: ${suggestedEvaluations}. Puedes editarla manualmente.`:"Se completara al elegir el monitor."),
+      field("feedbacks","FEEDBACKS"),field("clinics","CLINICAS"),field("inductions","INDUCCIONES"),field("traction","TRACCION %")
+    )
+  );
 }
 
 function QualityVariableConfigModal({config,onClose,onSave}){
@@ -12988,6 +13099,7 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
         ),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Cuartil"),h("select",{style:SEL,value:filters.quartile,onChange:ev=>setFilters(prev=>({...prev,quartile:ev.target.value,advisor:[]}))},h("option",{value:""},"Todos"),options.quartiles.map(value=>h("option",{key:value,value},`${value} - ${value === "Q1" ? "Alto desempeno" : value === "Q2" ? "Medio-alto" : value === "Q3" ? "Medio-bajo" : "Bajo desempeno"}`)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Antiguedad"),h("select",{style:SEL,value:filters.antiguedadBucket,onChange:ev=>setFilters(prev=>({...prev,antiguedadBucket:ev.target.value}))},h("option",{value:""},"Todas"),options.antiguedadBuckets.map(value=>h("option",{key:value,value},value)))),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Analista / monitor de calidad"),h("select",{style:SEL,value:filters.qualityAnalyst || "",onChange:ev=>setFilters(prev=>({...prev,qualityAnalyst:ev.target.value}))},h("option",{value:""},"Todos"),options.qualityAnalysts.map(value=>h("option",{key:value,value},value)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Supervisor"),h("select",{style:SEL,value:filters.supervisor,onChange:ev=>setFilters(prev=>({...prev,supervisor:ev.target.value}))},h("option",{value:""},"Todos"),options.supervisors.map(value=>h("option",{key:value,value},value)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Coordinador"),h("select",{style:SEL,value:filters.coordinador,onChange:ev=>setFilters(prev=>({...prev,coordinador:ev.target.value}))},h("option",{value:""},"Todos"),options.coordinadores.map(value=>h("option",{key:value,value},value)))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Tipo de gestion"),h("select",{style:SEL,value:filters.managementTypeRuc,onChange:ev=>setFilters(prev=>({...prev,managementTypeRuc:ev.target.value}))},h("option",{value:""},"Todos"),["RUC 10","RUC 20"].map(value=>h("option",{key:value,value},value))))
