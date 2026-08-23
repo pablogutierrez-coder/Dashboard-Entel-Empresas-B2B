@@ -1835,6 +1835,27 @@ export const gasHandlers = {
     return rows[index];
   },
 
+  async deleteQualityVariable(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    if (getRole(currentUser) !== "admin") throw new Error("Solo un administrador puede eliminar un calculo de Variable de Calidad.");
+    ensureEntelQualityVariableScope(payload, currentUser);
+    const calculationId = String(payload.id || "").trim();
+    if (!calculationId) throw new Error("No se recibio el identificador del calculo que deseas eliminar.");
+    const rows = await readQualityVariableCalculations();
+    const index = rows.findIndex(row => String(row?.id || "") === calculationId);
+    if (index < 0) throw new Error("No se encontro el calculo de Variable de Calidad.");
+    const [deleted] = rows.splice(index, 1);
+    await writeQualityVariableCalculations(rows);
+    await appendQualityVariableAudit(currentUser, "deleted", {
+      calculationId: deleted.id,
+      period: deleted.period,
+      campaign: deleted.campaign,
+      monitorUser: deleted.monitorUser,
+      previousValue: deleted
+    });
+    return { ok: true, id: calculationId };
+  },
+
   async saveData(key, value) {
     const result = await writeSharedRecord(key, String(value || ""));
     invalidateFirebaseCache(key);

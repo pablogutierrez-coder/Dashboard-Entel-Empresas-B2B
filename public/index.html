@@ -956,6 +956,10 @@ async function reopenQualityVariableEntry(payload){
   return await runGoogleScriptWithTimeout("reopenQualityVariable", [payload], 30000);
 }
 
+async function deleteQualityVariableEntry(payload){
+  return await runGoogleScriptWithTimeout("deleteQualityVariable", [payload], 30000);
+}
+
 async function loadLegendConcepts(){
   try{
     const data = await runGoogleScript("listLegendConcepts");
@@ -12150,7 +12154,8 @@ function QualityVariableModule({currentUser,notify,clientId}){
       h("button",{style:{...BTN("out"),padding:"8px 10px",fontSize:9},onClick:()=>setDetail(row)},"DETALLE"),
       row.status!=="closed" && h("button",{disabled:busy,style:{...BTN("out"),padding:"8px 10px",fontSize:9},onClick:()=>setAdjusting(row)},"AJUSTAR"),
       row.status!=="closed" && h("button",{disabled:busy,style:{...BTN("p"),padding:"8px 10px",fontSize:9},onClick:()=>{if(confirm(`Cerrar la variable de ${row.monitorName}?`))runAction(()=>closeQualityVariableEntry({...scope,id:row.id}),"Variable cerrada correctamente.");}},"CERRAR"),
-      row.status==="closed" && role==="admin" && h("button",{disabled:busy,style:{...BTN("out"),padding:"8px 10px",fontSize:9},onClick:()=>{const reason=prompt("Motivo obligatorio de reapertura:");if(reason?.trim())runAction(()=>reopenQualityVariableEntry({...scope,id:row.id,reason}),"Variable reabierta correctamente.");}},"REABRIR")
+      row.status==="closed" && role==="admin" && h("button",{disabled:busy,style:{...BTN("out"),padding:"8px 10px",fontSize:9},onClick:()=>{const reason=prompt("Motivo obligatorio de reapertura:");if(reason?.trim())runAction(()=>reopenQualityVariableEntry({...scope,id:row.id,reason}),"Variable reabierta correctamente.");}},"REABRIR"),
+      role==="admin" && h("button",{disabled:busy,style:{...BTN("out"),padding:"8px 10px",fontSize:9,color:"#FF6B7A",border:"1px solid rgba(255,107,122,0.35)"},onClick:()=>{if(confirm(`Eliminar definitivamente el calculo de ${row.monitorName} para ${row.period}? Esta accion no se puede deshacer.`))runAction(()=>deleteQualityVariableEntry({...scope,id:row.id}),"Calculo eliminado correctamente.");}},"BORRAR")
     )}
   ];
 
