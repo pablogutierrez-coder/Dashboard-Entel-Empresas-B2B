@@ -8418,7 +8418,7 @@ function App(){
     currentUser?.passwordChangeRequired && h(PasswordChangeModal,{currentUser,onChangePassword:cambiarContrasenaActual}),
     h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor:feedbackModalAssessor || "",editingRecord:editingFeedbackRecord,notify}),
     h(NoTipificationModal,{isOpen:!!selectedNoTipificationEntry,onClose:closeNoTipificationModal,entryContext:selectedNoTipificationEntry,currentUser,onSave:guardarNoTipificacion,notify}),
-    h(EvaluationModal,{isOpen:!!selectedEvaluationFeedback,onClose:closeEvaluationModal,feedbackRecord:selectedEvaluationFeedback,evaluationRecord:editingEvaluation,currentUser,onSave:guardarEvaluacion,onUpdate:actualizarEvaluacion,notify,platform:selectedPlatform}),
+    h(EvaluationModal,{isOpen:!!selectedEvaluationFeedback,onClose:closeEvaluationModal,feedbackRecord:selectedEvaluationFeedback,evaluationRecord:editingEvaluation,currentUser,users:scopedUsers,onSave:guardarEvaluacion,onUpdate:actualizarEvaluacion,notify,platform:selectedPlatform}),
     h(EvaluationHistoryModal,{advisorName:selectedEvaluationHistoryAdvisor,evaluations:scopedEvaluationRecords,evaluationsLoading,feedbackRecords:scopedFeedbackRecords,noTipificationRecords:scopedNoTipificationRecords,currentUser,onClose:closeEvaluationHistory,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,onDeleteEvaluation:eliminarEvaluacion}),
     h(FeedbackPreviewModal,{record:selectedPreviewFeedback,evaluation:previewEvaluation,currentUser,onClose:closePreviewModal,onMarkViewed:()=>runPreviewAction("mark_viewed",selectedPreviewFeedback),onAccept:comment=>runPreviewAction("accept_feedback",selectedPreviewFeedback,comment),onReject:comment=>runPreviewAction("reject_feedback",selectedPreviewFeedback,comment),onSetFollowUp:()=>runPreviewAction("set_follow_up",selectedPreviewFeedback),onCloseFeedback:comment=>runPreviewAction("close_feedback",selectedPreviewFeedback,comment)})
   );
@@ -10936,7 +10936,7 @@ function NoTipificationModal({isOpen,onClose,entryContext,currentUser,onSave,not
   );
 }
 
-function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,currentUser,onSave,onUpdate,notify,platform}){
+function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,currentUser,users,onSave,onUpdate,notify,platform}){
   const [form,setForm] = useState(null);
   const [evidenceFiles,setEvidenceFiles] = useState([]);
   const [audioFiles,setAudioFiles] = useState([]);
@@ -10993,6 +10993,8 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       evaluationMode: ojtMode ? "ojt" : "operacion",
       isOjt: ojtMode,
       formadorNombre: sourceEvaluation?.formadorNombre || feedbackRecord?.formadorNombre || "",
+      auditorId: sourceEvaluation?.auditorId || sourceEvaluation?.auditorUsuario || currentUser?.usuario || "",
+      auditorNombre: sourceEvaluation?.auditorNombre || currentUser?.nombre || currentUser?.usuario || "",
       fechaEvaluacion: toDatetimeLocalValue(sourceEvaluation?.fechaEvaluacion),
       detalleAuditadoGeneral: sourceEvaluation?.detalleAuditadoGeneral || "",
       oportunidadMejoraGeneral: sourceEvaluation?.oportunidadMejoraGeneral || "",
@@ -11030,6 +11032,26 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
   const savedEvaluationSource = currentEvaluation || evaluationRecord || {};
   const savedAudioFiles = getEvaluationAudioFiles(savedEvaluationSource, feedbackRecord ? [feedbackRecord] : []);
   const savedEvidenceFiles = getEvaluationEvidenceFiles(savedEvaluationSource, feedbackRecord ? [feedbackRecord] : []);
+  const canEditEvaluator = currentRole === "admin";
+  const evaluatorOptions = (() => {
+    const options = (users || []).filter(user => {
+      const role = String(user?.rol || "").trim().toLowerCase();
+      return ["admin","analista","formador"].includes(role) && !isInactiveProfileStatus(user?.estado);
+    });
+    const currentAuditorId = String(form.auditorId || "").trim();
+    const currentAuditorName = String(form.auditorNombre || "").trim();
+    if (currentAuditorName && !options.some(user =>
+      String(user?.usuario || "").trim().toLowerCase() === currentAuditorId.toLowerCase() ||
+      normalizeName(user?.nombre) === normalizeName(currentAuditorName)
+    )) {
+      options.push({usuario:currentAuditorId || `historico_${currentAuditorName}`,nombre:currentAuditorName,rol:"historico",estado:"activo",historical:true});
+    }
+    return options.sort((a,b) => String(a?.nombre || a?.usuario || "").localeCompare(String(b?.nombre || b?.usuario || ""),"es"));
+  })();
+  const selectedEvaluatorId = String(evaluatorOptions.find(user =>
+    String(user?.usuario || "").trim().toLowerCase() === String(form.auditorId || "").trim().toLowerCase() ||
+    normalizeName(user?.nombre) === normalizeName(form.auditorNombre)
+  )?.usuario || form.auditorId || "");
 
   const selectEvaluationFormType = nextType => {
     const normalizedType = normalizeEvaluationFormType(nextType);
@@ -11115,6 +11137,8 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       evaluationMode: savedEvaluation.evaluationMode || prev.evaluationMode || (isOjtMode ? "ojt" : "operacion"),
       isOjt: savedEvaluation.isOjt !== undefined ? savedEvaluation.isOjt : prev.isOjt,
       formadorNombre: savedEvaluation.formadorNombre || prev.formadorNombre || "",
+      auditorId: savedEvaluation.auditorId || savedEvaluation.auditorUsuario || prev.auditorId || "",
+      auditorNombre: savedEvaluation.auditorNombre || prev.auditorNombre || "",
       fechaEvaluacion: toDatetimeLocalValue(savedEvaluation.fechaEvaluacion),
       estadoEvaluacion: savedEvaluation.estadoEvaluacion || prev.estadoEvaluacion,
       detalleAuditadoGeneral: savedEvaluation.detalleAuditadoGeneral || prev.detalleAuditadoGeneral,
@@ -11271,6 +11295,8 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
         clientName: form.clientName || clientName,
         platformName: form.clientName || clientName,
         formadorNombre: String(form.formadorNombre || "").trim(),
+        auditorId: String(form.auditorId || "").trim(),
+        auditorNombre: String(form.auditorNombre || "").trim(),
         evaluationMode: isOjtMode ? "ojt" : "operacion",
         isOjt: isOjtMode,
         campaign: isOjtMode ? "OJT" : form.campaign,
@@ -11387,6 +11413,36 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
     }
   };
 
+  const persistEvaluatorOnly = async() => {
+    if (isSaving || !currentEvaluation?.id || !canEditEvaluator) return;
+    if (!String(form.auditorId || "").trim() || !String(form.auditorNombre || "").trim()) {
+      notify("e","Selecciona un evaluador valido.");
+      return;
+    }
+    try {
+      setIsSaving(true);
+      setSaveNotice(null);
+      const savedEvaluation = await onUpdate({
+        id: currentEvaluation.id,
+        idEvaluacion: currentEvaluation.id,
+        auditorId: String(form.auditorId).trim(),
+        auditorNombre: String(form.auditorNombre).trim(),
+        currentUser
+      });
+      if (!savedEvaluation) throw new Error("No se pudo actualizar el evaluador.");
+      applySavedEvaluationToModal(savedEvaluation);
+      setIsDirty(false);
+      setSaveNotice({type:"success",message:"El evaluador se actualizo sin modificar el contenido ni el estado de la ficha."});
+      notify("s","Evaluador actualizado correctamente.");
+    } catch (err) {
+      const message = err?.message || "No se pudo actualizar el evaluador.";
+      setSaveNotice({type:"error",message});
+      notify("e",message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return h("div",{style:{position:"fixed",inset:0,background:"rgba(11,17,33,0.94)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1700,padding:20}},
     h("div",{style:{background:"linear-gradient(180deg, rgba(18,19,29,0.98) 0%, rgba(22,12,40,0.98) 100%)",border: `1px solid ${THEME.border}`,borderRadius:20,padding:28,width:"100%",maxWidth:1180,maxHeight:"92vh",overflowY:"auto",boxShadow:THEME.glowViolet}},
       h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:18,marginBottom:24}},
@@ -11430,7 +11486,22 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Modalidad"),h("input",{style:INP,value:isOjtMode ? "OJT" : "Operacion",disabled:true})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},isOjtMode ? "Evaluado OJT" : "Asesor"),h("input",{style:INP,value:form.asesorNombre,onChange:ev=>patchForm({asesorNombre:ev.target.value.toUpperCase()}),disabled:readOnly || !isOjtMode,placeholder:isOjtMode ? "Nombre completo del personal nuevo" : ""})),
         isOjtMode && h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Formador a cargo"),h("input",{style:INP,value:form.formadorNombre || "",onChange:ev=>patchForm({formadorNombre:ev.target.value}),disabled:readOnly,placeholder:"Nombre del formador"})),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Auditor"),h("input",{style:INP,value:currentUser.nombre,disabled:true})),
+        h("div",null,
+          h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Evaluador"),
+          canEditEvaluator
+            ? h("select",{
+                style:SEL,
+                value:selectedEvaluatorId,
+                onChange:ev=>{
+                  const selected = evaluatorOptions.find(user => String(user?.usuario || "") === ev.target.value);
+                  patchForm({auditorId:ev.target.value,auditorNombre:selected?.nombre || selected?.usuario || ""});
+                }
+              },
+                h("option",{value:"",disabled:true},"Selecciona evaluador"),
+                evaluatorOptions.map(user=>h("option",{key:`evaluator_${user.usuario}_${user.nombre}`,value:String(user.usuario || "")},`${user.nombre || user.usuario}${user.historical ? " (historico)" : ""}`))
+              )
+            : h("input",{style:INP,value:form.auditorNombre || currentUser?.nombre || "",disabled:true})
+        ),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Tipo de gestion"),isOjtMode ? h("input",{style:INP,value:"OJT",disabled:true}) : h("select",{style:SEL,value:form.campaign,onChange:ev=>patchForm({campaign:ev.target.value}),disabled:readOnly},h("option",{value:""},"Selecciona"),h("option",{value:"RUC 10"},"RUC 10"),h("option",{value:"RUC 20"},"RUC 20"))),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Fecha evaluacion"),h("input",{type:"datetime-local",style:INP,value:form.fechaEvaluacion,onChange:ev=>patchForm({fechaEvaluacion:ev.target.value}),disabled:readOnly}))
       ),
@@ -11546,7 +11617,7 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
       ),
       h("div",{style:{display:"flex",justifyContent:"flex-end",gap:12}},
         h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onClose},"CANCELAR"),
-        !readOnly && h("button",{style:{...BTN("pink"),padding:"10px 14px",opacity:(!isDirty || isSaving) ? 0.55 : 1,cursor:(!isDirty || isSaving) ? "not-allowed" : "pointer"},onClick:()=>persist(false),disabled:!isDirty || isSaving},isSaving?"GUARDANDO...":"GUARDAR FICHA"),
+        (!readOnly || canEditEvaluator) && h("button",{style:{...BTN("pink"),padding:"10px 14px",opacity:(!isDirty || isSaving) ? 0.55 : 1,cursor:(!isDirty || isSaving) ? "not-allowed" : "pointer"},onClick:()=>readOnly?persistEvaluatorOnly():persist(false),disabled:!isDirty || isSaving},isSaving?"GUARDANDO...":readOnly?"GUARDAR EVALUADOR":"GUARDAR FICHA"),
         !readOnly && h("button",{style:{...BTN("p"),padding:"10px 14px",opacity:(!canCloseEvaluation || isSaving) ? 0.55 : 1,cursor:(!canCloseEvaluation || isSaving) ? "not-allowed" : "pointer"},onClick:()=>persist(true),disabled:!canCloseEvaluation || isSaving},isSaving?"CERRANDO...":"CERRAR EVALUACION")
       ),
       commentEditor.open && h("div",{style:{position:"fixed",inset:0,background:"rgba(11,17,33,0.72)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1800,padding:20}},

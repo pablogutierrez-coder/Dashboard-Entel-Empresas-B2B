@@ -134,6 +134,56 @@ function requireRoles(user, roles, message) {
   if (!roles.includes(role)) throw new Error(message || "No tienes permisos para realizar esta accion.");
 }
 
+function isInactiveUserRecord(user) {
+  return ["cesado", "baja", "inactivo", "inactive", "bloqueado", "disabled", "terminated"].includes(normalizeText(user?.estado || user?.status || "activo"));
+}
+
+async function resolveEvaluationAuditor(payload, currentUser, currentRecord = null) {
+  if (getRole(currentUser) !== "admin") {
+    return currentRecord
+      ? {
+          auditorId: String(currentRecord.auditorId || currentRecord.auditorUsuario || currentUser.usuario || "").trim(),
+          auditorNombre: String(currentRecord.auditorNombre || currentUser.nombre || currentUser.usuario || "").trim()
+        }
+      : {
+          auditorId: String(currentUser.usuario || "").trim(),
+          auditorNombre: String(currentUser.nombre || currentUser.usuario || "").trim()
+        };
+  }
+
+  const requestedId = String(payload.auditorId || payload.auditorUsuario || "").trim();
+  const requestedName = String(payload.auditorNombre || "").trim();
+  if (!requestedId && !requestedName) {
+    return {
+      auditorId: String(currentRecord?.auditorId || currentRecord?.auditorUsuario || currentUser.usuario || "").trim(),
+      auditorNombre: String(currentRecord?.auditorNombre || currentUser.nombre || currentUser.usuario || "").trim()
+    };
+  }
+  const currentAuditorId = String(currentRecord?.auditorId || currentRecord?.auditorUsuario || "").trim();
+  const currentAuditorName = String(currentRecord?.auditorNombre || "").trim();
+  if (currentRecord && (
+    (requestedId && normalizeText(requestedId) === normalizeText(currentAuditorId)) ||
+    (requestedName && (!requestedId || !currentAuditorId) && normalizeText(requestedName) === normalizeText(currentAuditorName))
+  )) {
+    return { auditorId: currentAuditorId, auditorNombre: currentAuditorName };
+  }
+
+  const users = await readCachedSharedJson("users_v1", []);
+  const evaluator = (Array.isArray(users) ? users : []).find(user =>
+    (requestedId && normalizeText(user?.usuario) === normalizeText(requestedId)) ||
+    (requestedName && normalizeText(user?.nombre) === normalizeText(requestedName))
+  );
+  if (!evaluator) throw new Error("El evaluador seleccionado no existe en la gestion de usuarios.");
+  if (isInactiveUserRecord(evaluator)) throw new Error("El evaluador seleccionado se encuentra inactivo.");
+  if (!["admin", "analista", "formador"].includes(getRole(evaluator))) {
+    throw new Error("El usuario seleccionado no tiene un rol habilitado para evaluar.");
+  }
+  return {
+    auditorId: String(evaluator.usuario || requestedId).trim(),
+    auditorNombre: String(evaluator.nombre || evaluator.usuario || requestedName).trim()
+  };
+}
+
 function canManageCommunications(user) {
   return ["admin", "analista", "supervisor", "formador"].includes(getRole(user));
 }
@@ -3170,7 +3220,9 @@ export const gasHandlers = {
 
   async saveEvaluationRecord(payload = {}) {
     const evaluationId = normalizeId(payload.idEvaluacion || payload.id) || String(generateNumericId());
-    const currentUser = payload.currentUser || {};
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    requireRoles(currentUser, ["admin", "analista", "formador"], "No tienes permisos para guardar evaluaciones.");
+    const auditor = await resolveEvaluationAuditor(payload, currentUser);
     const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
     const evaluation = {
       ...sanitizeRuntimePayload(payload),
@@ -3178,8 +3230,8 @@ export const gasHandlers = {
       idEvaluacion: evaluationId,
       fechaEvaluacion: normalizeDateOrNow(payload.fechaEvaluacion),
       asesorNombre: String(payload.asesorNombre || "").trim().toUpperCase(),
-      auditorId: String(currentUser.usuario || payload.auditorId || "").trim(),
-      auditorNombre: String(currentUser.nombre || payload.auditorNombre || "").trim(),
+      auditorId: auditor.auditorId,
+      auditorNombre: auditor.auditorNombre,
       estadoEvaluacion: String(payload.estadoEvaluacion || "open").trim(),
       files: Array.isArray(payload.files) ? payload.files : [],
       createdAt: payload.createdAt || nowIso(),
@@ -3200,10 +3252,21 @@ export const gasHandlers = {
   async updateEvaluationRecord(payload = {}) {
     const id = normalizeId(payload.idEvaluacion || payload.id);
     if (!id) throw new Error("No se puede actualizar una evaluacion sin id.");
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    requireRoles(currentUser, ["admin", "analista", "formador"], "No tienes permisos para actualizar evaluaciones.");
     const current = await gasHandlers.getEvaluationRecordDetail(id);
     if (!current) throw new Error(`No se encontro la evaluacion ${id}.`);
+    const auditor = await resolveEvaluationAuditor(payload, currentUser, current);
     const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
-    const updated = await persistEvaluation({ ...current, ...sanitizeRuntimePayload(payload), id, idEvaluacion: id });
+    const updated = await persistEvaluation({
+      ...current,
+      ...sanitizeRuntimePayload(payload),
+      ...auditor,
+      id,
+      idEvaluacion: id,
+      updatedBy: String(currentUser.usuario || "").trim(),
+      updatedAt: nowIso()
+    });
     if (!attachments.length) return updated;
     const storageResult = await uploadAttachmentsWithFirebaseFallback(updated, attachments);
     const savedFiles = [...(updated.files || []), ...(storageResult.savedFiles || [])];
