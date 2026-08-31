@@ -1,5 +1,7 @@
 import { config, requireConfig } from "./config.js";
 
+const FIREBASE_MAX_STRING_BYTES = 10 * 1024 * 1024;
+
 function firebaseUrl(path) {
   requireConfig("FIREBASE_URL", config.firebaseUrl);
   const cleanPath = String(path || "").replace(/^\/+/, "");
@@ -52,8 +54,16 @@ export async function readSharedJson(key, fallbackValue = null) {
 export async function writeSharedRecord(key, value) {
   const cleanKey = String(key || "").trim();
   if (!cleanKey) throw new Error("No se puede guardar una clave Firebase vacia.");
+  const serializedValue = typeof value === "string" ? value : JSON.stringify(value);
+  if (serializedValue === undefined) {
+    throw new Error(`No se pudo serializar el valor Firebase para ${cleanKey}.`);
+  }
+  const serializedBytes = Buffer.byteLength(serializedValue, "utf8");
+  if (serializedBytes >= FIREBASE_MAX_STRING_BYTES) {
+    throw new Error(`El registro Firebase ${cleanKey} alcanzo ${(serializedBytes / 1048576).toFixed(2)} MB y supera el limite de 10 MB. Debe guardarse de forma compacta o dividida.`);
+  }
   const payload = {
-    value: typeof value === "string" ? value : JSON.stringify(value),
+    value: serializedValue,
     timestamp: new Date().toISOString()
   };
   await fetchJson(firebaseUrl(`shared/${encodeURIComponent(cleanKey)}.json`), {

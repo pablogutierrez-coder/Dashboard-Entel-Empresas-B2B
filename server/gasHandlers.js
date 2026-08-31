@@ -49,6 +49,7 @@ const QUALITY_VARIABLE_CONFIG_KEY = "quality_variable_config_v1";
 const QUALITY_VARIABLE_CALCULATIONS_KEY = "quality_variable_calculations_v1";
 const QUALITY_VARIABLE_AUDIT_KEY = "quality_variable_audit_v1";
 const evaluationWriteLocks = new Map();
+let evaluationIndexWriteQueue = Promise.resolve();
 const firebaseReadCache = new Map();
 const CACHE_TTL_MS = 15000;
 
@@ -377,6 +378,59 @@ function upsertById(records, record) {
   if (index >= 0) list[index] = { ...list[index], ...record };
   else list.unshift(record);
   return list;
+}
+
+export function buildEvaluationIndexRecord(record = {}) {
+  const compactSections = (Array.isArray(record.secciones) ? record.secciones : []).map(section => ({
+    nombreSeccion: section?.nombreSeccion || section?.subItem || section?.item || section?.criterio || "",
+    resultado: section?.resultado || "",
+    puntaje: section?.puntaje,
+    puntajeReponderado: section?.puntajeReponderado,
+    aporteReponderado: section?.aporteReponderado
+  }));
+  const compactZeroToleranceItems = (Array.isArray(record.zeroToleranceItems) ? record.zeroToleranceItems : []).map(item => ({
+    subItem: item?.subItem || item?.nombreSeccion || item?.item || "",
+    resultado: item?.resultado || "No aplica"
+  }));
+  return {
+    id: normalizeId(record.id || record.idEvaluacion),
+    idEvaluacion: normalizeId(record.idEvaluacion || record.id),
+    feedbackId: record.feedbackId || "",
+    clientId: record.clientId || record.platformId || DEFAULT_CLIENT_ID,
+    platformId: record.platformId || record.clientId || DEFAULT_CLIENT_ID,
+    clientName: record.clientName || record.platformName || "",
+    platformName: record.platformName || record.clientName || "",
+    asesorNombre: record.asesorNombre || "",
+    auditorId: record.auditorId || record.auditorUsuario || "",
+    auditorNombre: record.auditorNombre || "",
+    campaign: record.campaign || record.managementTypeRuc || record.tipoGestionRuc || "",
+    tipoGestion: record.tipoGestion || "",
+    evaluationFormType: record.evaluationFormType || record.tipoFicha || "venta",
+    tipoFicha: record.tipoFicha || "Venta",
+    evaluationMode: record.evaluationMode || "operacion",
+    isOjt: Boolean(record.isOjt),
+    formadorNombre: record.formadorNombre || "",
+    supervisor: record.supervisor || record.supervisorName || "",
+    coordinador: record.coordinador || record.coordinator || "",
+    fechaEvaluacion: record.fechaEvaluacion || "",
+    estadoEvaluacion: record.estadoEvaluacion || "open",
+    resultadoGeneral: record.resultadoGeneral || "",
+    pesoAplicable: record.pesoAplicable,
+    puntajeLogrado: record.puntajeLogrado,
+    puntajeLogradoBruto: record.puntajeLogradoBruto,
+    appliesCeroTolerancia: Boolean(record.appliesCeroTolerancia),
+    estadoAdjuntos: record.estadoAdjuntos || "",
+    createdAt: record.createdAt || "",
+    updatedAt: record.updatedAt || "",
+    secciones: compactSections,
+    zeroToleranceItems: compactZeroToleranceItems
+  };
+}
+
+function withEvaluationIndexWriteLock(task) {
+  const run = evaluationIndexWriteQueue.then(task, task);
+  evaluationIndexWriteQueue = run.catch(() => {});
+  return run;
 }
 
 async function readFeedbackRecords() {
@@ -849,9 +903,13 @@ async function persistEvaluation(record) {
     updatedAt: nowIso()
   };
   await writeSharedRecord(getEvaluationRecordKey(id), normalized);
-  const compact = await readCachedSharedJson(EVALUATIONS_KEY, []);
-  await writeSharedRecord(EVALUATIONS_KEY, upsertById(compact, normalized));
-  invalidateFirebaseCache(EVALUATIONS_KEY, getEvaluationRecordKey(id));
+  await withEvaluationIndexWriteLock(async () => {
+    const currentIndex = await readCachedSharedJson(EVALUATIONS_KEY, []);
+    const compactIndex = (Array.isArray(currentIndex) ? currentIndex : []).map(buildEvaluationIndexRecord);
+    await writeSharedRecord(EVALUATIONS_KEY, upsertById(compactIndex, buildEvaluationIndexRecord(normalized)));
+    invalidateFirebaseCache(EVALUATIONS_KEY);
+  });
+  invalidateFirebaseCache(getEvaluationRecordKey(id));
   return normalized;
 }
 
@@ -3282,10 +3340,6 @@ export const gasHandlers = {
     requireRoles(currentUser, ["admin"], "Solo administradores pueden borrar evaluaciones.");
     const id = normalizeId(payload.idEvaluacion || payload.id);
     if (!id) throw new Error("No se puede borrar una evaluacion sin id.");
-    const compact = await readCachedSharedJson(EVALUATIONS_KEY, []);
-    const nextCompact = Array.isArray(compact)
-      ? compact.filter(item => normalizeId(item?.id || item?.idEvaluacion) !== id)
-      : [];
     const deleted = await readCachedSharedJson(DELETED_EVALUATIONS_KEY, []);
     const deletedList = Array.isArray(deleted) ? deleted : [];
     const deletedExists = deletedList.some(item => normalizeId(item?.id || item?.idEvaluacion || item) === id);
@@ -3293,7 +3347,14 @@ export const gasHandlers = {
       ? deletedList
       : [{ id, deletedAt: nowIso(), deletedBy: String(currentUser.usuario || "").trim() }, ...deletedList];
     await deleteSharedRecord(getEvaluationRecordKey(id));
-    await writeSharedRecord(EVALUATIONS_KEY, nextCompact);
+    await withEvaluationIndexWriteLock(async () => {
+      const currentIndex = await readCachedSharedJson(EVALUATIONS_KEY, []);
+      const nextCompact = (Array.isArray(currentIndex) ? currentIndex : [])
+        .filter(item => normalizeId(item?.id || item?.idEvaluacion) !== id)
+        .map(buildEvaluationIndexRecord);
+      await writeSharedRecord(EVALUATIONS_KEY, nextCompact);
+      invalidateFirebaseCache(EVALUATIONS_KEY);
+    });
     await writeSharedRecord(DELETED_EVALUATIONS_KEY, nextDeleted);
     invalidateFirebaseCache(EVALUATIONS_KEY, DELETED_EVALUATIONS_KEY, getEvaluationRecordKey(id));
     return { ok: true, id };
