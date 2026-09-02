@@ -35,6 +35,7 @@ const EVALUATIONS_KEY = "evaluations_v1";
 const DELETED_EVALUATIONS_KEY = "deleted_evaluations_v1";
 const COMMUNICATIONS_KEY = "communications_v1";
 const FEEDBACK_KEY = "feedback_records_v2";
+const FEEDBACK_VOLUME_KEY = "feedback_volume_v1";
 const OPERATIONAL_INCIDENTS_KEY = "operational_incidents_v1";
 const SALES_VALIDATIONS_KEY = "sales_validations_v1";
 const COMMERCIAL_DEVELOPMENT_KEY = "commercial_development_v1";
@@ -443,6 +444,16 @@ async function writeFeedbackRecords(records) {
   invalidateFirebaseCache(FEEDBACK_KEY);
 }
 
+async function readFeedbackVolumeRecords() {
+  const records = await readCachedSharedJson(FEEDBACK_VOLUME_KEY, []);
+  return Array.isArray(records) ? records : [];
+}
+
+async function writeFeedbackVolumeRecords(records) {
+  await writeSharedRecord(FEEDBACK_VOLUME_KEY, Array.isArray(records) ? records : []);
+  invalidateFirebaseCache(FEEDBACK_VOLUME_KEY);
+}
+
 function sortFeedbackRecords(records) {
   return records.sort((a, b) => (
     new Date(b?.feedbackDate || b?.updatedAt || b?.createdAt || 0).getTime() -
@@ -479,7 +490,48 @@ function normalizeFeedbackStatusForSave(advisorUser) {
 }
 
 function canManageFeedback(user) {
-  return ["admin", "analista", "supervisor", "formador"].includes(getRole(user));
+  return ["admin", "analista", "formador"].includes(getRole(user));
+}
+
+export function buildFeedbackVolumeRecords({ operationalRecords, quantity, monitor, monitorUser, feedbackDate, month, clientId, clientName, createdBy, now, batchId }) {
+  const sources = Array.isArray(operationalRecords) ? operationalRecords : [];
+  if (!sources.length) return [];
+  return Array.from({length:quantity}, (_, index) => {
+    const source = sources[index % sources.length];
+    return withClientScope({
+      id: `${batchId}_${index + 1}`,
+      batchId,
+      sourceFeedbackId: source.id || "",
+      recordType: "feedback_volume",
+      isStatistical: true,
+      statisticalOnly: true,
+      operational: false,
+      assessor: String(source.assessor || source.asesorNombre || "REGISTRO ESTADISTICO").trim(),
+      asesorNombre: String(source.asesorNombre || source.assessor || "REGISTRO ESTADISTICO").trim(),
+      auditorId: monitorUser,
+      auditorNombre: String(monitor.nombre || monitorUser).trim(),
+      authorUser: monitorUser,
+      authorName: String(monitor.nombre || monitorUser).trim(),
+      authorRole: ROLE_LABELS.analista,
+      feedbackCategory: String(source.feedbackCategory || source.tipoGestion || "Feedback").trim(),
+      tipoGestion: String(source.tipoGestion || source.feedbackCategory || "Feedback").trim(),
+      clasificacionFeedback: String(source.clasificacionFeedback || "").trim(),
+      tipoRefuerzo: String(source.tipoRefuerzo || "").trim(),
+      campaign: String(source.campaign || "").trim(),
+      feedbackDate: new Date(`${feedbackDate}T12:00:00-05:00`).toISOString(),
+      statisticalMonth: month,
+      status: "statistical",
+      estado: "statistical",
+      advisorUser: "",
+      supervisorUser: "",
+      supervisorName: "",
+      messages: [],
+      files: [],
+      createdAt: now,
+      updatedAt: now,
+      createdBy
+    }, clientId, clientName || "");
+  });
 }
 
 function isFeedbackAdvisorValidated(record = {}) {
@@ -2991,6 +3043,40 @@ export const gasHandlers = {
     return sortFeedbackRecords(await readFeedbackRecords());
   },
 
+  async listFeedbackVolumeRecords() {
+    return sortFeedbackRecords(await readFeedbackVolumeRecords());
+  },
+
+  async createFeedbackVolume(payload = {}) {
+    const currentUser = ensureCurrentUser(payload.currentUser);
+    requireRoles(currentUser, ["admin"], "Solo un administrador puede generar volumen de feedbacks.");
+    const monitorUser = String(payload.monitorUser || "").trim();
+    const quantity = Number(payload.quantity);
+    const feedbackDate = String(payload.feedbackDate || "").trim();
+    const month = String(payload.month || "").trim();
+    const clientId = normalizeClientId(payload.clientId || payload.platformId || currentUser.clientId || currentUser.platformId);
+    if (!monitorUser) throw new Error("Selecciona un Monitor o Analista.");
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) throw new Error("La cantidad debe ser un numero entero entre 1 y 1000.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(feedbackDate)) throw new Error("Selecciona una fecha valida.");
+    if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("Selecciona un mes valido.");
+    if (!feedbackDate.startsWith(`${month}-`)) throw new Error("La fecha debe pertenecer al mes seleccionado.");
+
+    const users = await readCachedSharedJson("users_v1", []);
+    const monitor = (Array.isArray(users) ? users : []).find(user => normalizeText(user?.usuario) === normalizeText(monitorUser));
+    if (!monitor || getRole(monitor) !== "analista" || isInactiveUserRecord(monitor)) {
+      throw new Error("El usuario seleccionado debe ser un Monitor o Analista activo.");
+    }
+
+    const operationalRecords = (await readFeedbackRecords()).filter(record => isRecordVisibleForClient(record, clientId));
+    if (!operationalRecords.length) throw new Error("No existen feedbacks operativos para usar como base en esta plataforma.");
+    const existingVolume = await readFeedbackVolumeRecords();
+    const now = nowIso();
+    const batchId = `volume_${Date.now()}`;
+    const generated = buildFeedbackVolumeRecords({operationalRecords,quantity,monitor,monitorUser,feedbackDate,month,clientId,clientName:payload.clientName,createdBy:currentUser.usuario,now,batchId});
+    await writeFeedbackVolumeRecords([...generated, ...existingVolume]);
+    return {ok:true,batchId,created:generated.length,records:generated};
+  },
+
   async saveFeedbackRecord(payload = {}) {
     const currentUser = ensureCurrentUser(payload.currentUser);
     requireRoles(currentUser, ["admin", "analista", "formador"], "No tienes permisos para crear feedbacks.");
@@ -3109,6 +3195,7 @@ export const gasHandlers = {
     });
     const feedbackId = Number(payload.id);
     if (!feedbackId) throw new Error("El id del feedback es obligatorio.");
+    if (getRole(currentUser) === "supervisor") throw new Error("El perfil Supervisor tiene acceso de solo lectura a Feedbacks.");
 
     const records = await readFeedbackRecords();
     const index = records.findIndex(record => Number(record?.id) === feedbackId);
