@@ -2640,6 +2640,18 @@ function canSupervisorSeeRecord(currentUser, staffing, record){
   return !assignedSupervisorUser && !String(assignedSupervisorName || "").trim() && !(staffing || []).length;
 }
 
+function isFeedbackCreatedByQualityAnalyst(record, users){
+  const recordedRole = normalizeComparableValue(record?.authorRole || record?.auditorRole || record?.rolCreador || "");
+  if (["analista","monitor","analista de calidad","monitor de calidad","calidad"].includes(recordedRole)) return true;
+  const authorUser = normalizeLoginKey(record?.authorUser || record?.auditorId || record?.createdBy || "");
+  const authorName = normalizeComparableValue(record?.authorName || record?.auditorNombre || record?.createdByName || "");
+  const author = (users || []).find(user =>
+    (authorUser && normalizeLoginKey(user?.usuario) === authorUser) ||
+    (authorName && normalizeComparableValue(user?.nombre) === authorName)
+  );
+  return ["analista","monitor"].includes(String(author?.rol || "").trim().toLowerCase());
+}
+
 function buildFeedbackPreviewModel(record, evaluation){
   return {
     advisorName: record?.asesorNombre || record?.assessor || "-",
@@ -5622,11 +5634,11 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
 
   const visibleRecords = useMemo(() => {
     if (role === "supervisor") {
-      return (feedbackRecords || []).filter(record => canSupervisorSeeRecord(currentUser, staffing, record));
+      return (feedbackRecords || []).filter(record => isFeedbackCreatedByQualityAnalyst(record, users));
     }
     const operational = feedbackRecords || [];
     return ["admin","analista"].includes(role) ? [...operational, ...(statisticalRecords || [])] : operational;
-  }, [feedbackRecords,statisticalRecords,currentUser,staffing,role]);
+  }, [feedbackRecords,statisticalRecords,role,users]);
 
   const authors = useMemo(() => [...new Set(visibleRecords.map(item => getImprovementQualityAnalystName(item)).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"es")), [visibleRecords]);
 
@@ -5720,8 +5732,8 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
   return h(Fragment,null,
     h("div",{style:{marginBottom:30,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:20}},
       h("div",null,
-        h("h1",{style:{fontSize:24,fontWeight:800,color:"#fff",marginBottom:6}}, role === "supervisor" ? "Mis feedbacks asignados" : "Gestion de feedbacks"),
-        h("span",{style:{fontSize:12,color:"#8b92a5"}},role === "supervisor" ? "Bandeja de feedbacks asignados en modo de solo lectura." : "Tabla dinamica con filtros por asesor, analista, gestion, clasificacion y estado")
+        h("h1",{style:{fontSize:24,fontWeight:800,color:"#fff",marginBottom:6}},role === "supervisor" ? "Feedbacks" : "Gestion de feedbacks"),
+        h("span",{style:{fontSize:12,color:"#8b92a5"}},role === "supervisor" ? "Feedbacks registrados por Monitor y Analista en modo de solo lectura." : "Tabla dinamica con filtros por asesor, analista, gestion, clasificacion y estado")
       ),
       h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}},
         role === "admin" && h("button",{style:BTN("out"),onClick:()=>setVolumeModalOpen(true)},I("bar",14,THEME.primary),"DASHBOARD"),
@@ -5745,7 +5757,7 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
       h(AnalyticsChart,{title:"Estados del feedback",subtitle:"Distribucion de los feedbacks visibles con los filtros activos.",config:statusChartConfig,height:250,emptyMessage:"No hay estados para mostrar."}),
       h(AnalyticsChart,{title:"Tipo de gestion",subtitle:"Volumen por categoria visible con los filtros activos.",config:managementChartConfig,height:250,emptyMessage:"No hay tipos de gestion para mostrar."})
     ),
-    h("div",{style:{...CARD,marginBottom:24}},
+    role !== "supervisor" && h("div",{style:{...CARD,marginBottom:24}},
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha desde"),h("input",{type:"date",style:INP,value:filters.dateFrom,onChange:ev=>setFilters({...filters,dateFrom:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha hasta"),h("input",{type:"date",style:INP,value:filters.dateTo,onChange:ev=>setFilters({...filters,dateTo:ev.target.value})})),
@@ -7379,7 +7391,7 @@ const USER_MANUAL_PROFILES = [
     title:"Supervisor",
     subtitle:"Valida feedbacks asignados y consulta el tablero completo de mejora.",
     sections:[
-      {title:"Vista inicial", steps:["Al ingresar veras Mis feedbacks asignados.","Arriba aparece el resumen: aceptados, pendientes por supervisor y pendientes por asesor.","Usa filtros por asesor, analista, tipo, clasificacion, estado o busqueda para encontrar casos."]},
+      {title:"Vista inicial", steps:["Al ingresar veras los feedbacks registrados por Monitor y Analista.","Arriba aparece el resumen: aceptados, pendientes por supervisor y pendientes por asesor.","La bandeja del Supervisor es exclusivamente de consulta y permite abrir el detalle de cada feedback real."]},
       {title:"Validacion final de feedback", steps:["Abre Ver ficha para revisar observacion, compromiso, adjuntos, audio y documentos.","Si el asesor aun no valido, espera su decision; el sistema mostrara pendiente por asesor.","Cuando el asesor ya acepto o no acepto, escribe comentario final obligatorio.","Presiona Aceptar y cerrar feedback. Una vez cerrado, no se debe modificar salvo por administrador."]},
       {title:"Dashboard mejora", steps:["La opcion Dashboard mejora muestra todas las evaluaciones realizadas, no solo feedbacks asignados.","Usa la vista individual y grupal para comparar asesores, tipos de gestion, tendencia y pareto.","La seccion Evaluaciones se mantiene como consulta del consolidado."]},
       {title:"Comunicados y notificaciones", steps:["Lee comunicados del staff o de todos.","Revisa notificaciones de eventos relacionados con feedbacks y tareas pendientes."]}
