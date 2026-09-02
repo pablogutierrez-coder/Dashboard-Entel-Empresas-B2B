@@ -2450,8 +2450,7 @@ const FEEDBACK_STATUS_LABEL = {
   in_follow_up: "En seguimiento",
   closed: "Cerrado",
   unassigned: "Sin perfil asignado",
-  response_submitted: "En seguimiento",
-  statistical: "Solo estadistico"
+  response_submitted: "En seguimiento"
 };
 
 function getFeedbackStatusTheme(status){
@@ -2466,8 +2465,7 @@ function getFeedbackStatusTheme(status){
     in_follow_up: {label:"En seguimiento",color:"#F59E0B",bg:"rgba(245,158,11,0.12)",border:"rgba(245,158,11,0.30)"},
     closed: {label:"Cerrado",color:"#A6A0B8",bg:"rgba(166,160,184,0.12)",border:"rgba(166,160,184,0.26)"},
     unassigned: {label:"Sin perfil asignado",color:THEME.accent,bg:"rgba(230,0,168,0.12)",border:"rgba(230,0,168,0.30)"},
-    response_submitted: {label:"En seguimiento",color:"#F59E0B",bg:"rgba(245,158,11,0.12)",border:"rgba(245,158,11,0.30)"},
-    statistical: {label:"Solo estadistico",color:"#38BDF8",bg:"rgba(56,189,248,0.12)",border:"rgba(56,189,248,0.30)"}
+    response_submitted: {label:"En seguimiento",color:"#F59E0B",bg:"rgba(245,158,11,0.12)",border:"rgba(245,158,11,0.30)"}
   };
   return map[status] || map.pending;
 }
@@ -2631,14 +2629,15 @@ function canCurrentSupervisorSeeAdvisor(currentUser, staffing, advisorName){
 function canSupervisorSeeRecord(currentUser, staffing, record){
   if (String(currentUser?.rol||"").trim().toLowerCase() !== "supervisor") return false;
   const assignedSupervisorUser = String(record?.supervisorUser || record?.supervisorId || "").trim().toLowerCase();
-  if (assignedSupervisorUser) {
-    return assignedSupervisorUser === String(currentUser?.usuario || "").trim().toLowerCase();
-  }
   const assignedSupervisorName = record?.supervisorName || record?.supervisor || "";
-  if (String(assignedSupervisorName || "").trim()) {
-    return isSupervisorIdentityMatch(currentUser, assignedSupervisorName);
-  }
-  return !(staffing || []).length || canCurrentSupervisorSeeAdvisor(currentUser, staffing, record?.asesorNombre || record?.assessor || "");
+  const userMatch = assignedSupervisorUser && (
+    normalizeLoginKey(assignedSupervisorUser) === normalizeLoginKey(currentUser?.usuario) ||
+    isSupervisorIdentityMatch(currentUser, assignedSupervisorUser)
+  );
+  const nameMatch = String(assignedSupervisorName || "").trim() && isSupervisorIdentityMatch(currentUser, assignedSupervisorName);
+  const staffingMatch = canCurrentSupervisorSeeAdvisor(currentUser, staffing, record?.asesorNombre || record?.assessor || "");
+  if (userMatch || nameMatch || staffingMatch) return true;
+  return !assignedSupervisorUser && !String(assignedSupervisorName || "").trim() && !(staffing || []).length;
 }
 
 function buildFeedbackPreviewModel(record, evaluation){
@@ -5586,7 +5585,7 @@ function FeedbackVolumeModal({isOpen,onClose,onExecute,users,notify}){
   const execute = async() => {
     const quantity = Number(form.quantity);
     if (!form.monitorUser) { notify("e","Selecciona un Monitor o Analista."); return; }
-    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) { notify("e","Ingresa una cantidad entre 1 y 1000."); return; }
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 600) { notify("e","Ingresa una cantidad entre 1 y 600."); return; }
     if (!form.feedbackDate || !form.month) { notify("e","Selecciona fecha y mes."); return; }
     if (!form.feedbackDate.startsWith(`${form.month}-`)) { notify("e","La fecha debe pertenecer al mes seleccionado."); return; }
     setSaving(true);
@@ -5602,12 +5601,12 @@ function FeedbackVolumeModal({isOpen,onClose,onExecute,users,notify}){
   return h("div",{style:{position:"fixed",inset:0,background:"rgba(11,17,33,0.94)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1900,padding:20}},
     h("div",{style:{...CARD,width:"100%",maxWidth:620,borderTop:`4px solid ${THEME.accent}`}},
       h("div",{style:{display:"flex",justifyContent:"space-between",gap:16,marginBottom:22}},
-        h("div",null,h("h2",{style:{margin:"0 0 6px",color:"#fff"}},"Volumen de Feedbacks"),h("div",{style:{fontSize:12,color:"#8b92a5"}},"Registros exclusivamente estadisticos para la vista y dashboard.")),
+        h("div",null,h("h2",{style:{margin:"0 0 6px",color:"#fff"}},"Dashboard"),h("div",{style:{fontSize:12,color:"#8b92a5"}},"Genera copias de feedbacks existentes para la vista y el dashboard.")),
         h("button",{style:{...BTN("out"),padding:"9px 12px"},onClick:onClose,disabled:saving},"CERRAR")
       ),
       h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}},
         h("div",{style:{gridColumn:"1 / -1"}},h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,marginBottom:8,textTransform:"uppercase"}},"Monitor / Analista"),h("select",{style:SEL,value:form.monitorUser,onChange:ev=>setForm({...form,monitorUser:ev.target.value})},h("option",{value:""},"Selecciona un usuario"),monitors.map(user=>h("option",{key:user.usuario,value:user.usuario},`${user.nombre || user.usuario} - ${user.usuario}`)))),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,marginBottom:8,textTransform:"uppercase"}},"Cantidad de feedbacks"),h("input",{type:"number",min:1,max:1000,step:1,style:INP,value:form.quantity,onChange:ev=>setForm({...form,quantity:ev.target.value})})),
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,marginBottom:8,textTransform:"uppercase"}},"Cantidad de feedbacks"),h("input",{type:"number",min:1,max:600,step:1,style:INP,value:form.quantity,onChange:ev=>setForm({...form,quantity:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,marginBottom:8,textTransform:"uppercase"}},"Fecha"),h("input",{type:"date",style:INP,value:form.feedbackDate,onChange:ev=>setForm({...form,feedbackDate:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",fontWeight:800,marginBottom:8,textTransform:"uppercase"}},"Mes"),h("input",{type:"month",style:INP,value:form.month,onChange:ev=>setForm({...form,month:ev.target.value})}))
       ),
@@ -5646,8 +5645,7 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
   }), [visibleRecords,filters]);
 
   const feedbackStats = useMemo(() => {
-    const operationalRecords = filteredRecords.filter(record => !isStatisticalFeedbackRecord(record));
-    const statistical = filteredRecords.length - operationalRecords.length;
+    const allRecords = filteredRecords;
     const isAdvisorValidated = record => {
       const status = String(record?.estado || record?.status || "").trim();
       if (status === "in_follow_up") return false;
@@ -5663,22 +5661,21 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
       const validationStatus = String(record?.advisorValidationStatus || "").trim();
       return ["rejected","advisor_rejected"].includes(status) || validationStatus === "rejected";
     };
-    const closed = operationalRecords.filter(record => String(record?.estado || record?.status || "") === "closed").length;
-    const pendingSupervisor = operationalRecords.filter(record => isAdvisorValidated(record) && String(record?.estado || record?.status || "") !== "closed").length;
-    const pendingAdvisor = operationalRecords.filter(record => !isAdvisorValidated(record)).length;
-    const accepted = operationalRecords.filter(isAdvisorAccepted).length;
-    const rejected = operationalRecords.filter(isAdvisorRejected).length;
-    const inFollowUp = operationalRecords.filter(record => ["in_follow_up","response_submitted"].includes(String(record?.estado || record?.status || "").trim())).length;
+    const closed = allRecords.filter(record => String(record?.estado || record?.status || "") === "closed").length;
+    const pendingSupervisor = allRecords.filter(record => isAdvisorValidated(record) && String(record?.estado || record?.status || "") !== "closed").length;
+    const pendingAdvisor = allRecords.filter(record => !isAdvisorValidated(record)).length;
+    const accepted = allRecords.filter(isAdvisorAccepted).length;
+    const rejected = allRecords.filter(isAdvisorRejected).length;
+    const inFollowUp = allRecords.filter(record => ["in_follow_up","response_submitted"].includes(String(record?.estado || record?.status || "").trim())).length;
     const pending = pendingAdvisor + pendingSupervisor;
     const total = Math.max(filteredRecords.length, 1);
-    return {total:filteredRecords.length,statistical,closed,pendingSupervisor,pendingAdvisor,accepted,rejected,inFollowUp,pending,totalSafe:total};
+    return {total:filteredRecords.length,closed,pendingSupervisor,pendingAdvisor,accepted,rejected,inFollowUp,pending,totalSafe:total};
   }, [filteredRecords]);
 
   const feedbackCards = useMemo(() => ([
     {label:"Pendientes",value:feedbackStats.pending,color:"#F59E0B",caption:"En flujo de validacion"},
     {label:"Pendientes por asesor",value:feedbackStats.pendingAdvisor,color:THEME.accent,caption:"Esperando primera validacion"},
-    {label:"Pendientes por supervisor",value:feedbackStats.pendingSupervisor,color:"#38BDF8",caption:"Listos para cierre"},
-    {label:"Solo estadisticos",value:feedbackStats.statistical,color:"#38BDF8",caption:"Sin flujo operativo"}
+    {label:"Pendientes por supervisor",value:feedbackStats.pendingSupervisor,color:"#38BDF8",caption:"Listos para cierre"}
   ].map(item => ({...item,pct:Math.round((item.value / feedbackStats.totalSafe) * 100)}))), [feedbackStats]);
 
   const statusChartConfig = useMemo(() => {
@@ -5686,8 +5683,7 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
       {label:"Cerrados",value:feedbackStats.closed,color:"#A6A0B8"},
       {label:"Aceptados",value:feedbackStats.accepted,color:"#19C37D"},
       {label:"Pendientes",value:feedbackStats.pending,color:"#F59E0B"},
-      {label:"No aceptados",value:feedbackStats.rejected,color:"#FF6B7A"},
-      {label:"Solo estadisticos",value:feedbackStats.statistical,color:"#38BDF8"}
+      {label:"No aceptados",value:feedbackStats.rejected,color:"#FF6B7A"}
     ].filter(item => item.value > 0);
     return buildDoughnutChartConfig("Distribucion por estado", rows.map(item => item.label), rows.map(item => item.value), rows.map(item => item.color));
   }, [feedbackStats]);
@@ -5728,7 +5724,7 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
         h("span",{style:{fontSize:12,color:"#8b92a5"}},role === "supervisor" ? "Bandeja de feedbacks asignados en modo de solo lectura." : "Tabla dinamica con filtros por asesor, analista, gestion, clasificacion y estado")
       ),
       h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}},
-        role === "admin" && h("button",{style:BTN("out"),onClick:()=>setVolumeModalOpen(true)},I("bar",14,THEME.primary),"VOLUMEN DE FEEDBACKS"),
+        role === "admin" && h("button",{style:BTN("out"),onClick:()=>setVolumeModalOpen(true)},I("bar",14,THEME.primary),"DASHBOARD"),
         canCreateFeedback(currentUser) && h("button",{style:BTN("pink"),onClick:()=>onOpenFeedback("")},I("plus",14,"#fff"),"CREAR FEEDBACK")
       )
     ),
@@ -5772,7 +5768,7 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
           h("tbody",null,
             filteredRecords.map(record=>{
               const statistical = isStatisticalFeedbackRecord(record);
-              const evaluation = getLinkedEvaluation(evaluationRecords, record.id);
+              const evaluation = getLinkedEvaluation(evaluationRecords, statistical ? record.sourceFeedbackId : record.id);
               const statusTheme = getFeedbackStatusTheme(record.estado || record.status || "pending");
               const management = record.tipoGestion || record.feedbackCategory || "-";
               const classification = record.clasificacionFeedback || record.tipoRefuerzo || "-";
@@ -5783,15 +5779,13 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#fff"}},record.resultadoGeneral || evaluation?.resultadoGeneral || "-"),
                 h("td",{style:{padding:"14px 16px"}},h("span",{style:{background:statusTheme.bg,border: `1px solid ${statusTheme.border}`,color:statusTheme.color,padding:"6px 10px",borderRadius:999,fontSize:10,fontWeight:800,letterSpacing:"0.1em"}},statusTheme.label)),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}},formatFeedbackDate(record.feedbackDate || record.createdAt)),
-                h("td",{style:{padding:"14px 16px",fontSize:11,color:evaluation ? "#19C37D" : "#8b92a5",fontWeight:700}}, statistical ? "No aplica" : evaluation ? `Ficha ${evaluation.estadoEvaluacion === "closed" ? "cerrada" : "activa"}` : "Sin ficha"),
+                h("td",{style:{padding:"14px 16px",fontSize:11,color:evaluation ? "#19C37D" : "#8b92a5",fontWeight:700}},evaluation ? `Ficha ${evaluation.estadoEvaluacion === "closed" ? "cerrada" : "activa"}` : "Sin ficha"),
                 h("td",{style:{padding:"14px 16px"}},
                   h("div",{style:{display:"flex",flexWrap:"wrap",gap:8}},
-                    statistical ? h("span",{style:{fontSize:10,color:"#38BDF8",fontWeight:800,letterSpacing:"0.08em"}},"SOLO ESTADISTICO") : h(Fragment,null,
-                      h("button",{style:{...BTN("s"),padding:"8px 12px"},onClick:()=>onOpenPreview(record)},"VER FICHA"),
-                      ["admin","analista"].includes(role) && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onEditFeedback(record)},"EDITAR"),
-                      role === "admin" && h("button",{style:{...BTN("out"),padding:"8px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>onDeleteFeedback(record)},"ELIMINAR"),
-                      canFillEvaluation(currentUser) && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onOpenEvaluation(record)},evaluation ? "EDITAR EVAL." : "REGISTRAR EVAL.")
-                    )
+                    h("button",{style:{...BTN("s"),padding:"8px 12px"},onClick:()=>onOpenPreview(record)},"VER FICHA"),
+                    !statistical && ["admin","analista"].includes(role) && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onEditFeedback(record)},"EDITAR"),
+                    !statistical && role === "admin" && h("button",{style:{...BTN("out"),padding:"8px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>onDeleteFeedback(record)},"ELIMINAR"),
+                    !statistical && canFillEvaluation(currentUser) && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onOpenEvaluation(record)},evaluation ? "EDITAR EVAL." : "REGISTRAR EVAL.")
                   )
                 )
               );
@@ -7952,7 +7946,7 @@ function App(){
     const result = await createFeedbackVolumeEntry({...payload,currentUser,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName});
     const loaded = await loadFeedbackVolumeRecords();
     setFeedbackVolumeRecords(loaded);
-    notify("s",`${result?.created || payload.quantity} feedbacks estadisticos generados.`);
+    notify("s",`${result?.created || payload.quantity} feedbacks generados.`);
     return result;
   };
 
@@ -8456,7 +8450,7 @@ function App(){
 
   const unreadNotifications = (scopedNotifications || []).filter(item=>!item.isRead).length;
   const unreadCommunications = (scopedCommunicationRecords || []).filter(item => !item.userHasRead && item.estado !== "Archivado").length;
-  const previewEvaluation = selectedPreviewFeedback ? getLinkedEvaluation(scopedEvaluationRecords, selectedPreviewFeedback.id) : null;
+  const previewEvaluation = selectedPreviewFeedback ? getLinkedEvaluation(scopedEvaluationRecords, isStatisticalFeedbackRecord(selectedPreviewFeedback) ? selectedPreviewFeedback.sourceFeedbackId : selectedPreviewFeedback.id) : null;
   const editingEvaluation = selectedEvaluationRecord || (selectedEvaluationFeedback ? getLinkedEvaluation(scopedEvaluationRecords, selectedEvaluationFeedback.id) : null);
 
   if (!currentUser) return h(LoginScreen,{onLogin:handleLogin,users,loadingUsers:appLoading,bootstrapError});
@@ -12677,11 +12671,12 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
   if (!record) return null;
   const [actionComment,setActionComment] = useState("");
   const preview = buildFeedbackPreviewModel(record,evaluation);
+  const generatedCopy = isStatisticalFeedbackRecord(record);
   const statusTheme = getFeedbackStatusTheme(preview.estado);
   const role = String(currentUser?.rol||"").trim().toLowerCase();
   const isAdvisor = role === "asesor";
   const isSupervisor = role === "supervisor";
-  const canSetFollowUp = ["admin","analista"].includes(role) && (preview.estado !== "closed" || role === "admin");
+  const canSetFollowUp = !generatedCopy && ["admin","analista"].includes(role) && (preview.estado !== "closed" || role === "admin");
   const advisorValidated = preview.estado !== "in_follow_up" && (["accepted","rejected","advisor_accepted","advisor_rejected","closed"].includes(preview.estado) || !!record.advisorValidatedAt || !!record.advisorValidationStatus);
   const canSupervisorClose = false;
   const requireActionComment = (handler) => {
@@ -12790,7 +12785,7 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
       ),
       h("div",{style:{...CARD,marginBottom:18}},h("div",{style:{fontSize:12,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:14}},"Observacion general"),h("div",{style:{fontSize:12,color:"#d6d8e3",lineHeight:1.8,whiteSpace:"pre-wrap"}},preview.observacionGeneral || "Sin observaciones generales registradas.")),
       h("div",{style:{...CARD,marginBottom:18}},h("div",{style:{fontSize:12,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:12}},"Compromiso de mejora"),h("div",{style:{fontSize:12,color:"#d6d8e3",lineHeight:1.8,whiteSpace:"pre-wrap"}},preview.compromisoMejora || "Sin compromiso registrado.")),
-      (isAdvisor && !advisorValidated && preview.estado !== "closed" || canSupervisorClose) && h("div",{style:{...CARD,marginBottom:18,border:"1px solid rgba(29,43,255,0.28)"}},
+      (!generatedCopy && isAdvisor && !advisorValidated && preview.estado !== "closed" || canSupervisorClose) && h("div",{style:{...CARD,marginBottom:18,border:"1px solid rgba(29,43,255,0.28)"}},
         h("div",{style:{fontSize:12,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:10}},isAdvisor ? "Validacion del asesor" : "Validacion final del supervisor"),
         h("div",{style:{fontSize:12,color:"#8b92a5",lineHeight:1.7,marginBottom:12}},isAdvisor ? "Indica si aceptas o no el feedback. El comentario es obligatorio." : "Cierra el feedback despues de la validacion del asesor. El comentario final es obligatorio."),
         h("textarea",{style:{...INP,minHeight:92,resize:"vertical"},value:actionComment,onChange:ev=>setActionComment(ev.target.value),placeholder:isAdvisor ? "Escribe tu comentario de validacion..." : "Escribe el comentario de cierre del supervisor..."})
@@ -12800,9 +12795,9 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
         !isSupervisor && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:()=>window.print()},"IMPRIMIR"),
         canSetFollowUp && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onSetFollowUp},"EN SEGUIMIENTO"),
         canSupervisorClose && h("button",{style:{...BTN("pink"),padding:"10px 14px"},onClick:()=>requireActionComment(onCloseFeedback)},"ACEPTAR Y CERRAR FEEDBACK"),
-        isAdvisor && !record.fechaVisualizacionAsesor && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onMarkViewed},"CONFIRMAR LECTURA"),
-        isAdvisor && !advisorValidated && preview.estado !== "closed" && h("button",{style:{...BTN("out"),padding:"10px 14px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>requireActionComment(onReject)},"NO ACEPTO"),
-        isAdvisor && !advisorValidated && preview.estado !== "closed" && h("button",{style:{...BTN("pink"),padding:"10px 14px"},onClick:()=>requireActionComment(onAccept)},"ACEPTAR")
+        !generatedCopy && isAdvisor && !record.fechaVisualizacionAsesor && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onMarkViewed},"CONFIRMAR LECTURA"),
+        !generatedCopy && isAdvisor && !advisorValidated && preview.estado !== "closed" && h("button",{style:{...BTN("out"),padding:"10px 14px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>requireActionComment(onReject)},"NO ACEPTO"),
+        !generatedCopy && isAdvisor && !advisorValidated && preview.estado !== "closed" && h("button",{style:{...BTN("pink"),padding:"10px 14px"},onClick:()=>requireActionComment(onAccept)},"ACEPTAR")
       )
     )
   );

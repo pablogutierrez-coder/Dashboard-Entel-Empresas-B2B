@@ -493,45 +493,92 @@ function canManageFeedback(user) {
   return ["admin", "analista", "formador"].includes(getRole(user));
 }
 
-export function buildFeedbackVolumeRecords({ operationalRecords, quantity, monitor, monitorUser, feedbackDate, month, clientId, clientName, createdBy, now, batchId }) {
+export function buildFeedbackVolumeRecords({ operationalRecords, existingRecords = [], quantity, monitor, monitorUser, feedbackDate, month, clientId, clientName, createdBy, now, batchId }) {
   const sources = Array.isArray(operationalRecords) ? operationalRecords : [];
   if (!sources.length) return [];
+  const startMs = new Date(`${feedbackDate}T08:00:00-05:00`).getTime();
+  const availableMinutes = 600;
+  const occupiedMinutes = new Set((Array.isArray(existingRecords) ? existingRecords : []).map(record => {
+    const time = new Date(record?.feedbackDate || record?.createdAt || "").getTime();
+    return Number.isFinite(time) ? Math.floor(time / 60000) * 60000 : null;
+  }).filter(time => time !== null));
+  const availableSlots = Array.from({length:availableMinutes}, (_, index) => startMs + index * 60000)
+    .filter(time => !occupiedMinutes.has(time));
+  if (quantity > availableSlots.length) {
+    throw new Error(`Solo quedan ${availableSlots.length} horarios disponibles para la fecha seleccionada.`);
+  }
   return Array.from({length:quantity}, (_, index) => {
     const source = sources[index % sources.length];
+    const copy = typeof structuredClone === "function" ? structuredClone(source) : JSON.parse(JSON.stringify(source));
+    const slotIndex = quantity === 1 ? 0 : Math.floor((index * (availableSlots.length - 1)) / (quantity - 1));
+    const generatedDate = new Date(availableSlots[slotIndex]).toISOString();
     return withClientScope({
+      ...copy,
       id: `${batchId}_${index + 1}`,
       batchId,
       sourceFeedbackId: source.id || "",
       recordType: "feedback_volume",
+      copySchemaVersion: 2,
       isStatistical: true,
       statisticalOnly: true,
       operational: false,
-      assessor: String(source.assessor || source.asesorNombre || "REGISTRO ESTADISTICO").trim(),
-      asesorNombre: String(source.asesorNombre || source.assessor || "REGISTRO ESTADISTICO").trim(),
+      workflowEnabled: false,
+      advisorVisible: false,
+      generatesCommitments: false,
+      generatesTasks: false,
+      generatesAlerts: false,
+      affectsEvaluations: false,
       auditorId: monitorUser,
       auditorNombre: String(monitor.nombre || monitorUser).trim(),
       authorUser: monitorUser,
       authorName: String(monitor.nombre || monitorUser).trim(),
       authorRole: ROLE_LABELS.analista,
-      feedbackCategory: String(source.feedbackCategory || source.tipoGestion || "Feedback").trim(),
-      tipoGestion: String(source.tipoGestion || source.feedbackCategory || "Feedback").trim(),
-      clasificacionFeedback: String(source.clasificacionFeedback || "").trim(),
-      tipoRefuerzo: String(source.tipoRefuerzo || "").trim(),
-      campaign: String(source.campaign || "").trim(),
-      feedbackDate: new Date(`${feedbackDate}T12:00:00-05:00`).toISOString(),
+      feedbackDate: generatedDate,
       statisticalMonth: month,
-      status: "statistical",
-      estado: "statistical",
-      advisorUser: "",
-      supervisorUser: "",
-      supervisorName: "",
-      messages: [],
-      files: [],
-      createdAt: now,
+      status: String(source.status || source.estado || "pending").trim(),
+      estado: String(source.estado || source.status || "pending").trim(),
+      createdAt: generatedDate,
       updatedAt: now,
       createdBy
     }, clientId, clientName || "");
   });
+}
+
+function hydrateLegacyFeedbackVolumeRecord(record, operationalRecords) {
+  if (Number(record?.copySchemaVersion) >= 2) return record;
+  const source = (operationalRecords || []).find(item => String(item?.id || "") === String(record?.sourceFeedbackId || ""));
+  if (!source) {
+    return {...record,status:"pending",estado:"pending"};
+  }
+  return {
+    ...(typeof structuredClone === "function" ? structuredClone(source) : JSON.parse(JSON.stringify(source))),
+    id: record.id,
+    batchId: record.batchId,
+    sourceFeedbackId: record.sourceFeedbackId,
+    recordType: "feedback_volume",
+    copySchemaVersion: 2,
+    isStatistical: true,
+    statisticalOnly: true,
+    operational: false,
+    workflowEnabled: false,
+    advisorVisible: false,
+    generatesCommitments: false,
+    generatesTasks: false,
+    generatesAlerts: false,
+    affectsEvaluations: false,
+    auditorId: record.auditorId,
+    auditorNombre: record.auditorNombre,
+    authorUser: record.authorUser,
+    authorName: record.authorName,
+    authorRole: record.authorRole,
+    feedbackDate: record.feedbackDate,
+    statisticalMonth: record.statisticalMonth,
+    status: String(source.status || source.estado || "pending").trim(),
+    estado: String(source.estado || source.status || "pending").trim(),
+    createdAt: record.createdAt || record.feedbackDate,
+    updatedAt: record.updatedAt,
+    createdBy: record.createdBy
+  };
 }
 
 function isFeedbackAdvisorValidated(record = {}) {
@@ -3044,7 +3091,8 @@ export const gasHandlers = {
   },
 
   async listFeedbackVolumeRecords() {
-    return sortFeedbackRecords(await readFeedbackVolumeRecords());
+    const [volumeRecords, operationalRecords] = await Promise.all([readFeedbackVolumeRecords(), readFeedbackRecords()]);
+    return sortFeedbackRecords(volumeRecords.map(record => hydrateLegacyFeedbackVolumeRecord(record, operationalRecords)));
   },
 
   async createFeedbackVolume(payload = {}) {
@@ -3056,7 +3104,7 @@ export const gasHandlers = {
     const month = String(payload.month || "").trim();
     const clientId = normalizeClientId(payload.clientId || payload.platformId || currentUser.clientId || currentUser.platformId);
     if (!monitorUser) throw new Error("Selecciona un Monitor o Analista.");
-    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) throw new Error("La cantidad debe ser un numero entero entre 1 y 1000.");
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 600) throw new Error("La cantidad debe ser un numero entero entre 1 y 600.");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(feedbackDate)) throw new Error("Selecciona una fecha valida.");
     if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("Selecciona un mes valido.");
     if (!feedbackDate.startsWith(`${month}-`)) throw new Error("La fecha debe pertenecer al mes seleccionado.");
@@ -3072,7 +3120,7 @@ export const gasHandlers = {
     const existingVolume = await readFeedbackVolumeRecords();
     const now = nowIso();
     const batchId = `volume_${Date.now()}`;
-    const generated = buildFeedbackVolumeRecords({operationalRecords,quantity,monitor,monitorUser,feedbackDate,month,clientId,clientName:payload.clientName,createdBy:currentUser.usuario,now,batchId});
+    const generated = buildFeedbackVolumeRecords({operationalRecords,existingRecords:existingVolume,quantity,monitor,monitorUser,feedbackDate,month,clientId,clientName:payload.clientName,createdBy:currentUser.usuario,now,batchId});
     await writeFeedbackVolumeRecords([...generated, ...existingVolume]);
     return {ok:true,batchId,created:generated.length,records:generated};
   },
